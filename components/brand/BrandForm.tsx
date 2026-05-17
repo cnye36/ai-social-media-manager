@@ -28,6 +28,7 @@ export function BrandForm({ companyId, initialData }: BrandFormProps) {
   const [avoidInput, setAvoidInput] = useState('')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   function addTag(list: string[], setList: (v: string[]) => void, input: string, setInput: (v: string) => void) {
     const val = input.trim()
@@ -42,7 +43,8 @@ export function BrandForm({ companyId, initialData }: BrandFormProps) {
   async function handleSave() {
     setSaving(true)
     setSaved(false)
-    await fetch(`/api/brand?companyId=${companyId}`, {
+    setSaveError(null)
+    const res = await fetch(`/api/brand?companyId=${companyId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -55,6 +57,11 @@ export function BrandForm({ companyId, initialData }: BrandFormProps) {
       }),
     })
     setSaving(false)
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      setSaveError(typeof body.error === 'string' ? body.error : 'Failed to save brand profile')
+      return
+    }
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
   }
@@ -173,6 +180,9 @@ export function BrandForm({ companyId, initialData }: BrandFormProps) {
         </div>
       </div>
 
+      {saveError && (
+        <p className="text-sm text-red-400">{saveError}</p>
+      )}
       <Button onClick={handleSave} disabled={saving} className="w-full sm:w-auto">
         {saving ? 'Saving...' : saved ? 'Saved!' : 'Save brand profile'}
       </Button>

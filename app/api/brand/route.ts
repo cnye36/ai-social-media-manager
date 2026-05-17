@@ -32,21 +32,32 @@ export async function PUT(request: Request) {
   const body = await request.json()
   const { tone, voice_notes, target_audience, keywords, avoid_phrases, color_palette, channel_overrides } = body
 
-  const { data, error } = await supabase
+  const payload = {
+    tone,
+    voice_notes,
+    target_audience,
+    keywords: keywords ?? [],
+    avoid_phrases: avoid_phrases ?? [],
+    color_palette: color_palette ?? {},
+    channel_overrides: channel_overrides ?? {},
+  }
+
+  const { data: updated, error: updateError } = await supabase
     .from('brand_profiles')
-    .upsert({
-      company_id: companyId,
-      tone,
-      voice_notes,
-      target_audience,
-      keywords: keywords ?? [],
-      avoid_phrases: avoid_phrases ?? [],
-      color_palette: color_palette ?? {},
-      channel_overrides: channel_overrides ?? {},
-    })
+    .update(payload)
+    .eq('company_id', companyId)
+    .select()
+    .maybeSingle()
+
+  if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 })
+  if (updated) return NextResponse.json(updated)
+
+  const { data: inserted, error: insertError } = await supabase
+    .from('brand_profiles')
+    .insert({ company_id: companyId, ...payload })
     .select()
     .single()
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data)
+  if (insertError) return NextResponse.json({ error: insertError.message }, { status: 500 })
+  return NextResponse.json(inserted)
 }

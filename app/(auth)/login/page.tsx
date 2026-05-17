@@ -1,9 +1,21 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { getSiteUrl } from '@/lib/site-url'
 
 export default function LoginPage() {
+  useEffect(() => {
+    const site = process.env.NEXT_PUBLIC_SITE_URL
+    if (!site) return
+    const canonical = new URL(site).origin
+    if (window.location.origin !== canonical) {
+      window.location.replace(
+        `${canonical}${window.location.pathname}${window.location.search}`
+      )
+    }
+  }, [])
+
   const [email, setEmail] = useState('')
   const [sent, setSent] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -14,7 +26,7 @@ export default function LoginPage() {
     const supabase = createClient()
     await supabase.auth.signInWithOtp({
       email,
-      options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
+      options: { emailRedirectTo: `${getSiteUrl()}/auth/callback` },
     })
     setSent(true)
     setLoading(false)
@@ -24,7 +36,7 @@ export default function LoginPage() {
     const supabase = createClient()
     await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: `${window.location.origin}/auth/callback` },
+      options: { redirectTo: `${getSiteUrl()}/auth/callback` },
     })
   }
 

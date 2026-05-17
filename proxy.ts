@@ -1,7 +1,22 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import {
+  canonicalRedirectUrl,
+  getCanonicalSiteOrigin,
+  getRequestOrigin,
+} from '@/lib/site-url'
 
 export async function proxy(request: NextRequest) {
+  const canonicalOrigin = getCanonicalSiteOrigin()
+  if (canonicalOrigin) {
+    const requestOrigin = getRequestOrigin(request)
+    if (requestOrigin !== canonicalOrigin) {
+      return NextResponse.redirect(
+        canonicalRedirectUrl(request, canonicalOrigin)
+      )
+    }
+  }
+
   let supabaseResponse = NextResponse.next({ request })
 
   const supabase = createServerClient(
