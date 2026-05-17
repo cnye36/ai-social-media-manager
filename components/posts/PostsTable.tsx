@@ -2,7 +2,8 @@
 
 import { useState, useTransition } from 'react'
 import { format } from 'date-fns'
-import { Copy, Check, Trash2, CalendarClock } from 'lucide-react'
+import { Copy, Check, Trash2, CalendarClock, Calendar } from 'lucide-react'
+import { ScheduleModal } from './ScheduleModal'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { LinkedInIcon, XIcon, RedditIcon, FacebookIcon } from '@/components/ui/channel-icons'
@@ -41,6 +42,8 @@ export function PostsTable({ posts: initialPosts, companyId }: PostsTableProps) 
   const [statusFilter, setStatusFilter] = useState<PostStatus | 'all'>('all')
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
+  const [scheduleTarget, setScheduleTarget] = useState<Post | null>(null)
+  const [modalOpen, setModalOpen] = useState(false)
 
   const channels: (Channel | 'all')[] = ['all', 'linkedin', 'x', 'reddit', 'facebook']
   const statuses: (PostStatus | 'all')[] = ['all', 'draft', 'scheduled', 'published', 'archived']
@@ -76,7 +79,12 @@ export function PostsTable({ posts: initialPosts, companyId }: PostsTableProps) 
     setPosts(prev => prev.filter(p => p.id !== postId))
   }
 
+  function handleScheduled(updated: Post) {
+    setPosts(prev => prev.map(p => p.id === updated.id ? updated : p))
+  }
+
   return (
+    <>
     <div className="space-y-4">
       {/* Filters */}
       <div className="flex flex-wrap gap-4 items-center justify-between">
@@ -168,6 +176,15 @@ export function PostsTable({ posts: initialPosts, companyId }: PostsTableProps) 
 
               {/* Actions */}
               <div className="flex items-center gap-1 flex-shrink-0">
+                {(post.status === 'draft' || post.status === 'scheduled') && (
+                  <button
+                    onClick={() => { setScheduleTarget(post); setModalOpen(true) }}
+                    className="p-1.5 rounded text-zinc-600 hover:text-yellow-400 transition-colors"
+                    title={post.status === 'scheduled' ? 'Reschedule' : 'Schedule'}
+                  >
+                    <Calendar className="w-3.5 h-3.5" />
+                  </button>
+                )}
                 <button
                   onClick={() => handleCopy(post)}
                   className="p-1.5 rounded text-zinc-600 hover:text-zinc-300 transition-colors"
@@ -191,5 +208,13 @@ export function PostsTable({ posts: initialPosts, companyId }: PostsTableProps) 
         </div>
       )}
     </div>
+
+    <ScheduleModal
+      post={scheduleTarget}
+      open={modalOpen}
+      onOpenChange={setModalOpen}
+      onScheduled={handleScheduled}
+    />
+    </>
   )
 }
