@@ -235,9 +235,12 @@ interface RichTextEditorProps {
 export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(
   function RichTextEditor({ initialMarkdown = '', placeholder = 'Start writing…', onChange, className }, ref) {
     const editor = useEditor({
+      immediatelyRender: true,
       extensions: [
         StarterKit.configure({
           codeBlock: false, // replaced by CodeBlockLowlight
+          link: false,
+          underline: false,
         }),
         Underline,
         Link.configure({ openOnClick: false, autolink: true }),
@@ -254,11 +257,12 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
       content: '',
       editorProps: {
         attributes: {
-          class: 'prose prose-invert prose-sm max-w-none focus:outline-none min-h-[60vh] px-6 py-4',
+          class: 'prose prose-invert max-w-none focus:outline-none min-h-[60vh] px-6 py-4',
         },
       },
       onUpdate: ({ editor }) => {
-        onChange?.(editor.storage.markdown.getMarkdown())
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        onChange?.((editor.storage as any).markdown.getMarkdown())
       },
     })
 
@@ -271,7 +275,8 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
     }, [editor])
 
     const getMarkdown = useCallback(() => {
-      return editor?.storage.markdown.getMarkdown() ?? ''
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return (editor?.storage as any)?.markdown?.getMarkdown() ?? ''
     }, [editor])
 
     const setMarkdown = useCallback((md: string) => {

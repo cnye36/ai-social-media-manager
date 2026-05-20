@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { BlogIdeaSpark } from './BlogIdeaSpark'
 import { cn } from '@/lib/utils'
 import type { Article, ArticleStatus } from '@/types/database'
+import type { ArticleFormat } from '@/types/agents'
 import type { BlogIdea } from '@/app/api/blog/ideas/route'
 
 const STATUS_FILTERS: { value: ArticleStatus | 'all'; label: string }[] = [
@@ -29,6 +30,7 @@ export function BlogListClient({ articles: initialArticles, companyId }: BlogLis
   const [articles, setArticles] = useState<Article[]>(initialArticles)
   const [statusFilter, setStatusFilter] = useState<ArticleStatus | 'all'>('all')
   const [creating, setCreating] = useState(false)
+  const [articleFormat, setArticleFormat] = useState<ArticleFormat>('blog_post')
 
   const filtered = statusFilter === 'all'
     ? articles
@@ -52,7 +54,6 @@ export function BlogListClient({ articles: initialArticles, companyId }: BlogLis
   }
 
   async function handleIdea(idea: BlogIdea) {
-    // Navigate with autoGenerate so the editor kicks off AI writing immediately
     setCreating(true)
     try {
       const res = await fetch('/api/articles', {
@@ -62,7 +63,7 @@ export function BlogListClient({ articles: initialArticles, companyId }: BlogLis
       })
       if (!res.ok) return
       const article: Article = await res.json()
-      router.push(`/${companyId}/blog/${article.id}?autoGenerate=true`)
+      router.push(`/${companyId}/blog/${article.id}?autoGenerate=true&format=${articleFormat}`)
     } finally {
       setCreating(false)
     }
@@ -109,7 +110,13 @@ export function BlogListClient({ articles: initialArticles, companyId }: BlogLis
           <FileText className="w-3.5 h-3.5" />
           Blog ideas (aware of what you&apos;ve written)
         </p>
-        <BlogIdeaSpark companyId={companyId} onGenerate={handleIdea} disabled={creating} />
+        <BlogIdeaSpark
+          companyId={companyId}
+          articleFormat={articleFormat}
+          onFormatChange={setArticleFormat}
+          onGenerate={handleIdea}
+          disabled={creating}
+        />
       </div>
 
       {/* Article list */}

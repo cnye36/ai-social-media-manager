@@ -6,6 +6,7 @@ import { format } from 'date-fns'
 import {
   ArrowLeft, Loader2, Trash2, CalendarClock, Sparkles, Check,
   Tag, X, Copy, Wand2, ChevronDown, ChevronUp, ExternalLink,
+  Code2, BookOpen, LayoutList, Microscope,
 } from 'lucide-react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
@@ -13,7 +14,14 @@ import { RichTextEditor, type RichTextEditorHandle } from './RichTextEditor'
 import { SocialFromArticle } from './SocialFromArticle'
 import { cn } from '@/lib/utils'
 import type { Article, ArticleStatus, BlogSite } from '@/types/database'
+import type { ArticleFormat } from '@/types/agents'
 import type { GeneratedFrontmatter } from '@/app/api/generate/article/route'
+
+const FORMAT_OPTIONS: { value: ArticleFormat; label: string; icon: React.ReactNode }[] = [
+  { value: 'blog_post', label: 'Blog Post', icon: <BookOpen className="w-3 h-3" /> },
+  { value: 'listicle', label: 'Listicle', icon: <LayoutList className="w-3 h-3" /> },
+  { value: 'deep_dive', label: 'Deep Dive', icon: <Microscope className="w-3 h-3" /> },
+]
 
 const STATUSES: ArticleStatus[] = ['draft', 'scheduled', 'published', 'archived']
 
@@ -63,6 +71,7 @@ export function ArticleEditorClient({ article: initialArticle, companyId, sites,
   const [categories, setCategories] = useState<string[]>(initialArticle.categories ?? [])
   const [tags, setTags] = useState<string[]>(initialArticle.tags ?? [])
   const [author, setAuthor] = useState(initialArticle.author ?? '')
+  const [featuredImageAlt, setFeaturedImageAlt] = useState('')
   const [catInput, setCatInput] = useState('')
   const [tagInput, setTagInput] = useState('')
 
@@ -83,6 +92,11 @@ export function ArticleEditorClient({ article: initialArticle, companyId, sites,
   const [wordCount, setWordCount] = useState(0)
   const [copied, setCopied] = useState(false)
   const [frontmatterOpen, setFrontmatterOpen] = useState(true)
+  const [mdxViewOpen, setMdxViewOpen] = useState(false)
+  const [mdxCopied, setMdxCopied] = useState(false)
+  const [articleFormat, setArticleFormat] = useState<ArticleFormat>(
+    (searchParams.get('format') as ArticleFormat | null) ?? 'blog_post'
+  )
 
   const selectedSite = sites.find(s => s.id === selectedSiteId)
   const slugPreview = selectedSite
@@ -111,8 +125,8 @@ export function ArticleEditorClient({ article: initialArticle, companyId, sites,
   }, [])
 
   function addTag(input: string, list: string[], setList: (v: string[]) => void, setInput: (v: string) => void) {
-    const val = input.trim().toLowerCase()
-    if (val && !list.includes(val)) setList([...list, val])
+    const val = input.trim()
+    if (val && !list.map(v => v.toLowerCase()).includes(val.toLowerCase())) setList([...list, val])
     setInput('')
   }
 
@@ -132,11 +146,23 @@ export function ArticleEditorClient({ article: initialArticle, companyId, sites,
     const res = await fetch('/api/generate/article', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ companyId, title, additionalContext: excerpt || undefined, siteId: selectedSiteId || undefined }),
+      body: JSON.stringify({
+        companyId,
+        title,
+        additionalContext: excerpt || undefined,
+        siteId: selectedSiteId || undefined,
+        articleFormat,
+      }),
     })
     if (res.ok) {
       const data = await res.json() as { body: string; frontmatter: GeneratedFrontmatter; defaultAuthor?: string }
-      editorRef.current?.setMarkdown(data.body)
+      const body = data.body?.trim() ?? ''
+      if (!body) {
+        setGenerateError('Generation finished but the article body was empty — try again')
+      } else {
+        editorRef.current?.setMarkdown(body)
+        handleEditorChange(body)
+      }
       setMetaTitle(data.frontmatter.metaTitle)
       setMetaDescription(data.frontmatter.metaDescription)
       if (!slug) setSlug(data.frontmatter.slug)
@@ -144,6 +170,25 @@ export function ArticleEditorClient({ article: initialArticle, companyId, sites,
       setTags(data.frontmatter.tags)
       if (data.defaultAuthor && !author) setAuthor(data.defaultAuthor)
       setExcerpt(data.frontmatter.metaDescription)
+      if (data.frontmatter.featuredImageAlt) setFeaturedImageAlt(data.frontmatter.featuredImageAlt)
+      // Auto-save the generated content
+      if (body) {
+        const saveRes = await fetch(`/api/articles/${initialArticle.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title,
+            body,
+            excerpt: data.frontmatter.metaDescription || null,
+            tags: data.frontmatter.tags,
+            categories: data.frontmatter.categories,
+            slug: data.frontmatter.slug || null,
+            meta_title: data.frontmatter.metaTitle || null,
+            meta_description: data.frontmatter.metaDescription || null,
+          }),
+        })
+        if (saveRes.ok) setSaveSuccess(true)
+      }
     } else {
       const d = await res.json().catch(() => ({}))
       setGenerateError(typeof d.error === 'string' ? d.error : 'Generation failed')
@@ -201,29 +246,67 @@ export function ArticleEditorClient({ article: initialArticle, companyId, sites,
     router.push(`/${companyId}/blog`)
   }
 
-  function handleCopyMdx() {
+  function buildMdxContent() {
     const body = editorRef.current?.getMarkdown() ?? ''
-    const template = selectedSite?.frontmatter_template ?? `---
-title: "{{metaTitle}}"
-description: "{{metaDescription}}"
-date: "{{date}}"
-slug: "{{slug}}"
-categories: [{{categories}}]
-tags: [{{tags}}]
-author: "{{author}}"
+    const articleDate = scheduledFor
+      ? format(new Date(scheduledFor), 'yyyy-MM-dd')
+      : format(new Date(), 'yyyy-MM-dd')
+    const articleSlug = slug || titleToSlug(title)
+    const escQ = (s: string) => s.replace(/"/g, '\\"')
+
+    // Use site custom template if configured, otherwise generate canonical YAML
+    if (selectedSite?.frontmatter_template) {
+      const fm = renderFrontmatter(selectedSite.frontmatter_template, {
+        metaTitle: metaTitle || title,
+        metaDescription: metaDescription,
+        date: articleDate,
+        slug: articleSlug,
+        categories,
+        tags,
+        author,
+      })
+      return `${fm}\n\n${body}`
+    }
+
+    const categoriesYaml = categories.length > 0
+      ? categories.map(c => `- ${c}`).join('\n')
+      : '- Uncategorized'
+
+    const tagsYaml = tags.length > 0
+      ? tags.map(t => `- ${t}`).join('\n')
+      : ''
+
+    const imgAlt = escQ(featuredImageAlt || `Featured image for ${title}`)
+
+    const frontmatter = `---
+title: "${escQ(metaTitle || title)}"
+description: "${escQ(metaDescription)}"
+date: ${articleDate}
+author: "${escQ(author)}"
+categories:
+${categoriesYaml}
+tags:
+${tagsYaml}
+featuredImage:
+    src: "/blog-images/${articleSlug}.png"
+    alt: "${imgAlt}"
+    width: 1024
+    height: 768
 ---`
-    const fm = renderFrontmatter(template, {
-      metaTitle: metaTitle || title,
-      metaDescription: metaDescription,
-      date: scheduledFor ? format(new Date(scheduledFor), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
-      slug,
-      categories,
-      tags,
-      author,
-    })
-    navigator.clipboard.writeText(`${fm}\n\n${body}`)
+
+    return `${frontmatter}\n\n${body}`
+  }
+
+  function handleCopyMdx() {
+    navigator.clipboard.writeText(buildMdxContent())
     setCopied(true)
     setTimeout(() => setCopied(false), 2500)
+  }
+
+  function handleCopyFullMdx() {
+    navigator.clipboard.writeText(buildMdxContent())
+    setMdxCopied(true)
+    setTimeout(() => setMdxCopied(false), 2500)
   }
 
   return (
@@ -261,6 +344,28 @@ author: "{{author}}"
           {saveError && <span className="text-xs text-red-400">{saveError}</span>}
           {generateError && <span className="text-xs text-red-400">{generateError}</span>}
 
+          {/* Format selector */}
+          <div className="flex items-center gap-0.5 bg-zinc-800 rounded-lg p-0.5">
+            {FORMAT_OPTIONS.map(opt => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => setArticleFormat(opt.value)}
+                disabled={generating}
+                title={opt.label}
+                className={cn(
+                  'flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors',
+                  articleFormat === opt.value
+                    ? 'bg-violet-600 text-white'
+                    : 'text-zinc-500 hover:text-white'
+                )}
+              >
+                {opt.icon}
+                <span className="hidden sm:inline">{opt.label}</span>
+              </button>
+            ))}
+          </div>
+
           <Button variant="secondary" size="sm" onClick={() => setAiEditOpen(o => !o)} disabled={generating} className="gap-1.5">
             <Wand2 className="w-3.5 h-3.5" />
             AI Edit
@@ -269,9 +374,13 @@ author: "{{author}}"
             {generating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
             {generating ? 'Writing…' : 'AI Write'}
           </Button>
+          <Button variant="secondary" size="sm" onClick={() => setMdxViewOpen(true)} className="gap-1.5">
+            <Code2 className="w-3.5 h-3.5" />
+            MDX
+          </Button>
           <Button variant="secondary" size="sm" onClick={handleCopyMdx} className="gap-1.5">
             {copied ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
-            {copied ? 'Copied!' : 'Copy MDX'}
+            {copied ? 'Copied!' : 'Copy'}
           </Button>
           <Button size="sm" onClick={handleSave} disabled={saving || generating} className="gap-1.5">
             {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
@@ -317,19 +426,20 @@ author: "{{author}}"
             className="w-full bg-transparent text-3xl font-bold text-white placeholder:text-zinc-700 border-none outline-none focus:ring-0"
           />
 
-          {generating ? (
-            <div className="rounded-xl border border-zinc-800 bg-zinc-900/30 flex items-center gap-3 py-20 justify-center text-zinc-500">
-              <Loader2 className="w-5 h-5 animate-spin" />
-              <span className="text-sm">AI is writing your article with internal links…</span>
-            </div>
-          ) : (
+          <div className="relative">
+            {generating && (
+              <div className="absolute inset-0 z-10 rounded-xl border border-zinc-800 bg-zinc-950/80 flex items-center gap-3 justify-center text-zinc-500">
+                <Loader2 className="w-5 h-5 animate-spin" />
+                <span className="text-sm">AI is writing your article with internal links…</span>
+              </div>
+            )}
             <RichTextEditor
               ref={editorRef}
               initialMarkdown={initialArticle.body}
               placeholder="Start writing, or click 'AI Write' to generate a complete article…"
               onChange={handleEditorChange}
             />
-          )}
+          </div>
 
           <p className="text-xs text-zinc-700 text-right">{wordCount} words</p>
 
@@ -463,6 +573,23 @@ author: "{{author}}"
                     className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-xs text-zinc-300 focus:outline-none focus:ring-1 focus:ring-violet-500/60"
                   />
                 </div>
+
+                {/* Featured Image */}
+                <div className="space-y-1.5 border-t border-zinc-800 pt-4">
+                  <label className="text-[10px] text-zinc-500 uppercase tracking-widest font-medium">
+                    Featured Image
+                  </label>
+                  <p className="text-[10px] text-zinc-600 font-mono">
+                    /blog-images/{slug || 'your-slug'}.png
+                  </p>
+                  <textarea
+                    value={featuredImageAlt}
+                    onChange={e => setFeaturedImageAlt(e.target.value)}
+                    placeholder="Alt text / image description — AI fills this in on generation"
+                    rows={3}
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-xs text-zinc-300 leading-relaxed resize-none focus:outline-none focus:ring-1 focus:ring-violet-500/60"
+                  />
+                </div>
               </div>
             )}
           </div>
@@ -516,6 +643,40 @@ author: "{{author}}"
           </div>
         </div>
       </div>
+      {/* MDX View Modal */}
+      {mdxViewOpen && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/80 backdrop-blur-sm p-4 pt-16 overflow-y-auto">
+          <div className="w-full max-w-3xl bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl">
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800">
+              <div className="flex items-center gap-2">
+                <Code2 className="w-4 h-4 text-violet-400" />
+                <span className="text-sm font-semibold text-white">MDX Export</span>
+                <span className="text-xs text-zinc-500">Frontmatter + article body, ready to paste into your codebase</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleCopyFullMdx}
+                  className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white transition-colors"
+                >
+                  {mdxCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  {mdxCopied ? 'Copied!' : 'Copy all'}
+                </button>
+                <button
+                  onClick={() => setMdxViewOpen(false)}
+                  className="text-zinc-500 hover:text-white transition-colors p-1"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+            {/* Content */}
+            <pre className="px-5 py-4 text-xs text-zinc-300 font-mono leading-relaxed overflow-x-auto whitespace-pre-wrap break-words max-h-[70vh] overflow-y-auto">
+              {buildMdxContent()}
+            </pre>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

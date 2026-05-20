@@ -1,9 +1,12 @@
 import { NextResponse } from 'next/server'
 import OpenAI from 'openai'
+import { run } from '@openai/agents'
 import { createClient } from '@/lib/supabase/server'
 import { retrieve } from '@/lib/rag/retrieve'
+import { buildBlogAgent } from '@/agents/blog-agent'
+import type { ArticleFormat } from '@/types/agents'
 
-export const maxDuration = 60
+export const maxDuration = 120
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
@@ -13,6 +16,7 @@ export interface GeneratedFrontmatter {
   slug: string
   categories: string[]
   tags: string[]
+  featuredImageAlt: string
 }
 
 function titleToSlug(title: string): string {
@@ -25,22 +29,29 @@ function titleToSlug(title: string): string {
     .slice(0, 80)
 }
 
+const VALID_FORMATS: ArticleFormat[] = ['blog_post', 'listicle', 'deep_dive']
+
 export async function POST(request: Request) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await request.json()
-  const { companyId, title, additionalContext, siteId } = body as {
+  const { companyId, title, additionalContext, siteId, articleFormat: rawFormat } = body as {
     companyId: string
     title: string
     additionalContext?: string
     siteId?: string
+    articleFormat?: ArticleFormat
   }
 
   if (!companyId || !title?.trim()) {
     return NextResponse.json({ error: 'companyId and title required' }, { status: 400 })
   }
+
+  const articleFormat: ArticleFormat = VALID_FORMATS.includes(rawFormat as ArticleFormat)
+    ? (rawFormat as ArticleFormat)
+    : 'blog_post'
 
   const { data: company } = await supabase
     .from('companies')
@@ -50,103 +61,145 @@ export async function POST(request: Request) {
     .single()
   if (!company) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
-  // Fetch link index for internal linking
-  const { data: linkIndex } = await supabase
-    .from('article_link_index')
-    .select('full_url, title, excerpt, tags, categories')
-    .eq('company_id', companyId)
-    .order('updated_at', { ascending: false })
-    .limit(20)
-
-  const [{ data: brand }, chunks] = await Promise.all([
+  // Fetch all supporting context in parallel
+  const [{ data: brand }, { data: linkIndex }, chunks] = await Promise.all([
     supabase.from('brand_profiles').select('*').eq('company_id', companyId).maybeSingle(),
+    supabase
+      .from('article_link_index')
+      .select('full_url, title, excerpt, tags, categories')
+      .eq('company_id', companyId)
+      .order('updated_at', { ascending: false })
+      .limit(20),
     retrieve(companyId, title, 6, 0.3).catch(() => [] as Awaited<ReturnType<typeof retrieve>>),
   ])
 
-  const brandContext = [
-    `Company: ${company.name}`,
-    brand?.company_description && `About: ${brand.company_description}`,
-    brand?.products_services && `Products/services: ${brand.products_services}`,
-    brand?.value_proposition && `Value proposition: ${brand.value_proposition}`,
-    brand?.tone && `Tone: ${brand.tone}`,
-    brand?.voice_notes && `Voice: ${brand.voice_notes}`,
-    brand?.target_audience && `Target audience: ${brand.target_audience}`,
-    brand?.keywords?.length && `Keywords: ${brand.keywords.join(', ')}`,
-    brand?.avoid_phrases?.length && `Avoid: ${brand.avoid_phrases.join(', ')}`,
-  ].filter(Boolean).join('\n')
-
   const knowledgeContext = chunks.length
-    ? '\n\nRelevant company knowledge:\n' + chunks.map(c => (c.title ? `[${c.title}]\n${c.content}` : c.content)).join('\n\n---\n\n')
+    ? 'Relevant company knowledge:\n' +
+      chunks.map(c => (c.title ? `[${c.title}]\n${c.content}` : c.content)).join('\n\n---\n\n')
     : ''
 
   const internalLinksContext = linkIndex?.length
-    ? '\n\nAvailable internal links (use 2-4 of the most relevant ones naturally within the article body as markdown links):\n' +
-      linkIndex.map(l => `- [${l.title}](${l.full_url})${l.excerpt ? ` — ${l.excerpt}` : ''}`).join('\n')
+    ? linkIndex
+        .map(l => `- [${l.title}](${l.full_url})${l.excerpt ? ` — ${l.excerpt}` : ''}`)
+        .join('\n')
     : ''
 
-  const systemPrompt = `You are an expert blog writer and SEO specialist for ${company.name}.
+  // ── Phase 1: Generate a detailed outline ──────────────────────────────────
+  const formatLabel = { blog_post: 'blog post', listicle: 'listicle', deep_dive: 'deep dive' }[articleFormat]
 
-${brandContext}${knowledgeContext}${internalLinksContext}
+  const outlinePrompt = `Create a detailed outline for this ${formatLabel}: "${title}"${additionalContext ? `\nContext: ${additionalContext}` : ''}
 
-Write a complete, high-quality, SEO-optimized blog post in Markdown. Requirements:
-- 800–1400 words
-- Tone matches brand voice exactly
-- Clear structure: engaging intro (hook with a question or bold statement), 3–5 H2 sections with substance, strong conclusion with CTA
-- Weave in 2–4 internal links from the list above where they fit naturally — use the exact markdown link format
-- No filler — every sentence adds value for the target reader
-- Use code blocks with language labels where relevant (e.g., \`\`\`javascript)
-- Do NOT include a title (H1) at the top — the title is handled separately
-- End with a clear CTA relevant to ${company.name}'s products/services
-
-Also return a JSON frontmatter object. Respond with ONLY this JSON structure (the body field contains the full markdown article):
+Return a JSON object:
 {
-  "body": "...full markdown article...",
-  "frontmatter": {
-    "metaTitle": "SEO-optimized title under 60 chars",
-    "metaDescription": "Compelling meta description under 155 chars that makes people click",
-    "slug": "url-friendly-slug-max-60-chars",
-    "categories": ["Category1", "Category2"],
-    "tags": ["tag1", "tag2", "tag3", "tag4", "tag5"]
-  }
+  "outline": "The full outline as markdown (H2s and H3s, each with 1 sentence description of what to cover)",
+  "angle": "1-2 sentences explaining the unique angle/hook for this article"
 }`
 
-  const userPrompt = [
-    `Article title: "${title}"`,
-    additionalContext ? `Additional context: ${additionalContext}` : '',
-  ].filter(Boolean).join('\n')
-
+  let outline = ''
   try {
-    const completion = await openai.chat.completions.create({
+    const outlineRes = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
+        {
+          role: 'system',
+          content: `You are a content strategist for ${company.name}. ${brand?.tone ? `Brand tone: ${brand.tone}.` : ''} ${brand?.target_audience ? `Target audience: ${brand.target_audience}.` : ''}`,
+        },
+        { role: 'user', content: outlinePrompt },
       ],
-      max_tokens: 3000,
-      temperature: 0.7,
       response_format: { type: 'json_object' },
+      max_tokens: 800,
+      temperature: 0.7,
+    })
+    const parsed = JSON.parse(outlineRes.choices[0]?.message?.content ?? '{}') as {
+      outline?: string
+      angle?: string
+    }
+    outline = [parsed.angle && `Unique angle: ${parsed.angle}`, parsed.outline].filter(Boolean).join('\n\n')
+  } catch {
+    // Non-fatal — continue without outline
+  }
+
+  // ── Phase 2: Write the article using the blog agent (web search + RAG) ────
+  const writePrompt = [
+    `Write a complete ${formatLabel} for the title: "${title}"`,
+    additionalContext && `Additional context: ${additionalContext}`,
+    outline && `\nFollow this outline:\n${outline}`,
+  ]
+    .filter(Boolean)
+    .join('\n')
+
+  try {
+    const agent = buildBlogAgent({
+      companyId,
+      companyName: company.name,
+      brand: brand ?? null,
+      articleFormat,
+      internalLinksContext,
+      knowledgeContext,
     })
 
-    const raw = completion.choices[0]?.message?.content ?? '{}'
-    const parsed = JSON.parse(raw) as { body?: string; frontmatter?: GeneratedFrontmatter }
+    const agentResult = await run(agent, writePrompt)
+    const articleBody = agentResult.finalOutput?.trim() ?? ''
+
+    if (!articleBody) {
+      return NextResponse.json({ error: 'Agent returned empty article' }, { status: 500 })
+    }
+
+    // ── Phase 3: Generate SEO frontmatter from the written article ───────────
+    const frontmatterRes = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        {
+          role: 'system',
+          content: 'You are an SEO specialist. Generate optimized frontmatter metadata for the given article.',
+        },
+        {
+          role: 'user',
+          content: `Article title: "${title}"
+
+Article body (first 1000 chars):
+${articleBody.slice(0, 1000)}
+
+Return JSON with ALL fields:
+{
+  "metaTitle": "SEO title max 60 chars",
+  "metaDescription": "Compelling meta description max 155 chars that makes people click",
+  "slug": "url-friendly-slug-max-60-chars",
+  "categories": ["Proper Case Category", "Another Category"],
+  "tags": ["Proper Case Tag", "Another Tag", "Tag Three", "Tag Four", "Tag Five"],
+  "featuredImageAlt": "Vivid, descriptive alt text for the blog featured image — describe what the image should depict visually in 1-2 sentences, referencing the article topic and brand aesthetics"
+}`,
+        },
+      ],
+      response_format: { type: 'json_object' },
+      max_tokens: 500,
+      temperature: 0.4,
+    })
+
+    const rawFm = JSON.parse(frontmatterRes.choices[0]?.message?.content ?? '{}') as Partial<GeneratedFrontmatter>
 
     const frontmatter: GeneratedFrontmatter = {
-      metaTitle: parsed.frontmatter?.metaTitle ?? title.slice(0, 60),
-      metaDescription: parsed.frontmatter?.metaDescription ?? '',
-      slug: parsed.frontmatter?.slug ?? titleToSlug(title),
-      categories: parsed.frontmatter?.categories ?? [],
-      tags: parsed.frontmatter?.tags ?? [],
+      metaTitle: rawFm.metaTitle ?? title.slice(0, 60),
+      metaDescription: rawFm.metaDescription ?? '',
+      slug: rawFm.slug ?? titleToSlug(title),
+      categories: rawFm.categories ?? [],
+      tags: rawFm.tags ?? [],
+      featuredImageAlt: rawFm.featuredImageAlt ?? `Featured image for article: ${title}`,
     }
 
     // Apply site default author if provided
     if (siteId) {
-      const { data: site } = await supabase.from('blog_sites').select('default_author').eq('id', siteId).single()
+      const { data: site } = await supabase
+        .from('blog_sites')
+        .select('default_author')
+        .eq('id', siteId)
+        .single()
       if (site) {
-        return NextResponse.json({ body: parsed.body ?? '', frontmatter, defaultAuthor: site.default_author })
+        return NextResponse.json({ body: articleBody, frontmatter, defaultAuthor: site.default_author })
       }
     }
 
-    return NextResponse.json({ body: parsed.body ?? '', frontmatter })
+    return NextResponse.json({ body: articleBody, frontmatter })
   } catch (err) {
     console.error('Article generation error:', err)
     return NextResponse.json({ error: 'Failed to generate article' }, { status: 500 })

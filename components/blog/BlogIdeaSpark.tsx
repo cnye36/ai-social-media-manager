@@ -1,9 +1,9 @@
 'use client'
 
 import { useState } from 'react'
-import { Lightbulb, Loader2, ChevronDown, ChevronUp, ArrowRight, RotateCcw } from 'lucide-react'
+import { Lightbulb, Loader2, ChevronDown, ChevronUp, ArrowRight, RotateCcw, LayoutList, BookOpen, Microscope } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import type { ContentGoal } from '@/types/agents'
+import type { ContentGoal, ArticleFormat } from '@/types/agents'
 import type { BlogIdea } from '@/app/api/blog/ideas/route'
 
 const ANGLE_STYLES: Record<ContentGoal, string> = {
@@ -13,27 +13,51 @@ const ANGLE_STYLES: Record<ContentGoal, string> = {
   awareness: 'bg-sky-500/10 text-sky-300 border-sky-500/30',
 }
 
+const FORMAT_OPTIONS: { value: ArticleFormat; label: string; icon: React.ReactNode; description: string }[] = [
+  {
+    value: 'blog_post',
+    label: 'Blog Post',
+    icon: <BookOpen className="w-3.5 h-3.5" />,
+    description: '1,500–2,000 words',
+  },
+  {
+    value: 'listicle',
+    label: 'Listicle',
+    icon: <LayoutList className="w-3.5 h-3.5" />,
+    description: '"X Ways to…"',
+  },
+  {
+    value: 'deep_dive',
+    label: 'Deep Dive',
+    icon: <Microscope className="w-3.5 h-3.5" />,
+    description: '2,000–2,500 words',
+  },
+]
+
 interface BlogIdeaSparkProps {
   companyId: string
+  articleFormat: ArticleFormat
+  onFormatChange: (format: ArticleFormat) => void
   onGenerate: (idea: BlogIdea) => void
   disabled?: boolean
 }
 
-export function BlogIdeaSpark({ companyId, onGenerate, disabled }: BlogIdeaSparkProps) {
+export function BlogIdeaSpark({ companyId, articleFormat, onFormatChange, onGenerate, disabled }: BlogIdeaSparkProps) {
   const [open, setOpen] = useState(false)
   const [ideas, setIdeas] = useState<BlogIdea[]>([])
+  const [lastFormat, setLastFormat] = useState<ArticleFormat | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [generatingIdx, setGeneratingIdx] = useState<number | null>(null)
 
-  async function fetchIdeas() {
+  async function fetchIdeas(format: ArticleFormat) {
     setLoading(true)
     setError('')
     try {
       const res = await fetch('/api/blog/ideas', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ companyId, count: 8 }),
+        body: JSON.stringify({ companyId, count: 8, articleFormat: format }),
       })
       if (!res.ok) {
         const d = await res.json() as { error?: string }
@@ -41,6 +65,7 @@ export function BlogIdeaSpark({ companyId, onGenerate, disabled }: BlogIdeaSpark
       }
       const data = await res.json() as { ideas: BlogIdea[] }
       setIdeas(data.ideas)
+      setLastFormat(format)
       setOpen(true)
     } catch (e) {
       setError((e as Error).message)
@@ -52,9 +77,13 @@ export function BlogIdeaSpark({ companyId, onGenerate, disabled }: BlogIdeaSpark
 
   function handleToggle() {
     if (disabled) return
-    if (open) { setOpen(false) }
-    else if (ideas.length > 0) { setOpen(true) }
-    else { fetchIdeas() }
+    if (open) {
+      setOpen(false)
+    } else if (ideas.length > 0 && lastFormat === articleFormat) {
+      setOpen(true)
+    } else {
+      fetchIdeas(articleFormat)
+    }
   }
 
   function handleSelect(idea: BlogIdea, idx: number) {
@@ -65,7 +94,36 @@ export function BlogIdeaSpark({ companyId, onGenerate, disabled }: BlogIdeaSpark
   }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
+      {/* Format selector */}
+      <div className="flex items-center gap-1.5">
+        {FORMAT_OPTIONS.map(opt => (
+          <button
+            key={opt.value}
+            type="button"
+            onClick={() => {
+              onFormatChange(opt.value)
+              // Reset cached ideas if format changed
+              if (opt.value !== lastFormat) {
+                setIdeas([])
+                setOpen(false)
+              }
+            }}
+            className={cn(
+              'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all border',
+              articleFormat === opt.value
+                ? 'bg-violet-600/20 border-violet-500/50 text-violet-300'
+                : 'bg-zinc-800/50 border-zinc-700/50 text-zinc-500 hover:text-zinc-300 hover:border-zinc-600'
+            )}
+            title={opt.description}
+          >
+            {opt.icon}
+            {opt.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Spark / hide button row */}
       <div className="flex items-center justify-between">
         <button
           type="button"
@@ -78,14 +136,14 @@ export function BlogIdeaSpark({ companyId, onGenerate, disabled }: BlogIdeaSpark
           )}
         >
           {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Lightbulb className="w-3.5 h-3.5" />}
-          {loading ? 'Thinking…' : open ? 'Hide ideas' : 'Spark ideas'}
+          {loading ? 'Thinking…' : open ? 'Hide ideas' : `Spark ${FORMAT_OPTIONS.find(f => f.value === articleFormat)?.label ?? ''} ideas`}
           {!loading && (open ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />)}
         </button>
 
         {open && ideas.length > 0 && (
           <button
             type="button"
-            onClick={fetchIdeas}
+            onClick={() => fetchIdeas(articleFormat)}
             disabled={loading}
             className="flex items-center gap-1 text-xs text-zinc-600 hover:text-zinc-400 transition-colors disabled:opacity-40"
           >
@@ -124,7 +182,10 @@ export function BlogIdeaSpark({ companyId, onGenerate, disabled }: BlogIdeaSpark
                       )}>
                         {idea.title}
                       </span>
-                      <span className={cn('text-[10px] font-medium px-1.5 py-0.5 rounded border capitalize shrink-0', ANGLE_STYLES[idea.angle])}>
+                      <span className={cn(
+                        'text-[10px] font-medium px-1.5 py-0.5 rounded border capitalize shrink-0',
+                        ANGLE_STYLES[idea.angle]
+                      )}>
                         {idea.angle}
                       </span>
                     </div>

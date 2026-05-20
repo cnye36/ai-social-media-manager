@@ -1,14 +1,20 @@
 import type { Post } from '@/types/database'
 import type { PublishResult } from './types'
 
-// Smithery MCP: https://smithery.ai/server/@jordanburke/reddit-mcp-server
-// Required env vars:
-//   REDDIT_MCP_URL     — Smithery gateway URL for the Reddit MCP server
-//   REDDIT_API_KEY     — Smithery API key
-//   REDDIT_SUBREDDIT   — default subreddit to post to (e.g. "test" or your own)
+// TODO: Replace Smithery MCP approach with direct Reddit OAuth2 (PRAW-style).
+//   Reddit OAuth app is free. Flow:
+//   1. /api/reddit/auth/connect  — redirects to reddit.com/api/v1/authorize
+//   2. /api/reddit/auth/callback — exchanges code for access+refresh tokens, stores in
+//      reddit_accounts table (company_id, username, access_token, refresh_token, expires_at)
+//   3. publishToReddit() / postReply() reads token from DB, auto-refreshes if expired
+//   Required env vars once migrated:
+//     REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, REDDIT_REDIRECT_URI
 //
-// Reddit posts have a "Title: ..." first line (from the generate prompt).
-// We parse that out; everything after is the body.
+// TODO: Add postReply(opportunityId, draftReply) — submits a comment to an existing post.
+//   Called from /api/reddit/opportunities/[id]/post-reply only when subreddit reply_policy = 'auto'.
+//
+// Current approach uses Smithery MCP (kept until OAuth is wired up):
+//   REDDIT_MCP_URL, REDDIT_API_KEY, REDDIT_SUBREDDIT
 
 function parseRedditContent(content: string): { title: string; body: string } {
   const lines = content.split('\n')

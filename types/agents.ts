@@ -2,6 +2,7 @@ import type { Channel } from './database'
 
 export type ContentGoal = 'awareness' | 'engagement' | 'promotion' | 'education'
 export type PostLength = 'short' | 'medium' | 'long'
+export type ArticleFormat = 'blog_post' | 'listicle' | 'deep_dive'
 
 export interface ThreadTweet {
   text: string
