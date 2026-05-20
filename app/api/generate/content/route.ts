@@ -16,7 +16,7 @@ export async function POST(request: Request) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await request.json()
-  const { companyId, channel, topic, contentGoal, postLength, additionalContext, stream } = body
+  const { companyId, channel, topic, contentGoal, postLength, additionalContext, stream, threadMode } = body
 
   if (!companyId) return NextResponse.json({ error: 'companyId required' }, { status: 400 })
   if (!VALID_CHANNELS.includes(channel)) return NextResponse.json({ error: 'Invalid channel' }, { status: 400 })
@@ -35,6 +35,7 @@ export async function POST(request: Request) {
     contentGoal: contentGoal as ContentGoal,
     postLength: postLength as PostLength,
     additionalContext: additionalContext?.trim(),
+    threadMode: threadMode === true,
   }
 
   // Streaming response

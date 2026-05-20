@@ -29,8 +29,9 @@ export async function generateImage(params: {
   prompt: string
   companyId: string
   size?: ImageSize
+  postId?: string
 }): Promise<GeneratedImage> {
-  const { prompt, companyId, size } = params
+  const { prompt, companyId, size, postId } = params
   const apiSize = normalizeImageSize(size)
 
   const response = await openai.images.generate({
@@ -38,6 +39,7 @@ export async function generateImage(params: {
     prompt,
     n: 1,
     size: apiSize,
+    quality: 'medium'
   })
 
   const item = response.data?.[0] as { b64_json?: string } | undefined
@@ -55,6 +57,20 @@ export async function generateImage(params: {
   if (error) throw new Error(`Storage upload failed: ${error.message}`)
 
   const { data: { publicUrl } } = supabase.storage.from('media').getPublicUrl(filename)
+
+  // Fire-and-forget — never block image delivery on a library write
+  void (async () => {
+    const { error } = await supabase.from('media_library').insert({
+      company_id: companyId,
+      storage_path: filename,
+      url: publicUrl,
+      prompt: prompt.slice(0, 500),
+      type: 'image',
+      svg: null,
+      post_id: postId ?? null,
+    })
+    if (error) console.warn('[media-library] image save failed:', error.message, error.code)
+  })()
 
   return { url: publicUrl, storagePath: filename, promptUsed: prompt }
 }

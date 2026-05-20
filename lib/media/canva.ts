@@ -1,4 +1,5 @@
 import { createAdminClient } from '@/lib/supabase/admin'
+import { randomBytes, createHash } from 'crypto'
 
 const CANVA_API_BASE = 'https://api.canva.com/rest/v1'
 const CANVA_AUTH_URL = 'https://www.canva.com/api/oauth/authorize'
@@ -21,12 +22,23 @@ export interface CanvaDesign {
   viewUrl: string
 }
 
+// ── PKCE helpers ───────────────────────────────────────────────────────────────
+
+export function generateCodeVerifier(): string {
+  return randomBytes(32).toString('base64url')
+}
+
+export function generateCodeChallenge(verifier: string): string {
+  return createHash('sha256').update(verifier).digest('base64url')
+}
+
 // ── OAuth helpers ──────────────────────────────────────────────────────────────
 
 export function buildCanvaAuthUrl(params: {
   clientId: string
   redirectUri: string
   state: string
+  codeChallenge: string
 }): string {
   const url = new URL(CANVA_AUTH_URL)
   url.searchParams.set('response_type', 'code')
@@ -34,12 +46,15 @@ export function buildCanvaAuthUrl(params: {
   url.searchParams.set('redirect_uri', params.redirectUri)
   url.searchParams.set('state', params.state)
   url.searchParams.set('scope', 'asset:read asset:write design:content:read design:content:write design:meta:read')
+  url.searchParams.set('code_challenge', params.codeChallenge)
+  url.searchParams.set('code_challenge_method', 'S256')
   return url.toString()
 }
 
 export async function exchangeCanvaCode(params: {
   code: string
   redirectUri: string
+  codeVerifier: string
 }): Promise<CanvaTokens> {
   const clientId = process.env.CANVA_CLIENT_ID!
   const clientSecret = process.env.CANVA_CLIENT_SECRET!
@@ -50,6 +65,7 @@ export async function exchangeCanvaCode(params: {
     redirect_uri: params.redirectUri,
     client_id: clientId,
     client_secret: clientSecret,
+    code_verifier: params.codeVerifier,
   })
 
   const res = await fetch(CANVA_TOKEN_URL, {

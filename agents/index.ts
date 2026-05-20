@@ -6,7 +6,40 @@ import { buildXAgent } from './x-agent'
 import { buildRedditAgent } from './reddit-agent'
 import { buildFacebookAgent } from './facebook-agent'
 import type { Channel } from '@/types/database'
-import type { GenerateRequest, GeneratedPost } from '@/types/agents'
+import type { GenerateRequest, GeneratedPost, ThreadTweet } from '@/types/agents'
+import { formatRedditMarkdown, parseRedditPost } from '@/lib/reddit/parse'
+
+const agentBuilders: Record<Channel, (p: Parameters<typeof buildLinkedInAgent>[0]) => ReturnType<typeof buildLinkedInAgent>> = {
+  linkedin: buildLinkedInAgent,
+  x: buildXAgent,
+  reddit: buildRedditAgent,
+  facebook: buildFacebookAgent,
+}
+
+async function prepareAgent(request: GenerateRequest) {
+  const { companyId, channel, topic, contentGoal, postLength, additionalContext } = request
+  const supabase = await createClient()
+
+  const [companyResult, brandResult, knowledgeChunks] = await Promise.all([
+    supabase.from('companies').select('name').eq('id', companyId).single(),
+    supabase.from('brand_profiles').select('*').eq('company_id', companyId).single(),
+    retrieve(companyId, topic, 5, 0.35),
+  ])
+
+  const agentParams = {
+    companyId,
+    companyName: companyResult.data?.name ?? 'the company',
+    brand: brandResult.data ?? null,
+    retrievedKnowledge: knowledgeChunks,
+    topic,
+    contentGoal,
+    postLength,
+    additionalContext,
+    threadMode: request.threadMode,
+  }
+
+  return { agent: agentBuilders[channel](agentParams), channel }
+}
 
 function parseImagePrompt(text: string): { content: string; imagePrompt?: string } {
   const marker = '\n--\nIMAGE_PROMPT:'
@@ -19,21 +52,15 @@ function parseImagePrompt(text: string): { content: string; imagePrompt?: string
 }
 
 function parseRedditContent(raw: string): { content: string; contentVariants: Record<string, unknown> } {
-  try {
-    // Strip image prompt first
-    const { content: withoutImage, imagePrompt } = parseImagePrompt(raw)
-    const parsed = JSON.parse(withoutImage)
-    if (parsed.title && parsed.body) {
-      const formatted = `**${parsed.title}**\n\n${parsed.body}${parsed.disclosure ? `\n\n*Disclosure: ${parsed.disclosure}*` : ''}`
-      return {
-        content: formatted,
-        contentVariants: { reddit: parsed, imagePrompt },
-      }
+  const { post, imagePrompt } = parseRedditPost(raw)
+  if (post) {
+    return {
+      content: formatRedditMarkdown(post),
+      contentVariants: { reddit: post, ...(imagePrompt ? { imagePrompt } : {}) },
     }
-  } catch {
-    // Not JSON — return as-is
   }
-  return { content: raw.trim(), contentVariants: {} }
+  const { content } = parseImagePrompt(raw)
+  return { content, contentVariants: {} }
 }
 
 function parseXContent(raw: string): { content: string; contentVariants: Record<string, unknown> } {
@@ -41,53 +68,26 @@ function parseXContent(raw: string): { content: string; contentVariants: Record<
     const { content: withoutImage, imagePrompt } = parseImagePrompt(raw)
     const parsed = JSON.parse(withoutImage)
     if (parsed.thread && Array.isArray(parsed.thread)) {
+      // Normalize: accept both string[] (legacy) and ThreadTweet[] (thread mode)
+      const thread: ThreadTweet[] = parsed.thread.map((t: string | ThreadTweet) =>
+        typeof t === 'string' ? { text: t } : t
+      )
+      const content = thread.map(t => t.text).join('\n\n---\n\n')
       return {
-        content: parsed.thread.join('\n\n---\n\n'),
-        contentVariants: { thread: parsed.thread, imagePrompt },
+        content,
+        contentVariants: { thread, ...(imagePrompt ? { imagePrompt } : {}) },
       }
     }
   } catch {
-    // Single tweet
+    // Single tweet — fall through
   }
   const { content, imagePrompt } = parseImagePrompt(raw)
   return { content, contentVariants: { imagePrompt } }
 }
 
 export async function generatePost(request: GenerateRequest): Promise<GeneratedPost> {
-  const { companyId, channel, topic, contentGoal, postLength, additionalContext } = request
-
-  const supabase = await createClient()
-
-  // Fetch company name and brand profile in parallel with RAG retrieval
-  const [companyResult, brandResult, knowledgeChunks] = await Promise.all([
-    supabase.from('companies').select('name').eq('id', companyId).single(),
-    supabase.from('brand_profiles').select('*').eq('company_id', companyId).single(),
-    retrieve(companyId, topic, 5, 0.35),
-  ])
-
-  const companyName = companyResult.data?.name ?? 'the company'
-  const brand = brandResult.data ?? null
-
-  const agentParams = {
-    companyId,
-    companyName,
-    brand,
-    retrievedKnowledge: knowledgeChunks,
-    topic,
-    contentGoal,
-    postLength,
-    additionalContext,
-  }
-
-  // Select the right agent for the channel
-  const agentBuilders: Record<Channel, (p: typeof agentParams) => ReturnType<typeof buildLinkedInAgent>> = {
-    linkedin: buildLinkedInAgent,
-    x: buildXAgent,
-    reddit: buildRedditAgent,
-    facebook: buildFacebookAgent,
-  }
-
-  const agent = agentBuilders[channel](agentParams)
+  const { topic } = request
+  const { agent, channel } = await prepareAgent(request)
 
   const result = await run(agent, `Write a ${channel} post about: ${topic}`)
   const rawOutput = result.finalOutput ?? ''
@@ -112,38 +112,8 @@ export async function generatePost(request: GenerateRequest): Promise<GeneratedP
 
 // Returns a ReadableStream<string> of text tokens for streaming responses
 export async function generatePostReadableStream(request: GenerateRequest): Promise<ReadableStream<string>> {
-  const { companyId, channel, topic, contentGoal, postLength, additionalContext } = request
-
-  const supabase = await createClient()
-
-  const [companyResult, brandResult, knowledgeChunks] = await Promise.all([
-    supabase.from('companies').select('name').eq('id', companyId).single(),
-    supabase.from('brand_profiles').select('*').eq('company_id', companyId).single(),
-    retrieve(companyId, topic, 5, 0.35),
-  ])
-
-  const companyName = companyResult.data?.name ?? 'the company'
-  const brand = brandResult.data ?? null
-
-  const agentParams = {
-    companyId,
-    companyName,
-    brand,
-    retrievedKnowledge: knowledgeChunks,
-    topic,
-    contentGoal,
-    postLength,
-    additionalContext,
-  }
-
-  const agentBuilders: Record<Channel, (p: typeof agentParams) => ReturnType<typeof buildLinkedInAgent>> = {
-    linkedin: buildLinkedInAgent,
-    x: buildXAgent,
-    reddit: buildRedditAgent,
-    facebook: buildFacebookAgent,
-  }
-
-  const agent = agentBuilders[channel](agentParams)
+  const { topic } = request
+  const { agent, channel } = await prepareAgent(request)
   const streamedResult = await run(agent, `Write a ${channel} post about: ${topic}`, { stream: true })
   // Cast needed due to ReadableStream type mismatch between SDK and Web APIs
   return streamedResult.toTextStream() as unknown as ReadableStream<string>

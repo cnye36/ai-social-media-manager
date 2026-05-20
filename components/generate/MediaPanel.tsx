@@ -1,14 +1,28 @@
 'use client'
 
-import { useState } from 'react'
-import { ImageIcon, LayoutTemplate, RefreshCw, ExternalLink, ChevronLeft, ChevronRight, Loader2, X } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { ImageIcon, LayoutTemplate, RefreshCw, ExternalLink, ChevronLeft, ChevronRight, Loader2, X, Library, Maximize2 } from 'lucide-react'
+import { format } from 'date-fns'
 import { cn } from '@/lib/utils'
+import { MediaDetailModal } from '@/components/media/MediaDetailModal'
+import type { ModalMediaItem } from '@/components/media/MediaDetailModal'
 
 interface MediaResult {
   type: 'image' | 'infographic'
   url: string
   storagePath: string
   svg?: string
+}
+
+interface LibraryItem {
+  id: string
+  url: string
+  prompt: string | null
+  type: 'image' | 'infographic'
+  svg: string | null
+  created_at: string
+  storagePath?: string  // mapped from storage_path for onAccept compat
+  storage_path?: string
 }
 
 interface HistoryEntry {
@@ -20,11 +34,17 @@ interface MediaPanelProps {
   postContent: string
   companyId: string
   channel: string
+  postId?: string
   brandColors?: { primary?: string; accent?: string }
   onAccept?: (result: MediaResult) => void
 }
 
-export function MediaPanel({ postContent, companyId, channel, brandColors, onAccept }: MediaPanelProps) {
+type PanelTab = 'generate' | 'library'
+
+export function MediaPanel({ postContent, companyId, channel, postId, brandColors, onAccept }: MediaPanelProps) {
+  const [activeTab, setActiveTab] = useState<PanelTab>('generate')
+
+  // ── Generate tab state ───────────────────────────────────────────────────────
   const [history, setHistory] = useState<HistoryEntry[]>([])
   const [historyIndex, setHistoryIndex] = useState(-1)
   const [refinementNote, setRefinementNote] = useState('')
@@ -33,10 +53,35 @@ export function MediaPanel({ postContent, companyId, channel, brandColors, onAcc
   const [canvaLoading, setCanvaLoading] = useState(false)
   const [canvaUrl, setCanvaUrl] = useState<string | null>(null)
 
+  // ── Library tab state ────────────────────────────────────────────────────────
+  const [libraryItems, setLibraryItems] = useState<LibraryItem[]>([])
+  const [libraryLoading, setLibraryLoading] = useState(false)
+  const [libraryError, setLibraryError] = useState<string | null>(null)
+  const [expandedItem, setExpandedItem] = useState<ModalMediaItem | null>(null)
+
   const current = historyIndex >= 0 ? history[historyIndex] : null
   const canGoBack = historyIndex > 0
   const canGoForward = historyIndex < history.length - 1
   const iterationsLeft = 5 - history.length
+
+  useEffect(() => {
+    if (activeTab === 'library') loadLibrary()
+  }, [activeTab])
+
+  async function loadLibrary() {
+    setLibraryLoading(true)
+    setLibraryError(null)
+    try {
+      const res = await fetch(`/api/media?companyId=${companyId}`)
+      if (!res.ok) throw new Error('Failed to load library')
+      const data = await res.json() as { items: LibraryItem[] }
+      setLibraryItems(data.items)
+    } catch (e) {
+      setLibraryError((e as Error).message)
+    } finally {
+      setLibraryLoading(false)
+    }
+  }
 
   async function generate(note: string) {
     if (loading) return
@@ -48,11 +93,16 @@ export function MediaPanel({ postContent, companyId, channel, brandColors, onAcc
       const res = await fetch('/api/generate/media', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ postContent, companyId, channel, refinementNote: note || undefined, brandColors }),
+        body: JSON.stringify({
+          postContent, companyId, channel,
+          refinementNote: note || undefined,
+          brandColors,
+          postId,
+        }),
       })
 
       if (!res.ok) {
-        const data = await res.json()
+        const data = await res.json() as { error?: string }
         throw new Error(data.error ?? 'Media generation failed')
       }
 
@@ -60,7 +110,6 @@ export function MediaPanel({ postContent, companyId, channel, brandColors, onAcc
       const entry: HistoryEntry = { result, note }
 
       setHistory(prev => {
-        // Drop any forward history when a new generation is added
         const trimmed = prev.slice(0, historyIndex + 1)
         return [...trimmed, entry]
       })
@@ -88,13 +137,11 @@ export function MediaPanel({ postContent, companyId, channel, brandColors, onAcc
           title: `Social post – ${channel}`,
         }),
       })
-
       if (!res.ok) {
-        const data = await res.json()
+        const data = await res.json() as { error?: string }
         throw new Error(data.error ?? 'Canva design creation failed')
       }
-
-      const { editUrl } = await res.json()
+      const { editUrl } = await res.json() as { editUrl: string }
       setCanvaUrl(editUrl)
       window.open(editUrl, '_blank')
     } catch (err) {
@@ -108,162 +155,273 @@ export function MediaPanel({ postContent, companyId, channel, brandColors, onAcc
     if (current && onAccept) onAccept(current.result)
   }
 
+  function acceptFromLibrary(item: LibraryItem) {
+    if (!onAccept) return
+    onAccept({
+      type: item.type,
+      url: item.url,
+      storagePath: item.storage_path ?? item.storagePath ?? '',
+      svg: item.svg ?? undefined,
+    })
+  }
+
   return (
+    <>
     <div className="rounded-xl border border-zinc-800 bg-zinc-950 overflow-hidden">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800 bg-zinc-900/50">
-        <div className="flex items-center gap-2">
-          <ImageIcon className="w-4 h-4 text-violet-400" />
-          <span className="text-sm font-medium text-white">Media</span>
-          {current && (
-            <span className={cn(
-              'text-[10px] px-1.5 py-0.5 rounded font-medium',
-              current.result.type === 'image' ? 'bg-blue-500/15 text-blue-300' : 'bg-emerald-500/15 text-emerald-300'
-            )}>
-              {current.result.type === 'image' ? 'AI Image' : 'Infographic'}
+      {/* Tab bar */}
+      <div className="flex border-b border-zinc-800">
+        <button
+          onClick={() => setActiveTab('generate')}
+          className={cn(
+            'flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors',
+            activeTab === 'generate'
+              ? 'border-violet-500 text-white'
+              : 'border-transparent text-zinc-500 hover:text-zinc-300'
+          )}
+        >
+          <ImageIcon className="w-3.5 h-3.5" />
+          Generate
+        </button>
+        <button
+          onClick={() => setActiveTab('library')}
+          className={cn(
+            'flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors',
+            activeTab === 'library'
+              ? 'border-violet-500 text-white'
+              : 'border-transparent text-zinc-500 hover:text-zinc-300'
+          )}
+        >
+          <Library className="w-3.5 h-3.5" />
+          Library
+          {libraryItems.length > 0 && (
+            <span className="text-[10px] bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded-full">
+              {libraryItems.length}
             </span>
           )}
-        </div>
-
-        {/* Iteration nav */}
-        {history.length > 1 && (
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => setHistoryIndex(i => i - 1)}
-              disabled={!canGoBack}
-              className="p-1 rounded text-zinc-500 hover:text-white disabled:opacity-30"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-            <span className="text-xs text-zinc-500">{historyIndex + 1}/{history.length}</span>
-            <button
-              onClick={() => setHistoryIndex(i => i + 1)}
-              disabled={!canGoForward}
-              className="p-1 rounded text-zinc-500 hover:text-white disabled:opacity-30"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
-        )}
+        </button>
       </div>
 
-      {/* Media display */}
-      <div className="relative bg-zinc-900 min-h-[240px] flex items-center justify-center">
-        {loading && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-zinc-900/90 z-10 gap-3">
-            <Loader2 className="w-8 h-8 text-violet-400 animate-spin" />
-            <p className="text-sm text-zinc-400">Generating media…</p>
+      {activeTab === 'generate' ? (
+        <>
+          {/* Media display */}
+          <div className="relative bg-zinc-900 min-h-[240px] flex items-center justify-center">
+            {/* Iteration nav */}
+            {history.length > 1 && (
+              <div className="absolute top-2 right-2 flex items-center gap-1 z-10">
+                <button
+                  onClick={() => setHistoryIndex(i => i - 1)}
+                  disabled={!canGoBack}
+                  className="p-1 rounded bg-zinc-900/80 text-zinc-500 hover:text-white disabled:opacity-30"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <span className="text-xs text-zinc-500 bg-zinc-900/80 px-1.5 py-0.5 rounded">
+                  {historyIndex + 1}/{history.length}
+                </span>
+                <button
+                  onClick={() => setHistoryIndex(i => i + 1)}
+                  disabled={!canGoForward}
+                  className="p-1 rounded bg-zinc-900/80 text-zinc-500 hover:text-white disabled:opacity-30"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+
+            {loading && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-zinc-900/90 z-10 gap-3">
+                <Loader2 className="w-8 h-8 text-violet-400 animate-spin" />
+                <p className="text-sm text-zinc-400">Generating media…</p>
+              </div>
+            )}
+
+            {!current && !loading && (
+              <div className="flex flex-col items-center gap-3 py-12 text-zinc-600">
+                <ImageIcon className="w-10 h-10" />
+                <p className="text-sm">Generate media for this post</p>
+              </div>
+            )}
+
+            {current && (
+              current.result.type === 'infographic' && current.result.svg ? (
+                <div className="w-full" dangerouslySetInnerHTML={{ __html: current.result.svg }} />
+              ) : (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={current.result.url} alt="Generated media" className="w-full object-contain max-h-[480px]" />
+              )
+            )}
           </div>
-        )}
 
-        {!current && !loading && (
-          <div className="flex flex-col items-center gap-3 py-12 text-zinc-600">
-            <ImageIcon className="w-10 h-10" />
-            <p className="text-sm">Generate media for this post</p>
-          </div>
-        )}
+          {error && (
+            <div className="flex items-center gap-2 px-4 py-2 bg-red-950/50 border-t border-red-900/50">
+              <X className="w-3.5 h-3.5 text-red-400 shrink-0" />
+              <p className="text-xs text-red-400">{error}</p>
+            </div>
+          )}
 
-        {current && (
-          current.result.type === 'infographic' && current.result.svg ? (
-            <div
-              className="w-full"
-              dangerouslySetInnerHTML={{ __html: current.result.svg }}
-            />
-          ) : (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={current.result.url}
-              alt="Generated media"
-              className="w-full object-contain max-h-[480px]"
-            />
-          )
-        )}
-      </div>
+          <div className="p-4 space-y-3 border-t border-zinc-800">
+            {history.length > 0 && iterationsLeft > 0 && (
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={refinementNote}
+                  onChange={e => setRefinementNote(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && !e.shiftKey && generate(refinementNote)}
+                  placeholder={`Refine… (${iterationsLeft} left)`}
+                  className="flex-1 bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-violet-500"
+                />
+                <button
+                  onClick={() => generate(refinementNote)}
+                  disabled={loading || !refinementNote.trim()}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-sm font-medium transition-colors disabled:opacity-40"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  Refine
+                </button>
+              </div>
+            )}
 
-      {/* Error */}
-      {error && (
-        <div className="flex items-center gap-2 px-4 py-2 bg-red-950/50 border-t border-red-900/50">
-          <X className="w-3.5 h-3.5 text-red-400 shrink-0" />
-          <p className="text-xs text-red-400">{error}</p>
-        </div>
-      )}
+            {iterationsLeft === 0 && (
+              <p className="text-xs text-zinc-600 text-center">Max iterations reached.</p>
+            )}
 
-      {/* Actions */}
-      <div className="p-4 space-y-3 border-t border-zinc-800">
-        {/* Refinement input */}
-        {history.length > 0 && iterationsLeft > 0 && (
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={refinementNote}
-              onChange={e => setRefinementNote(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && !e.shiftKey && generate(refinementNote)}
-              placeholder={`Refine… (${iterationsLeft} left)`}
-              className="flex-1 bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-violet-500"
-            />
-            <button
-              onClick={() => generate(refinementNote)}
-              disabled={loading || !refinementNote.trim()}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-sm font-medium transition-colors disabled:opacity-40"
+            <div className="flex gap-2">
+              {!current ? (
+                <button
+                  onClick={() => generate('')}
+                  disabled={loading}
+                  className="flex-1 flex items-center justify-center gap-2 py-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                >
+                  {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImageIcon className="w-4 h-4" />}
+                  Generate
+                </button>
+              ) : (
+                <>
+                  <button
+                    onClick={acceptMedia}
+                    className="flex-1 py-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg text-sm font-medium transition-colors"
+                  >
+                    Use this media
+                  </button>
+                  <button
+                    onClick={sendToCanva}
+                    disabled={canvaLoading}
+                    className="flex items-center gap-1.5 px-3 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-sm font-medium transition-colors disabled:opacity-40"
+                    title="Edit in Canva"
+                  >
+                    {canvaLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <LayoutTemplate className="w-4 h-4" />}
+                    Canva
+                    {canvaUrl && <ExternalLink className="w-3 h-3" />}
+                  </button>
+                </>
+              )}
+            </div>
+
+            <a
+              href="https://www.canva.com/templates/?query=social+media"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-center gap-1.5 w-full py-1.5 text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
             >
-              <RefreshCw className="w-3.5 h-3.5" />
-              Refine
-            </button>
+              <LayoutTemplate className="w-3.5 h-3.5" />
+              Browse Canva templates
+              <ExternalLink className="w-3 h-3" />
+            </a>
           </div>
-        )}
-
-        {iterationsLeft === 0 && (
-          <p className="text-xs text-zinc-600 text-center">Max iterations reached. Accept or start over.</p>
-        )}
-
-        {/* Primary actions */}
-        <div className="flex gap-2">
-          {!current ? (
-            <button
-              onClick={() => generate('')}
-              disabled={loading}
-              className="flex-1 flex items-center justify-center gap-2 py-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
-            >
-              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImageIcon className="w-4 h-4" />}
-              Generate
-            </button>
+        </>
+      ) : (
+        /* Library tab */
+        <div className="p-4">
+          {libraryLoading ? (
+            <div className="flex items-center justify-center py-12 gap-2 text-zinc-600">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span className="text-sm">Loading library…</span>
+            </div>
+          ) : libraryError ? (
+            <p className="text-sm text-red-400 text-center py-8">{libraryError}</p>
+          ) : libraryItems.length === 0 ? (
+            <div className="flex flex-col items-center gap-3 py-12 text-zinc-600">
+              <Library className="w-8 h-8" />
+              <p className="text-sm text-center">No images in library yet.<br />Generate one to start building your catalog.</p>
+            </div>
           ) : (
-            <>
-              <button
-                onClick={acceptMedia}
-                className="flex-1 py-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg text-sm font-medium transition-colors"
-              >
-                Use this media
-              </button>
-              <button
-                onClick={sendToCanva}
-                disabled={canvaLoading}
-                className="flex items-center gap-1.5 px-3 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-sm font-medium transition-colors disabled:opacity-40"
-                title="Edit in Canva"
-              >
-                {canvaLoading
-                  ? <Loader2 className="w-4 h-4 animate-spin" />
-                  : <LayoutTemplate className="w-4 h-4" />
-                }
-                Canva
-                {canvaUrl && <ExternalLink className="w-3 h-3" />}
-              </button>
-            </>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-zinc-500">{libraryItems.length} image{libraryItems.length !== 1 ? 's' : ''}</p>
+                <button
+                  onClick={loadLibrary}
+                  className="text-xs text-zinc-600 hover:text-zinc-400 flex items-center gap-1 transition-colors"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  Refresh
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-2 max-h-[420px] overflow-y-auto pr-0.5">
+                {libraryItems.map(item => (
+                  <div key={item.id} className="group relative aspect-square bg-zinc-900 rounded-lg overflow-hidden border border-zinc-800 hover:border-violet-500/50 transition-colors">
+                    {item.type === 'infographic' && item.svg ? (
+                      <div className="w-full h-full pointer-events-none" dangerouslySetInnerHTML={{ __html: item.svg }} />
+                    ) : (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={item.url} alt={item.prompt ?? ''} className="w-full h-full object-cover" />
+                    )}
+
+                    {/* Hover actions */}
+                    <div className="absolute inset-0 bg-zinc-900/80 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2 p-2">
+                      <button
+                        type="button"
+                        onClick={() => acceptFromLibrary(item)}
+                        className="px-2 py-1 bg-violet-600 hover:bg-violet-500 text-white rounded text-[11px] font-medium w-full transition-colors"
+                      >
+                        Use this image
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setExpandedItem({
+                          id: item.id,
+                          url: item.url,
+                          prompt: item.prompt,
+                          type: item.type,
+                          svg: item.svg,
+                          storage_path: item.storage_path ?? item.storagePath,
+                          post_id: null,
+                          created_at: item.created_at,
+                          posts: null,
+                        })}
+                        className="flex items-center justify-center gap-1 px-2 py-1 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 rounded text-[11px] w-full transition-colors"
+                      >
+                        <Maximize2 className="w-3 h-3" />
+                        View &amp; Edit in Canva
+                      </button>
+                    </div>
+
+                    <div className="absolute bottom-1.5 left-1.5 right-1.5 flex items-center justify-between pointer-events-none">
+                      <span className={cn(
+                        'text-[9px] font-medium px-1.5 py-0.5 rounded',
+                        item.type === 'image' ? 'bg-blue-900/80 text-blue-300' : 'bg-emerald-900/80 text-emerald-300'
+                      )}>
+                        {item.type === 'image' ? 'Image' : 'Infographic'}
+                      </span>
+                      <span className="text-[9px] text-zinc-500 bg-zinc-900/80 px-1 py-0.5 rounded">
+                        {format(new Date(item.created_at), 'MMM d')}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
         </div>
-
-        {/* Canva template link */}
-        <a
-          href="https://www.canva.com/templates/?query=social+media"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center justify-center gap-1.5 w-full py-1.5 text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
-        >
-          <LayoutTemplate className="w-3.5 h-3.5" />
-          Browse Canva templates
-          <ExternalLink className="w-3 h-3" />
-        </a>
-      </div>
+      )}
     </div>
+
+      {expandedItem && (
+        <MediaDetailModal
+          item={expandedItem}
+          companyId={companyId}
+          onClose={() => setExpandedItem(null)}
+        />
+      )}
+    </>
   )
 }

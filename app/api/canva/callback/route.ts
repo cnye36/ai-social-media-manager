@@ -13,31 +13,40 @@ export async function GET(req: NextRequest) {
   const state = searchParams.get('state')
   const error = searchParams.get('error')
 
-  if (error) {
-    return NextResponse.redirect(new URL(`/settings?canva_error=${encodeURIComponent(error)}`, req.url))
-  }
-
-  // CSRF state validation
   const storedState = req.cookies.get('canva_oauth_state')?.value
-  if (!state || state !== storedState) {
-    return NextResponse.redirect(new URL('/settings?canva_error=invalid_state', req.url))
+  const codeVerifier = req.cookies.get('canva_code_verifier')?.value
+  const companyId = req.cookies.get('canva_company_id')?.value ?? ''
+
+  const settingsBase = companyId
+    ? `/${companyId}/settings?tab=connections`
+    : '/settings?tab=connections'
+
+  function redirectWithError(msg: string) {
+    const res = NextResponse.redirect(new URL(`${settingsBase}&canva_error=${encodeURIComponent(msg)}`, req.url))
+    res.cookies.delete('canva_oauth_state')
+    res.cookies.delete('canva_code_verifier')
+    res.cookies.delete('canva_company_id')
+    return res
   }
 
-  if (!code) {
-    return NextResponse.redirect(new URL('/settings?canva_error=no_code', req.url))
-  }
+  if (error) return redirectWithError(error)
+  if (!state || state !== storedState) return redirectWithError('invalid_state')
+  if (!code) return redirectWithError('no_code')
+  if (!codeVerifier) return redirectWithError('missing_code_verifier')
 
   try {
     const origin = getSiteUrl()
     const redirectUri = `${origin}/api/canva/callback`
-    const tokens = await exchangeCanvaCode({ code, redirectUri })
+    const tokens = await exchangeCanvaCode({ code, redirectUri, codeVerifier })
     await saveCanvaTokens(user.id, tokens)
 
-    const res = NextResponse.redirect(new URL('/settings?canva_connected=1', req.url))
+    const res = NextResponse.redirect(new URL(`${settingsBase}&canva_connected=1`, req.url))
     res.cookies.delete('canva_oauth_state')
+    res.cookies.delete('canva_code_verifier')
+    res.cookies.delete('canva_company_id')
     return res
   } catch (err) {
     console.error('[canva-callback]', err)
-    return NextResponse.redirect(new URL(`/settings?canva_error=token_exchange_failed`, req.url))
+    return redirectWithError('token_exchange_failed')
   }
 }

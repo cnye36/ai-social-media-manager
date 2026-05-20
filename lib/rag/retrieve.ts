@@ -22,7 +22,8 @@ export async function retrieve(
     model: 'text-embedding-3-small',
     input: query,
   })
-  const embedding = embeddingResponse.data[0].embedding
+  const embedding = embeddingResponse.data[0]?.embedding
+  if (!embedding) throw new Error('OpenAI returned no embedding for the query')
 
   const supabase = await createClient()
   const { data, error } = await supabase.rpc('search_knowledge', {

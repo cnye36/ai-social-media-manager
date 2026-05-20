@@ -180,7 +180,8 @@ export function renderInfographicSvg(spec: InfographicSpec): string {
 
 export async function renderAndStoreInfographic(
   spec: InfographicSpec,
-  companyId: string
+  companyId: string,
+  postId?: string
 ): Promise<RenderedInfographic> {
   const svg = renderInfographicSvg(spec)
   const filename = `${companyId}/infographic-${Date.now()}.svg`
@@ -193,6 +194,20 @@ export async function renderAndStoreInfographic(
   if (error) throw new Error(`Storage upload failed: ${error.message}`)
 
   const { data: { publicUrl } } = supabase.storage.from('media').getPublicUrl(filename)
+
+  // Fire-and-forget — never block infographic delivery on a library write
+  void (async () => {
+    const { error } = await supabase.from('media_library').insert({
+      company_id: companyId,
+      storage_path: filename,
+      url: publicUrl,
+      prompt: spec.title.slice(0, 500),
+      type: 'infographic',
+      svg,
+      post_id: postId ?? null,
+    })
+    if (error) console.warn('[media-library] infographic save failed:', error.message, error.code)
+  })()
 
   return { svg, url: publicUrl, storagePath: filename }
 }

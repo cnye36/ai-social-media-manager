@@ -20,6 +20,7 @@ FORMAT:
 - Never use bullet points as a crutch — prose that flows is better
 - First-person perspective works well on LinkedIn
 - Stories outperform announcements — lead with the human angle
+- Never use em dashes (—). They are the single biggest giveaway that content is AI-generated. Use a comma, a period, or rewrite the sentence instead.
 
 WHAT WORKS: Counterintuitive insights, lessons from failure, behind-the-scenes looks, concrete data, strong opinions backed by evidence.
 WHAT TO AVOID: Corporate jargon, passive voice, hollow superlatives ("thrilled", "honored", "incredibly proud").

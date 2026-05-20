@@ -99,11 +99,12 @@ export async function scrapeWebsite(
   const isAllowed = await checkRobots(origin)
 
   const visited = new Set<string>()
-  const queue: string[] = [startUrl]
+  const queue = new Set<string>([startUrl])
   const pages: ScrapedPage[] = []
 
-  while (queue.length > 0 && pages.length < MAX_PAGES) {
-    const url = queue.shift()!
+  while (queue.size > 0 && pages.length < MAX_PAGES) {
+    const url = queue.values().next().value!
+    queue.delete(url)
     if (visited.has(url)) continue
     visited.add(url)
 
@@ -126,8 +127,8 @@ export async function scrapeWebsite(
     // Discover new links from this page
     const links = extractLinks($, finalUrl, origin)
     for (const link of links) {
-      if (!visited.has(link) && !queue.includes(link)) {
-        queue.push(link)
+      if (!visited.has(link)) {
+        queue.add(link)
       }
     }
 

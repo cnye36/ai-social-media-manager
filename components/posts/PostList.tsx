@@ -5,7 +5,7 @@ import { Calendar, Trash2, ArchiveX, Clock } from 'lucide-react'
 import { format } from 'date-fns'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { ScheduleModal } from './ScheduleModal'
+import { PostEditorModal } from './PostEditorModal'
 import type { Channel, Post, PostStatus } from '@/types/database'
 
 type Tab = 'all' | PostStatus
@@ -22,27 +22,34 @@ export function PostList({ companyId }: { companyId: string }) {
   const [posts, setPosts] = useState<Post[]>([])
   const [tab, setTab] = useState<Tab>('all')
   const [loading, setLoading] = useState(true)
-  const [scheduleTarget, setScheduleTarget] = useState<Post | null>(null)
-  const [modalOpen, setModalOpen] = useState(false)
+  const [editorPost, setEditorPost] = useState<Post | null>(null)
+  const [editorOpen, setEditorOpen] = useState(false)
 
   useEffect(() => {
+    const controller = new AbortController()
     setLoading(true)
     const url = tab === 'all'
       ? `/api/posts?companyId=${companyId}`
       : `/api/posts?companyId=${companyId}&status=${tab}`
-    fetch(url)
+    fetch(url, { signal: controller.signal })
       .then(r => r.json())
-      .then(d => setPosts((d as { posts: Post[] }).posts ?? []))
+      .then(d => setPosts(Array.isArray(d) ? d : []))
+      .catch(e => { if ((e as Error).name !== 'AbortError') console.error(e) })
       .finally(() => setLoading(false))
+    return () => controller.abort()
   }, [companyId, tab])
 
-  function openSchedule(post: Post) {
-    setScheduleTarget(post)
-    setModalOpen(true)
+  function openEditor(post: Post) {
+    setEditorPost(post)
+    setEditorOpen(true)
   }
 
-  function handleScheduled(updated: Post) {
+  function handleUpdated(updated: Post) {
     setPosts(prev => prev.map(p => p.id === updated.id ? updated : p))
+  }
+
+  function handleDeleted(id: string) {
+    setPosts(prev => prev.filter(p => p.id !== id))
   }
 
   async function handleArchive(post: Post) {
@@ -63,7 +70,6 @@ export function PostList({ companyId }: { companyId: string }) {
     if (res.ok) setPosts(prev => prev.filter(p => p.id !== post.id))
   }
 
-  const visible = posts.filter(p => tab === 'all' || p.status === tab)
 
   return (
     <>
@@ -95,13 +101,13 @@ export function PostList({ companyId }: { companyId: string }) {
             <div key={i} className="h-20 rounded-xl bg-zinc-800/50 animate-pulse" />
           ))}
         </div>
-      ) : visible.length === 0 ? (
+      ) : posts.length === 0 ? (
         <div className="text-center py-16 text-zinc-500 text-sm">
           No {tab === 'all' ? '' : tab} posts yet.
         </div>
       ) : (
         <div className="space-y-2">
-          {visible.map(post => (
+          {posts.map(post => (
             <div
               key={post.id}
               className="bg-zinc-900 border border-zinc-800 rounded-xl px-5 py-4 flex items-start gap-4 hover:border-zinc-700 transition-colors"
@@ -111,7 +117,10 @@ export function PostList({ companyId }: { companyId: string }) {
                 <Badge variant={post.status as PostStatus}>{post.status}</Badge>
               </div>
 
-              <div className="flex-1 min-w-0">
+              <button
+                className="flex-1 min-w-0 text-left hover:opacity-80 transition-opacity"
+                onClick={() => openEditor(post)}
+              >
                 <p className="text-sm text-zinc-300 line-clamp-2">{post.content}</p>
                 <div className="flex items-center gap-3 mt-2 text-xs text-zinc-500">
                   <span>Created {format(new Date(post.created_at), 'MMM d, yyyy')}</span>
@@ -127,20 +136,18 @@ export function PostList({ companyId }: { companyId: string }) {
                     </span>
                   )}
                 </div>
-              </div>
+              </button>
 
               <div className="flex items-center gap-1 flex-shrink-0">
-                {(post.status === 'draft' || post.status === 'scheduled') && (
-                  <Button
-                    size="sm"
-                    variant={post.status === 'scheduled' ? 'outline' : 'secondary'}
-                    onClick={() => openSchedule(post)}
-                    className="gap-1.5"
-                  >
-                    <Calendar className="w-3.5 h-3.5" />
-                    {post.status === 'scheduled' ? 'Reschedule' : 'Schedule'}
-                  </Button>
-                )}
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => openEditor(post)}
+                  className="gap-1.5"
+                >
+                  <Calendar className="w-3.5 h-3.5" />
+                  Edit
+                </Button>
                 {post.status !== 'archived' && (
                   <Button size="sm" variant="ghost" onClick={() => handleArchive(post)} title="Archive">
                     <ArchiveX className="w-3.5 h-3.5" />
@@ -155,11 +162,13 @@ export function PostList({ companyId }: { companyId: string }) {
         </div>
       )}
 
-      <ScheduleModal
-        post={scheduleTarget}
-        open={modalOpen}
-        onOpenChange={setModalOpen}
-        onScheduled={handleScheduled}
+      <PostEditorModal
+        post={editorPost}
+        open={editorOpen}
+        onOpenChange={open => { setEditorOpen(open); if (!open) setEditorPost(null) }}
+        onUpdate={handleUpdated}
+        onDelete={handleDeleted}
+        companyId={companyId}
       />
     </>
   )

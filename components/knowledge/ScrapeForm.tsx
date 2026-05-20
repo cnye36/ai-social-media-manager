@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Globe, Loader2, CheckCircle, XCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -21,6 +21,13 @@ type JobState =
 export function ScrapeForm({ companyId, onComplete }: ScrapeFormProps) {
   const [url, setUrl] = useState('')
   const [job, setJob] = useState<JobState>({ phase: 'idle' })
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (intervalRef.current !== null) clearInterval(intervalRef.current)
+    }
+  }, [])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -42,23 +49,25 @@ export function ScrapeForm({ companyId, onComplete }: ScrapeFormProps) {
     pollJob(data.jobId)
   }
 
-  async function pollJob(jobId: string) {
-    const interval = setInterval(async () => {
+  function pollJob(jobId: string) {
+    intervalRef.current = setInterval(async () => {
       const res = await fetch(`/api/knowledge/scrape/${jobId}`)
       if (!res.ok) return
 
-      const job = await res.json()
+      const status = await res.json()
 
-      if (job.status === 'running') {
-        setJob({ phase: 'running', jobId, pages: job.pages_scraped ?? 0 })
-      } else if (job.status === 'done') {
-        clearInterval(interval)
-        setJob({ phase: 'done', pages: job.pages_scraped ?? 0 })
+      if (status.status === 'running') {
+        setJob({ phase: 'running', jobId, pages: status.pages_scraped ?? 0 })
+      } else if (status.status === 'done') {
+        clearInterval(intervalRef.current!)
+        intervalRef.current = null
+        setJob({ phase: 'done', pages: status.pages_scraped ?? 0 })
         setUrl('')
         onComplete?.()
-      } else if (job.status === 'error') {
-        clearInterval(interval)
-        setJob({ phase: 'error', message: job.error_message ?? 'Unknown error' })
+      } else if (status.status === 'error') {
+        clearInterval(intervalRef.current!)
+        intervalRef.current = null
+        setJob({ phase: 'error', message: status.error_message ?? 'Unknown error' })
       }
     }, 2000)
   }

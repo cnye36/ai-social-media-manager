@@ -10,7 +10,7 @@ export async function POST(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
-  const { postContent, companyId, channel, refinementNote, brandColors } = body
+  const { postContent, companyId, channel, refinementNote, brandColors, postId } = body
 
   if (!postContent || !companyId || !channel) {
     return NextResponse.json({ error: 'postContent, companyId, and channel are required' }, { status: 400 })
@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
   if (!company) return NextResponse.json({ error: 'Company not found' }, { status: 404 })
 
   try {
-    const result = await generateMedia({ postContent, companyId, channel, refinementNote, brandColors })
+    const result = await generateMedia({ postContent, companyId, channel, refinementNote, brandColors, postId: postId ?? undefined })
     return NextResponse.json(result)
   } catch (err) {
     console.error('[media-agent]', err)

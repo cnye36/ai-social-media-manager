@@ -31,6 +31,22 @@ export function buildBaseSystemPrompt(params: {
     retrievedKnowledge, topic, contentGoal, postLength, additionalContext,
   } = params
 
+  const intelLines = brand ? [
+    brand.company_description && `- What we do: ${brand.company_description}`,
+    brand.products_services && `- Products/services: ${brand.products_services}`,
+    brand.value_proposition && `- What makes us different: ${brand.value_proposition}`,
+    brand.ideal_customer_profile && `- Ideal customer: ${brand.ideal_customer_profile}`,
+    brand.pain_points?.length && `- Problems we solve: ${brand.pain_points.join('; ')}`,
+    brand.competitors?.length && `- Competitors (do not praise): ${brand.competitors.join(', ')}`,
+    brand.geographic_focus && `- Geographic focus: ${brand.geographic_focus}`,
+    brand.company_stage && `- Stage: ${brand.company_stage}`,
+    brand.team_size && `- Team size: ${brand.team_size}`,
+  ].filter(Boolean) : []
+
+  const companyIntelSection = intelLines.length > 0
+    ? `COMPANY INTEL:\n${intelLines.join('\n')}`
+    : ''
+
   const brandSection = brand ? `
 BRAND PROFILE:
 - Tone: ${brand.tone}
@@ -54,7 +70,7 @@ ${brand.channel_overrides?.[channelName as keyof typeof brand.channel_overrides]
 
   return `You are the dedicated ${channelName} content writer for ${companyName}.
 
-${brandSection}
+${companyIntelSection ? `${companyIntelSection}\n\n` : ''}${brandSection}
 
 ${knowledgeSection}
 
@@ -66,6 +82,10 @@ CONTENT DIRECTION:
 - ${GOAL_GUIDANCE[contentGoal]}
 - ${LENGTH_GUIDANCE[postLength]}
 ${additionalContext ? `- Additional context from the user: ${additionalContext}` : ''}
+
+WRITING RULES (non-negotiable):
+- Write like a real person typed this. That means: vary sentence length unpredictably, start sentences with "And" or "But" occasionally, use contractions, drop the overly polished structure.
+- Introduce exactly one small human mistake somewhere in the post — a missed comma, a lowercase word that should be capitalized, a repeated word like "the the", a minor typo, or a sentence that runs on slightly too long. Make it feel natural, not obvious. Do not announce or call attention to it.
 
 OUTPUT FORMAT:
 Return ONLY the post content — no preamble, no "here's a post", no explanation.

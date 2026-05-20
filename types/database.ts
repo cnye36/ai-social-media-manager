@@ -1,5 +1,6 @@
 export type Channel = 'linkedin' | 'x' | 'reddit' | 'facebook'
 export type PostStatus = 'draft' | 'scheduled' | 'published' | 'archived'
+export type ArticleStatus = 'draft' | 'scheduled' | 'published' | 'archived'
 export type SourceType = 'website' | 'manual'
 export type ScrapeStatus = 'pending' | 'running' | 'done' | 'error'
 
@@ -24,6 +25,16 @@ export interface BrandProfile {
   color_palette: Record<string, string>
   channel_overrides: Partial<Record<Channel, { tone?: string; voice_notes?: string }>>
   updated_at: string
+  // Extended company intel for richer AI context
+  company_description: string | null
+  products_services: string | null
+  value_proposition: string | null
+  ideal_customer_profile: string | null
+  pain_points: string[]
+  competitors: string[]
+  geographic_focus: string | null
+  company_stage: string | null
+  team_size: string | null
 }
 
 export interface KnowledgeChunk {
@@ -38,9 +49,10 @@ export interface KnowledgeChunk {
 }
 
 export interface MediaItem {
-  type: 'image' | 'video'
+  type: 'image' | 'video' | 'infographic'
   url: string
   storage_path?: string
+  svg?: string
 }
 
 export interface Post {
@@ -57,6 +69,77 @@ export interface Post {
   ai_generated: boolean
   created_at: string
   updated_at: string
+}
+
+export interface Article {
+  id: string
+  company_id: string
+  title: string
+  body: string
+  excerpt: string | null
+  tags: string[]
+  categories: string[]
+  slug: string | null
+  site_id: string | null
+  meta_title: string | null
+  meta_description: string | null
+  author: string | null
+  status: ArticleStatus
+  scheduled_for: string | null
+  published_at: string | null
+  ai_generated: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface BlogSite {
+  id: string
+  company_id: string
+  name: string
+  base_url: string
+  default_author: string | null
+  frontmatter_template: string
+  created_at: string
+}
+
+export interface ArticleLinkIndexEntry {
+  id: string
+  company_id: string
+  article_id: string
+  slug: string
+  full_url: string
+  title: string
+  excerpt: string | null
+  tags: string[]
+  categories: string[]
+  updated_at: string
+}
+
+export interface MediaLibraryItem {
+  id: string
+  company_id: string
+  storage_path: string
+  url: string
+  prompt: string | null
+  type: 'image' | 'infographic'
+  svg: string | null
+  post_id: string | null
+  created_at: string
+}
+
+export interface BufferProfile {
+  id: string
+  service: 'twitter' | 'linkedin' | 'facebook'
+  service_username: string
+  channel: Channel
+}
+
+export interface BufferIntegration {
+  id: string
+  company_id: string
+  access_token: string
+  profiles: BufferProfile[]
+  connected_at: string
 }
 
 export interface ScrapeJob {

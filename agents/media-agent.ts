@@ -31,26 +31,26 @@ const CreateInfographicParams = z.object({
 
 // ── Tool implementations ───────────────────────────────────────────────────────
 
-function makeGenerateImageTool(companyId: string) {
+function makeGenerateImageTool(companyId: string, postId?: string) {
   return tool({
     name: 'generate_image',
     description: 'Generate a photorealistic or stylized image using AI. Best for: hero images, product shots, lifestyle/scene photography, abstract backgrounds, illustrated concepts.',
     parameters: GenerateImageParams,
     execute: async (params) => {
-      const result = await generateImage({ ...params, companyId })
+      const result = await generateImage({ ...params, companyId, postId })
       return JSON.stringify({ url: result.url, storagePath: result.storagePath, type: 'image' })
     },
   })
 }
 
-function makeCreateInfographicTool(companyId: string) {
+function makeCreateInfographicTool(companyId: string, postId?: string) {
   return tool({
     name: 'create_infographic',
     description: 'Generate a branded infographic card as SVG. Best for: statistics, step-by-step guides, feature lists, comparison tables, data visualizations.',
     parameters: CreateInfographicParams,
     execute: async (params) => {
       const spec: InfographicSpec = params
-      const result = await renderAndStoreInfographic(spec, companyId)
+      const result = await renderAndStoreInfographic(spec, companyId, postId)
       return JSON.stringify({ url: result.url, storagePath: result.storagePath, svg: result.svg, type: 'infographic' })
     },
   })
@@ -58,10 +58,10 @@ function makeCreateInfographicTool(companyId: string) {
 
 // ── Agent factory ──────────────────────────────────────────────────────────────
 
-function buildMediaAgent(companyId: string): Agent {
+function buildMediaAgent(companyId: string, postId?: string): Agent {
   return new Agent({
     name: 'MediaAgent',
-    model: 'gpt-4o',
+    model: 'gpt-5.4',
     instructions: `You are a creative media specialist for social media content. Your job is to analyze a social media post and create the perfect accompanying visual.
 
 DECISION FRAMEWORK:
@@ -78,8 +78,8 @@ COLORS:
 
 Always call exactly one tool. Return only the tool result — do not add commentary.`,
     tools: [
-      makeGenerateImageTool(companyId),
-      makeCreateInfographicTool(companyId),
+      makeGenerateImageTool(companyId, postId),
+      makeCreateInfographicTool(companyId, postId),
     ],
   })
 }
@@ -135,10 +135,11 @@ export interface GenerateMediaParams {
   channel: string
   refinementNote?: string
   brandColors?: { primary?: string; accent?: string }
+  postId?: string
 }
 
 export async function generateMedia(params: GenerateMediaParams): Promise<MediaResult> {
-  const { postContent, companyId, channel, refinementNote, brandColors } = params
+  const { postContent, companyId, channel, refinementNote, brandColors, postId } = params
 
   const colorHint = brandColors?.primary
     ? `\nBrand colors: primary ${brandColors.primary}${brandColors.accent ? `, accent ${brandColors.accent}` : ''}`
@@ -157,7 +158,7 @@ ${colorHint}${refinementHint}
 
 Analyze the post and call the appropriate tool (generate_image or create_infographic) to produce the best visual.`
 
-  const agent = buildMediaAgent(companyId)
+  const agent = buildMediaAgent(companyId, postId)
   const result = await run(agent, prompt)
   return parseMediaResult(result)
 }

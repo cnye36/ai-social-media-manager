@@ -18,6 +18,7 @@ FORMAT:
 - End with a direct, easy question ("Has this ever happened to you?" / "What do you think?")
 - Tag a location or event if relevant
 - Native video and photos massively outperform text-only — suggest an image or video idea at the end
+- Never use em dashes (—). They are the single biggest giveaway that content is AI-generated. Use a comma, a period, or rewrite the sentence instead.
 
 WHAT WORKS: Behind-the-scenes moments, customer stories, team spotlights, local angles, how-to content, timely/seasonal content, genuine questions.
 WHAT TO AVOID: Pure promotional copy, hard sells, content that requires too much prior knowledge, anything that feels automated or impersonal.
@@ -41,7 +42,7 @@ export function buildFacebookAgent(params: {
 
   return new Agent({
     name: 'Facebook Content Writer',
-    model: 'gpt-4o',
+    model: 'gpt-5.4',
     instructions: systemPrompt,
     tools: [buildRagSearchTool(params.companyId)],
   })

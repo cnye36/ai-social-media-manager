@@ -1,0 +1,521 @@
+'use client'
+
+import { useState, useRef, useEffect, useCallback } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { format } from 'date-fns'
+import {
+  ArrowLeft, Loader2, Trash2, CalendarClock, Sparkles, Check,
+  Tag, X, Copy, Wand2, ChevronDown, ChevronUp, ExternalLink,
+} from 'lucide-react'
+import Link from 'next/link'
+import { Button } from '@/components/ui/button'
+import { RichTextEditor, type RichTextEditorHandle } from './RichTextEditor'
+import { SocialFromArticle } from './SocialFromArticle'
+import { cn } from '@/lib/utils'
+import type { Article, ArticleStatus, BlogSite } from '@/types/database'
+import type { GeneratedFrontmatter } from '@/app/api/generate/article/route'
+
+const STATUSES: ArticleStatus[] = ['draft', 'scheduled', 'published', 'archived']
+
+function toDatetimeLocal(iso: string | null): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+function titleToSlug(title: string): string {
+  return title.toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-').replace(/-+/g, '-').slice(0, 80)
+}
+
+function renderFrontmatter(template: string, values: Record<string, string | string[]>): string {
+  let result = template
+  for (const [key, value] of Object.entries(values)) {
+    const placeholder = `{{${key}}}`
+    const rendered = Array.isArray(value)
+      ? value.map(v => `"${v}"`).join(', ')
+      : String(value)
+    result = result.replaceAll(placeholder, rendered)
+  }
+  return result
+}
+
+interface ArticleEditorClientProps {
+  article: Article
+  companyId: string
+  sites: BlogSite[]
+  autoGenerate?: boolean
+}
+
+export function ArticleEditorClient({ article: initialArticle, companyId, sites, autoGenerate = false }: ArticleEditorClientProps) {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const editorRef = useRef<RichTextEditorHandle>(null)
+
+  // Content
+  const [title, setTitle] = useState(initialArticle.title)
+  const [excerpt, setExcerpt] = useState(initialArticle.excerpt ?? '')
+
+  // Frontmatter
+  const [slug, setSlug] = useState(initialArticle.slug ?? '')
+  const [metaTitle, setMetaTitle] = useState(initialArticle.meta_title ?? initialArticle.title)
+  const [metaDescription, setMetaDescription] = useState(initialArticle.meta_description ?? '')
+  const [categories, setCategories] = useState<string[]>(initialArticle.categories ?? [])
+  const [tags, setTags] = useState<string[]>(initialArticle.tags ?? [])
+  const [author, setAuthor] = useState(initialArticle.author ?? '')
+  const [catInput, setCatInput] = useState('')
+  const [tagInput, setTagInput] = useState('')
+
+  // Publishing
+  const [selectedSiteId, setSelectedSiteId] = useState(initialArticle.site_id ?? sites[0]?.id ?? '')
+  const [status, setStatus] = useState<ArticleStatus>(initialArticle.status)
+  const [scheduledFor, setScheduledFor] = useState(toDatetimeLocal(initialArticle.scheduled_for))
+
+  // UI state
+  const [saving, setSaving] = useState(false)
+  const [saveSuccess, setSaveSuccess] = useState(false)
+  const [saveError, setSaveError] = useState('')
+  const [generating, setGenerating] = useState(false)
+  const [generateError, setGenerateError] = useState('')
+  const [aiEditOpen, setAiEditOpen] = useState(false)
+  const [aiInstruction, setAiInstruction] = useState('')
+  const [aiEditing, setAiEditing] = useState(false)
+  const [wordCount, setWordCount] = useState(0)
+  const [copied, setCopied] = useState(false)
+  const [frontmatterOpen, setFrontmatterOpen] = useState(true)
+
+  const selectedSite = sites.find(s => s.id === selectedSiteId)
+  const slugPreview = selectedSite
+    ? selectedSite.base_url.replace(/\/$/, '') + '/' + (slug || 'your-slug')
+    : slug
+
+  // Auto-generate on first load if requested
+  const hasAutoTriggered = useRef(false)
+  useEffect(() => {
+    const shouldGenerate = autoGenerate || searchParams.get('autoGenerate') === 'true'
+    if (shouldGenerate && !hasAutoTriggered.current && !initialArticle.body && title) {
+      hasAutoTriggered.current = true
+      void handleGenerate()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Author default from site
+  useEffect(() => {
+    if (!author && selectedSite?.default_author) setAuthor(selectedSite.default_author)
+  }, [selectedSite, author])
+
+  // Word count from editor content
+  const handleEditorChange = useCallback((markdown: string) => {
+    setWordCount(markdown.split(/\s+/).filter(Boolean).length)
+  }, [])
+
+  function addTag(input: string, list: string[], setList: (v: string[]) => void, setInput: (v: string) => void) {
+    const val = input.trim().toLowerCase()
+    if (val && !list.includes(val)) setList([...list, val])
+    setInput('')
+  }
+
+  function removeItem(val: string, list: string[], setList: (v: string[]) => void) {
+    setList(list.filter(v => v !== val))
+  }
+
+  // Auto-suggest slug from title
+  useEffect(() => {
+    if (!slug && title) setSlug(titleToSlug(title))
+  }, [title, slug])
+
+  async function handleGenerate() {
+    if (!title.trim()) { setGenerateError('Add a title first'); return }
+    setGenerating(true)
+    setGenerateError('')
+    const res = await fetch('/api/generate/article', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ companyId, title, additionalContext: excerpt || undefined, siteId: selectedSiteId || undefined }),
+    })
+    if (res.ok) {
+      const data = await res.json() as { body: string; frontmatter: GeneratedFrontmatter; defaultAuthor?: string }
+      editorRef.current?.setMarkdown(data.body)
+      setMetaTitle(data.frontmatter.metaTitle)
+      setMetaDescription(data.frontmatter.metaDescription)
+      if (!slug) setSlug(data.frontmatter.slug)
+      setCategories(data.frontmatter.categories)
+      setTags(data.frontmatter.tags)
+      if (data.defaultAuthor && !author) setAuthor(data.defaultAuthor)
+      setExcerpt(data.frontmatter.metaDescription)
+    } else {
+      const d = await res.json().catch(() => ({}))
+      setGenerateError(typeof d.error === 'string' ? d.error : 'Generation failed')
+    }
+    setGenerating(false)
+  }
+
+  async function handleAiEdit() {
+    if (!aiInstruction.trim()) return
+    setAiEditing(true)
+    const currentBody = editorRef.current?.getMarkdown() ?? ''
+    const res = await fetch('/api/generate/article/edit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ companyId, currentBody, instruction: aiInstruction }),
+    })
+    if (res.ok) {
+      const data = await res.json() as { body: string }
+      editorRef.current?.setMarkdown(data.body)
+      setAiInstruction('')
+      setAiEditOpen(false)
+    }
+    setAiEditing(false)
+  }
+
+  async function handleSave() {
+    setSaving(true)
+    setSaveError('')
+    setSaveSuccess(false)
+    const body = editorRef.current?.getMarkdown() ?? initialArticle.body
+    const res = await fetch(`/api/articles/${initialArticle.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title, body, excerpt: excerpt || null, tags, categories,
+        slug: slug || null, site_id: selectedSiteId || null,
+        meta_title: metaTitle || null, meta_description: metaDescription || null,
+        author: author || null, status,
+        scheduled_for: scheduledFor ? new Date(scheduledFor).toISOString() : null,
+      }),
+    })
+    if (res.ok) {
+      setSaveSuccess(true)
+      setTimeout(() => setSaveSuccess(false), 2500)
+    } else {
+      const d = await res.json().catch(() => ({}))
+      setSaveError(typeof d.error === 'string' ? d.error : 'Failed to save')
+    }
+    setSaving(false)
+  }
+
+  async function handleDelete() {
+    if (!confirm('Delete this article? This cannot be undone.')) return
+    await fetch(`/api/articles/${initialArticle.id}`, { method: 'DELETE' })
+    router.push(`/${companyId}/blog`)
+  }
+
+  function handleCopyMdx() {
+    const body = editorRef.current?.getMarkdown() ?? ''
+    const template = selectedSite?.frontmatter_template ?? `---
+title: "{{metaTitle}}"
+description: "{{metaDescription}}"
+date: "{{date}}"
+slug: "{{slug}}"
+categories: [{{categories}}]
+tags: [{{tags}}]
+author: "{{author}}"
+---`
+    const fm = renderFrontmatter(template, {
+      metaTitle: metaTitle || title,
+      metaDescription: metaDescription,
+      date: scheduledFor ? format(new Date(scheduledFor), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
+      slug,
+      categories,
+      tags,
+      author,
+    })
+    navigator.clipboard.writeText(`${fm}\n\n${body}`)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2500)
+  }
+
+  return (
+    <div className="min-h-screen bg-zinc-950">
+      {/* Sticky top bar */}
+      <div className="sticky top-0 z-20 bg-zinc-900/95 backdrop-blur border-b border-zinc-800 px-6 py-2.5 flex items-center gap-3 flex-wrap">
+        <Link href={`/${companyId}/blog`} className="flex items-center gap-1.5 text-sm text-zinc-500 hover:text-white transition-colors mr-2">
+          <ArrowLeft className="w-4 h-4" />
+          Blog
+        </Link>
+
+        {/* Site selector */}
+        {sites.length > 0 && (
+          <select
+            value={selectedSiteId}
+            onChange={e => setSelectedSiteId(e.target.value)}
+            className="bg-zinc-800 border border-zinc-700 rounded-lg px-2.5 py-1 text-xs text-zinc-300 focus:outline-none focus:ring-1 focus:ring-violet-500/60"
+          >
+            <option value="">No site selected</option>
+            {sites.map(s => (
+              <option key={s.id} value={s.id}>{s.name}</option>
+            ))}
+          </select>
+        )}
+        {sites.length === 0 && (
+          <Link href={`/${companyId}/settings?tab=blog`} className="text-xs text-amber-400 hover:text-amber-300">
+            + Add blog site in Settings
+          </Link>
+        )}
+
+        <div className="flex-1" />
+
+        <div className="flex items-center gap-2 flex-wrap">
+          {saveSuccess && <span className="text-xs text-green-400 font-medium">Saved</span>}
+          {saveError && <span className="text-xs text-red-400">{saveError}</span>}
+          {generateError && <span className="text-xs text-red-400">{generateError}</span>}
+
+          <Button variant="secondary" size="sm" onClick={() => setAiEditOpen(o => !o)} disabled={generating} className="gap-1.5">
+            <Wand2 className="w-3.5 h-3.5" />
+            AI Edit
+          </Button>
+          <Button variant="secondary" size="sm" onClick={handleGenerate} disabled={generating || saving} className="gap-1.5">
+            {generating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+            {generating ? 'Writing…' : 'AI Write'}
+          </Button>
+          <Button variant="secondary" size="sm" onClick={handleCopyMdx} className="gap-1.5">
+            {copied ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
+            {copied ? 'Copied!' : 'Copy MDX'}
+          </Button>
+          <Button size="sm" onClick={handleSave} disabled={saving || generating} className="gap-1.5">
+            {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+            {saving ? 'Saving…' : 'Save'}
+          </Button>
+          <Button variant="destructive" size="icon" onClick={handleDelete} title="Delete article">
+            <Trash2 className="w-4 h-4" />
+          </Button>
+        </div>
+      </div>
+
+      {/* AI Edit bar */}
+      {aiEditOpen && (
+        <div className="bg-violet-950/40 border-b border-violet-800/40 px-6 py-3 flex items-center gap-3">
+          <Wand2 className="w-4 h-4 text-violet-400 shrink-0" />
+          <input
+            value={aiInstruction}
+            onChange={e => setAiInstruction(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && !aiEditing) void handleAiEdit() }}
+            placeholder="Instruction: e.g. 'Make the intro more engaging' or 'Add a section about pricing'…"
+            className="flex-1 bg-transparent text-sm text-zinc-200 placeholder:text-zinc-600 outline-none"
+            autoFocus
+          />
+          <Button size="sm" onClick={handleAiEdit} disabled={aiEditing || !aiInstruction.trim()} className="gap-1.5 shrink-0">
+            {aiEditing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+            {aiEditing ? 'Editing…' : 'Apply'}
+          </Button>
+          <button onClick={() => setAiEditOpen(false)} className="text-zinc-600 hover:text-zinc-300">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Main content */}
+      <div className="max-w-7xl mx-auto px-6 py-8 grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-8">
+
+        {/* Left: editor */}
+        <div className="space-y-4 min-w-0">
+          <input
+            value={title}
+            onChange={e => setTitle(e.target.value)}
+            placeholder="Article title…"
+            className="w-full bg-transparent text-3xl font-bold text-white placeholder:text-zinc-700 border-none outline-none focus:ring-0"
+          />
+
+          {generating ? (
+            <div className="rounded-xl border border-zinc-800 bg-zinc-900/30 flex items-center gap-3 py-20 justify-center text-zinc-500">
+              <Loader2 className="w-5 h-5 animate-spin" />
+              <span className="text-sm">AI is writing your article with internal links…</span>
+            </div>
+          ) : (
+            <RichTextEditor
+              ref={editorRef}
+              initialMarkdown={initialArticle.body}
+              placeholder="Start writing, or click 'AI Write' to generate a complete article…"
+              onChange={handleEditorChange}
+            />
+          )}
+
+          <p className="text-xs text-zinc-700 text-right">{wordCount} words</p>
+
+          {/* Social promotion */}
+          <SocialFromArticle articleId={initialArticle.id} companyId={companyId} />
+        </div>
+
+        {/* Right: metadata sidebar */}
+        <div className="space-y-4">
+
+          {/* Frontmatter */}
+          <div className="rounded-xl border border-zinc-800 bg-zinc-900/30 overflow-hidden">
+            <button
+              onClick={() => setFrontmatterOpen(o => !o)}
+              className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-zinc-800/30 transition-colors"
+            >
+              <span className="text-xs font-semibold text-zinc-300 uppercase tracking-widest">Frontmatter / SEO</span>
+              {frontmatterOpen ? <ChevronUp className="w-4 h-4 text-zinc-600" /> : <ChevronDown className="w-4 h-4 text-zinc-600" />}
+            </button>
+
+            {frontmatterOpen && (
+              <div className="px-4 pb-4 space-y-4 border-t border-zinc-800">
+                {/* Slug */}
+                <div className="space-y-1.5 pt-3">
+                  <label className="text-[10px] text-zinc-500 uppercase tracking-widest font-medium">Slug</label>
+                  <input
+                    value={slug}
+                    onChange={e => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-'))}
+                    placeholder="url-friendly-slug"
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-xs text-zinc-300 focus:outline-none focus:ring-1 focus:ring-violet-500/60 font-mono"
+                  />
+                  {slug && (
+                    <a
+                      href={slugPreview}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1 text-[10px] text-zinc-600 hover:text-violet-400 transition-colors break-all"
+                    >
+                      <ExternalLink className="w-3 h-3 shrink-0" />
+                      {slugPreview}
+                    </a>
+                  )}
+                </div>
+
+                {/* Meta title */}
+                <div className="space-y-1.5">
+                  <label className="text-[10px] text-zinc-500 uppercase tracking-widest font-medium flex items-center justify-between">
+                    Meta title
+                    <span className={cn('text-[10px]', metaTitle.length > 60 ? 'text-red-400' : 'text-zinc-700')}>{metaTitle.length}/60</span>
+                  </label>
+                  <input
+                    value={metaTitle}
+                    onChange={e => setMetaTitle(e.target.value)}
+                    placeholder="SEO title (60 chars max)"
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-xs text-zinc-300 focus:outline-none focus:ring-1 focus:ring-violet-500/60"
+                  />
+                </div>
+
+                {/* Meta description */}
+                <div className="space-y-1.5">
+                  <label className="text-[10px] text-zinc-500 uppercase tracking-widest font-medium flex items-center justify-between">
+                    Meta description
+                    <span className={cn('text-[10px]', metaDescription.length > 155 ? 'text-red-400' : 'text-zinc-700')}>{metaDescription.length}/155</span>
+                  </label>
+                  <textarea
+                    value={metaDescription}
+                    onChange={e => setMetaDescription(e.target.value)}
+                    placeholder="Compelling description for search results (155 chars max)"
+                    rows={3}
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-xs text-zinc-300 leading-relaxed resize-none focus:outline-none focus:ring-1 focus:ring-violet-500/60"
+                  />
+                </div>
+
+                {/* Categories */}
+                <div className="space-y-1.5">
+                  <label className="text-[10px] text-zinc-500 uppercase tracking-widest font-medium">Categories</label>
+                  <div className="flex flex-wrap gap-1.5 min-h-[28px] bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-1.5">
+                    {categories.map(c => (
+                      <span key={c} className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-violet-600/20 text-violet-300 border border-violet-500/30">
+                        {c}
+                        <button onClick={() => removeItem(c, categories, setCategories)} className="hover:text-red-400"><X className="w-2.5 h-2.5" /></button>
+                      </span>
+                    ))}
+                    <input
+                      value={catInput}
+                      onChange={e => setCatInput(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addTag(catInput, categories, setCategories, setCatInput) }
+                        else if (e.key === 'Backspace' && !catInput && categories.length > 0) setCategories(categories.slice(0, -1))
+                      }}
+                      onBlur={() => catInput && addTag(catInput, categories, setCategories, setCatInput)}
+                      placeholder={categories.length === 0 ? 'Add category, Enter…' : '+'}
+                      className="flex-1 min-w-[60px] bg-transparent text-xs text-zinc-400 placeholder:text-zinc-700 outline-none"
+                    />
+                  </div>
+                </div>
+
+                {/* Tags */}
+                <div className="space-y-1.5">
+                  <label className="text-[10px] text-zinc-500 uppercase tracking-widest font-medium flex items-center gap-1">
+                    <Tag className="w-3 h-3" /> Tags
+                  </label>
+                  <div className="flex flex-wrap gap-1.5 min-h-[28px] bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-1.5">
+                    {tags.map(t => (
+                      <span key={t} className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-zinc-700 text-zinc-400">
+                        {t}
+                        <button onClick={() => removeItem(t, tags, setTags)} className="hover:text-red-400"><X className="w-2.5 h-2.5" /></button>
+                      </span>
+                    ))}
+                    <input
+                      value={tagInput}
+                      onChange={e => setTagInput(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addTag(tagInput, tags, setTags, setTagInput) }
+                        else if (e.key === 'Backspace' && !tagInput && tags.length > 0) setTags(tags.slice(0, -1))
+                      }}
+                      onBlur={() => tagInput && addTag(tagInput, tags, setTags, setTagInput)}
+                      placeholder={tags.length === 0 ? 'Add tag, Enter…' : '+'}
+                      className="flex-1 min-w-[60px] bg-transparent text-xs text-zinc-400 placeholder:text-zinc-700 outline-none"
+                    />
+                  </div>
+                </div>
+
+                {/* Author */}
+                <div className="space-y-1.5">
+                  <label className="text-[10px] text-zinc-500 uppercase tracking-widest font-medium">Author</label>
+                  <input
+                    value={author}
+                    onChange={e => setAuthor(e.target.value)}
+                    placeholder="Author name"
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-xs text-zinc-300 focus:outline-none focus:ring-1 focus:ring-violet-500/60"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Status */}
+          <div className="rounded-xl border border-zinc-800 bg-zinc-900/30 p-4 space-y-3">
+            <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-medium">Status</p>
+            <div className="grid grid-cols-2 gap-1.5">
+              {STATUSES.map(s => (
+                <button
+                  key={s}
+                  onClick={() => { setStatus(s); if (s !== 'scheduled') setScheduledFor('') }}
+                  className={cn(
+                    'py-1.5 rounded-lg text-xs font-medium capitalize transition-colors',
+                    status === s ? 'bg-violet-600 text-white' : 'bg-zinc-800 text-zinc-400 hover:text-white'
+                  )}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Schedule */}
+          <div className="rounded-xl border border-zinc-800 bg-zinc-900/30 p-4 space-y-3">
+            <label className="text-[10px] text-zinc-500 uppercase tracking-widest font-medium flex items-center gap-1.5">
+              <CalendarClock className="w-3.5 h-3.5" />
+              Schedule
+            </label>
+            <input
+              type="datetime-local"
+              value={scheduledFor}
+              onChange={e => { setScheduledFor(e.target.value); if (e.target.value) setStatus('scheduled') }}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-violet-500/60 [color-scheme:dark]"
+            />
+            {scheduledFor && (
+              <>
+                <p className="text-xs text-zinc-500">{format(new Date(scheduledFor), 'EEE, MMM d, yyyy · h:mm a')}</p>
+                <button onClick={() => { setScheduledFor(''); setStatus('draft') }} className="text-xs text-zinc-600 hover:text-red-400 transition-colors">
+                  Clear schedule
+                </button>
+              </>
+            )}
+          </div>
+
+          {/* Meta */}
+          <div className="text-xs text-zinc-700 space-y-1 px-1">
+            <p>Created {format(new Date(initialArticle.created_at), 'MMM d, yyyy')}</p>
+            {initialArticle.published_at && <p>Published {format(new Date(initialArticle.published_at), 'MMM d, yyyy')}</p>}
+            {initialArticle.ai_generated && <p className="text-violet-700">AI generated</p>}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}

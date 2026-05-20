@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, CalendarDays, Sparkles, BookOpen, Palette, FileText, Settings, LogOut } from 'lucide-react'
+import { LayoutDashboard, CalendarDays, Sparkles, FileText, Settings, LogOut, MessageSquareMore, Images, CalendarRange, BookOpen } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
@@ -12,10 +12,13 @@ import type { Company } from '@/types/database'
 const navItems = [
   { label: 'Dashboard', icon: LayoutDashboard, href: '' },
   { label: 'Generate', icon: Sparkles, href: '/generate' },
+  { label: 'Planner', icon: CalendarRange, href: '/planner' },
+  { label: 'Blog', icon: BookOpen, href: '/blog' },
+  { label: 'Reddit', icon: MessageSquareMore, href: '/reddit' },
   { label: 'Calendar', icon: CalendarDays, href: '/calendar' },
   { label: 'Posts', icon: FileText, href: '/posts' },
-  { label: 'Knowledge', icon: BookOpen, href: '/knowledge' },
-  { label: 'Brand', icon: Palette, href: '/brand' },
+  { label: 'Media', icon: Images, href: '/media' },
+  { label: 'Settings', icon: Settings, href: '/settings' },
 ]
 
 interface SidebarProps {
@@ -67,13 +70,6 @@ export function Sidebar({ companies, currentCompanyId }: SidebarProps) {
       </nav>
 
       <div className="mt-auto space-y-0.5">
-        <Link
-          href="/settings"
-          className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
-        >
-          <Settings className="w-4 h-4" />
-          Settings
-        </Link>
         <button
           onClick={handleSignOut}
           className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-zinc-400 hover:text-red-400 hover:bg-zinc-800 transition-colors"

@@ -38,13 +38,17 @@ export async function POST(request: Request) {
   const baseSlug = slugify(name)
   let slug = baseSlug
   let attempt = 0
+  const MAX_SLUG_ATTEMPTS = 100
 
-  // Ensure unique slug
-  while (true) {
+  while (attempt <= MAX_SLUG_ATTEMPTS) {
     const { data: existing } = await supabase.from('companies').select('id').eq('slug', slug).single()
     if (!existing) break
     attempt++
     slug = `${baseSlug}-${attempt}`
+  }
+
+  if (attempt > MAX_SLUG_ATTEMPTS) {
+    return NextResponse.json({ error: 'Could not generate a unique company slug' }, { status: 500 })
   }
 
   const { data: company, error } = await supabase

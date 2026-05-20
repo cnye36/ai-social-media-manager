@@ -3,7 +3,7 @@
 import { useState, useTransition } from 'react'
 import { format } from 'date-fns'
 import { Copy, Check, Trash2, CalendarClock, Calendar } from 'lucide-react'
-import { ScheduleModal } from './ScheduleModal'
+import { PostEditorModal } from './PostEditorModal'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { LinkedInIcon, XIcon, RedditIcon, FacebookIcon } from '@/components/ui/channel-icons'
@@ -42,8 +42,8 @@ export function PostsTable({ posts: initialPosts, companyId }: PostsTableProps) 
   const [statusFilter, setStatusFilter] = useState<PostStatus | 'all'>('all')
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
-  const [scheduleTarget, setScheduleTarget] = useState<Post | null>(null)
-  const [modalOpen, setModalOpen] = useState(false)
+  const [editorPost, setEditorPost] = useState<Post | null>(null)
+  const [editorOpen, setEditorOpen] = useState(false)
 
   const channels: (Channel | 'all')[] = ['all', 'linkedin', 'x', 'reddit', 'facebook']
   const statuses: (PostStatus | 'all')[] = ['all', 'draft', 'scheduled', 'published', 'archived']
@@ -79,8 +79,12 @@ export function PostsTable({ posts: initialPosts, companyId }: PostsTableProps) 
     setPosts(prev => prev.filter(p => p.id !== postId))
   }
 
-  function handleScheduled(updated: Post) {
+  function handleUpdated(updated: Post) {
     setPosts(prev => prev.map(p => p.id === updated.id ? updated : p))
+  }
+
+  function handleDeleted(id: string) {
+    setPosts(prev => prev.filter(p => p.id !== id))
   }
 
   return (
@@ -146,8 +150,11 @@ export function PostsTable({ posts: initialPosts, companyId }: PostsTableProps) 
                 </Badge>
               </div>
 
-              {/* Content */}
-              <div className="flex-1 min-w-0">
+              {/* Content — click to edit */}
+              <button
+                className="flex-1 min-w-0 text-left hover:opacity-80 transition-opacity"
+                onClick={() => { setEditorPost(post); setEditorOpen(true) }}
+              >
                 <p className="text-sm text-zinc-300 line-clamp-2 leading-relaxed">{post.content}</p>
                 <div className="flex items-center gap-3 mt-1.5">
                   <span className="text-xs text-zinc-600">
@@ -160,7 +167,7 @@ export function PostsTable({ posts: initialPosts, companyId }: PostsTableProps) 
                     </span>
                   )}
                 </div>
-              </div>
+              </button>
 
               {/* Status toggle */}
               <button
@@ -178,7 +185,7 @@ export function PostsTable({ posts: initialPosts, companyId }: PostsTableProps) 
               <div className="flex items-center gap-1 flex-shrink-0">
                 {(post.status === 'draft' || post.status === 'scheduled') && (
                   <button
-                    onClick={() => { setScheduleTarget(post); setModalOpen(true) }}
+                    onClick={() => { setEditorPost(post); setEditorOpen(true) }}
                     className="p-1.5 rounded text-zinc-600 hover:text-yellow-400 transition-colors"
                     title={post.status === 'scheduled' ? 'Reschedule' : 'Schedule'}
                   >
@@ -209,11 +216,13 @@ export function PostsTable({ posts: initialPosts, companyId }: PostsTableProps) 
       )}
     </div>
 
-    <ScheduleModal
-      post={scheduleTarget}
-      open={modalOpen}
-      onOpenChange={setModalOpen}
-      onScheduled={handleScheduled}
+    <PostEditorModal
+      post={editorPost}
+      open={editorOpen}
+      onOpenChange={open => { setEditorOpen(open); if (!open) setEditorPost(null) }}
+      onUpdate={handleUpdated}
+      onDelete={handleDeleted}
+      companyId={companyId}
     />
     </>
   )

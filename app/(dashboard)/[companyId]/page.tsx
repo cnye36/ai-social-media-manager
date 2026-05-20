@@ -1,18 +1,11 @@
 import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
 import { Sparkles, CalendarDays, FileText, BookOpen } from 'lucide-react'
-import { Badge } from '@/components/ui/badge'
-import type { Channel } from '@/types/database'
+import { DashboardPostList } from '@/components/posts/DashboardPostList'
+import type { Post } from '@/types/database'
 
 interface Props {
   params: Promise<{ companyId: string }>
-}
-
-const CHANNEL_COLORS: Record<Channel, string> = {
-  linkedin: 'linkedin',
-  x: 'x',
-  reddit: 'reddit',
-  facebook: 'facebook',
 }
 
 export default async function DashboardPage({ params }: Props) {
@@ -80,28 +73,7 @@ export default async function DashboardPage({ params }: Props) {
             View all
           </Link>
         </div>
-        <div className="divide-y divide-zinc-800">
-          {recentPosts && recentPosts.length > 0 ? (
-            recentPosts.map(post => (
-              <div key={post.id} className="px-5 py-4 flex items-start gap-4">
-                <Badge variant={CHANNEL_COLORS[post.channel as Channel] as 'linkedin' | 'x' | 'reddit' | 'facebook'} className="mt-0.5 flex-shrink-0">
-                  {post.channel}
-                </Badge>
-                <p className="text-sm text-zinc-300 flex-1 line-clamp-2">{post.content}</p>
-                <Badge variant={post.status as 'draft' | 'scheduled' | 'published' | 'archived'} className="flex-shrink-0">
-                  {post.status}
-                </Badge>
-              </div>
-            ))
-          ) : (
-            <div className="px-5 py-12 text-center text-zinc-500 text-sm">
-              No posts yet.{' '}
-              <Link href={`/${companyId}/generate`} className="text-violet-400 hover:underline">
-                Generate your first one
-              </Link>
-            </div>
-          )}
-        </div>
+        <DashboardPostList posts={(recentPosts ?? []) as Post[]} companyId={companyId} />
       </div>
     </div>
   )

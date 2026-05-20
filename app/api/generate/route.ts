@@ -96,7 +96,7 @@ export async function POST(request: Request) {
         .join('\n\n')
 
       const completion = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: 'gpt-5.4-mini',
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: `Write a ${channel} post about: ${topic}` },
@@ -115,7 +115,7 @@ export async function POST(request: Request) {
           status: 'draft',
           content,
           ai_generated: true,
-          generation_params: { topic, model: 'gpt-4o-mini' },
+          generation_params: { topic, model: 'gpt-5.4-mini' },
           content_variants: {},
           media_items: [],
         })
