@@ -98,7 +98,7 @@ Return a JSON object:
   let outline = ''
   try {
     const outlineRes = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: 'gpt-5.4-mini',
       messages: [
         {
           role: 'system',
@@ -147,7 +147,7 @@ Return a JSON object:
 
     // ── Phase 3: Generate SEO frontmatter from the written article ───────────
     const frontmatterRes = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: 'gpt-5.4-mini',
       messages: [
         {
           role: 'system',
