@@ -12,6 +12,18 @@ export async function GET(req: NextRequest) {
 
   const companyId = req.nextUrl.searchParams.get('companyId') ?? undefined
 
+  // ?probe=r/subredditname — quick sanity check: fetch 5 posts from one subreddit and return them
+  const probe = req.nextUrl.searchParams.get('probe')
+  if (probe) {
+    const sub = probe.replace(/^r\//, '')
+    const res = await fetch(`https://www.reddit.com/r/${sub}/new.json?limit=5`, {
+      headers: { 'User-Agent': 'social-media-manager/1.0 (by /u/your_reddit_username)' },
+      cache: 'no-store',
+    })
+    const body = await res.text()
+    return NextResponse.json({ status: res.status, sub, body: JSON.parse(body) })
+  }
+
   try {
     const result = await runMonitors(companyId)
     return NextResponse.json(result)

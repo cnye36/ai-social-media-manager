@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Sparkles, Loader2, GitBranch } from 'lucide-react'
 import { LinkedInIcon, XIcon, FacebookIcon } from '@/components/ui/channel-icons'
 import { Button } from '@/components/ui/button'
@@ -31,6 +31,24 @@ const LENGTHS: { id: PostLength; label: string }[] = [
   { id: 'long', label: 'Long' },
 ]
 
+const CHANNEL_IDS = CHANNELS.map(c => c.id)
+
+function channelsStorageKey(companyId: string) {
+  return `generate-channels-${companyId}`
+}
+
+function loadStoredChannels(companyId: string): Channel[] {
+  try {
+    const raw = sessionStorage.getItem(channelsStorageKey(companyId))
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter((ch): ch is Channel => CHANNEL_IDS.includes(ch as Channel))
+  } catch {
+    return []
+  }
+}
+
 interface GenerateFormProps {
   companyId: string
   onStream: (channel: Channel) => void
@@ -43,13 +61,21 @@ interface GenerateFormProps {
 export function GenerateForm({
   companyId, onStream, onChunk, onDone, onError, onBatchGenerated,
 }: GenerateFormProps) {
-  const [selectedChannels, setSelectedChannels] = useState<Channel[]>(['linkedin'])
+  const [selectedChannels, setSelectedChannels] = useState<Channel[]>([])
   const [topic, setTopic] = useState('')
   const [contentGoal, setContentGoal] = useState<ContentGoal>('awareness')
   const [postLength, setPostLength] = useState<PostLength>('medium')
   const [additionalContext, setAdditionalContext] = useState('')
   const [loading, setLoading] = useState(false)
   const [threadMode, setThreadMode] = useState(false)
+
+  useEffect(() => {
+    setSelectedChannels(loadStoredChannels(companyId))
+  }, [companyId])
+
+  useEffect(() => {
+    sessionStorage.setItem(channelsStorageKey(companyId), JSON.stringify(selectedChannels))
+  }, [companyId, selectedChannels])
 
   const isXOnly = selectedChannels.length === 1 && selectedChannels[0] === 'x'
 
@@ -74,10 +100,9 @@ export function GenerateForm({
     const { topic: t, contentGoal: goal, postLength: length, channels, additionalContext: ctx, useThread = false } = params
     if (!t.trim() || channels.length === 0) return
 
-    // Sync form state so the fields reflect what's generating
+    // Sync form fields (channel toggles are user-controlled only)
     setTopic(t)
     setContentGoal(goal)
-    setSelectedChannels(channels)
     if (ctx !== undefined) setAdditionalContext(ctx)
     setLoading(true)
 
@@ -207,14 +232,18 @@ export function GenerateForm({
   }
 
   function handleIdeaGenerate(idea: PostIdea) {
-    const validChannels = idea.suggestedChannels.filter((ch): ch is Channel =>
-      CHANNELS.some(c => c.id === ch)
-    )
+    if (selectedChannels.length === 0) {
+      onError('Select at least one channel before generating from an idea')
+      return
+    }
+    setTopic(idea.title)
+    setContentGoal(idea.angle)
+    setAdditionalContext(idea.description)
     doGenerate({
       topic: idea.title,
       contentGoal: idea.angle,
       postLength: 'medium',
-      channels: validChannels.length > 0 ? validChannels : ['linkedin'],
+      channels: selectedChannels,
       additionalContext: idea.description,
     })
   }
@@ -228,7 +257,7 @@ export function GenerateForm({
       <div className="space-y-2">
         <Label>Channels</Label>
         <p className="text-xs text-zinc-500">
-          Pick one for live streaming preview, or multiple to generate all at once
+          Only toggled channels are generated. One channel streams live; multiple run in parallel.
         </p>
         <div className="grid grid-cols-3 gap-2">
           {CHANNELS.map(({ id, label, icon, hint }) => {
@@ -277,6 +306,7 @@ export function GenerateForm({
         <Label htmlFor="topic">What to write about</Label>
         <IdeaSpark
           companyId={companyId}
+          selectedChannels={selectedChannels}
           onGenerate={handleIdeaGenerate}
           disabled={loading}
         />

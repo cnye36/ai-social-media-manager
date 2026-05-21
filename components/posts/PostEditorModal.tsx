@@ -316,10 +316,9 @@ export function PostEditorModal({
                 brandColors={brandColors}
                 onAccept={async r => {
                   const newItems: Post['media_items'] = [{
-                    type: r.type,
+                    type: 'image',
                     url: r.url,
                     storage_path: r.storagePath,
-                    svg: r.svg ?? undefined,
                   }]
                   setPendingMediaUrl(r.url)
                   setPendingMediaItems(newItems)

@@ -101,9 +101,10 @@ function pickTool(tools: McpTool[], candidates: string[]): McpTool | undefined {
 }
 
 function extractContent(result: unknown): unknown {
-  const r = result as { content?: Array<{ type: string; text?: string }> }
+  const r = result as { isError?: boolean; content?: Array<{ type: string; text?: string }> }
   const item = r?.content?.find(c => c.type === 'text')
   if (item?.text) {
+    if (r.isError) throw new Error(`Buffer MCP tool error: ${item.text}`)
     try { return JSON.parse(item.text) } catch { return item.text }
   }
   return result
@@ -122,10 +123,9 @@ async function callTool(
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
-// organizationId is provided by the user from their Buffer settings — no programmatic lookup needed
 export async function fetchBufferProfiles(
   accessToken: string,
-  organizationId: string
+  organizationId?: string
 ): Promise<BufferProfile[]> {
   const sessionId = await initSession(accessToken)
   const tools = await listTools(accessToken, sessionId)
@@ -143,7 +143,8 @@ export async function fetchBufferProfiles(
     throw new Error(`No channel-listing tool found. Available: ${tools.map(t => t.name).join(', ')}`)
   }
 
-  const data = await callTool(accessToken, channelTool.name, { organizationId }, sessionId)
+  const channelArgs = organizationId ? { organizationId } : {}
+  const data = await callTool(accessToken, channelTool.name, channelArgs, sessionId)
 
   const items: unknown[] = Array.isArray(data)
     ? data
@@ -215,14 +216,20 @@ export async function publishViaBuffer(post: Post): Promise<PublishResult> {
   const image = post.media_items?.find(m => m.type === 'image' && m.url)
 
   const allArgs: Record<string, unknown> = {
+    // channel identifier — Buffer MCP accepts various names
     channel_id: profile.id,
     channelId: profile.id,
     profile_id: profile.id,
     organizationId: integration.organization_id,
+    // content
     text: post.content,
     content: post.content,
-    ...(scheduled ? { scheduled_at: scheduled, scheduledAt: scheduled, due_at: scheduled } : {}),
-    ...(image?.url ? { media_urls: [image.url], mediaUrls: [image.url], image_url: image.url } : {}),
+    // scheduling — Buffer GraphQL API requires these; MCP may default them
+    schedulingType: scheduled ? 'scheduled' : 'queue',
+    mode: scheduled ? 'SCHEDULED' : 'QUEUE',
+    assets: image?.url ? [{ url: image.url }] : [],
+    ...(scheduled ? { scheduled_at: scheduled, scheduledAt: scheduled, due_at: scheduled, dueAt: scheduled } : {}),
+    ...(image?.url ? { media_urls: [image.url], mediaUrls: [image.url], image_url: image.url, image_urls: [image.url] } : {}),
   }
 
   const args = knownKeys
@@ -230,8 +237,17 @@ export async function publishViaBuffer(post: Post): Promise<PublishResult> {
     : allArgs
 
   const result = await callTool(integration.access_token, createTool.name, args, sessionId)
+
+  // Surface any error string the MCP returned instead of silently succeeding
+  if (typeof result === 'string' && result.length > 0) {
+    const lower = result.toLowerCase()
+    if (lower.includes('error') || lower.includes('failed') || lower.includes('invalid')) {
+      throw new Error(`Buffer rejected the post: ${result}`)
+    }
+  }
+
   const r = result as Record<string, string> | null
-  const postId = r?.id ?? r?.post_id ?? r?.update_id
+  const postId = r?.id ?? r?.post_id ?? r?.update_id ?? r?.postId ?? r?.updateId
 
   return { success: true, platformPostId: postId }
 }

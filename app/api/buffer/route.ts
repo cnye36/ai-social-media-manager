@@ -33,15 +33,15 @@ export async function POST(req: NextRequest) {
     accessToken?: string
     organizationId?: string
   }
-  if (!companyId || !accessToken || !organizationId) {
-    return NextResponse.json({ error: 'companyId, accessToken, and organizationId are required' }, { status: 400 })
+  if (!companyId || !accessToken) {
+    return NextResponse.json({ error: 'companyId and accessToken are required' }, { status: 400 })
   }
 
   // Verify user owns this company
   const { data: company } = await supabase.from('companies').select('id').eq('id', companyId).maybeSingle()
   if (!company) return NextResponse.json({ error: 'Company not found' }, { status: 404 })
 
-  // Validate token and fetch profiles using the provided org ID
+  // Validate token and fetch profiles
   let profiles
   try {
     profiles = await fetchBufferProfiles(accessToken, organizationId)
@@ -54,7 +54,7 @@ export async function POST(req: NextRequest) {
     .upsert({
       company_id: companyId,
       access_token: accessToken,
-      organization_id: organizationId,
+      ...(organizationId ? { organization_id: organizationId } : {}),
       profiles,
       connected_at: new Date().toISOString(),
     })

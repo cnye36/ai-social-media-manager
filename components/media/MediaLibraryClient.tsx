@@ -67,7 +67,7 @@ export function MediaLibraryClient({ companyId }: { companyId: string }) {
           <div className="flex items-center justify-between mb-8">
             <div>
               <h1 className="text-2xl font-bold text-white">Media Library</h1>
-              <p className="text-zinc-400 mt-1 text-sm">All generated images and infographics — click any to view, edit, or open in Canva</p>
+              <p className="text-zinc-400 mt-1 text-sm">All generated images — click any to view, regenerate, or edit in Canva</p>
             </div>
             <button
               onClick={load}
@@ -106,19 +106,12 @@ export function MediaLibraryClient({ companyId }: { companyId: string }) {
                 >
                   {/* Thumbnail */}
                   <div className="relative aspect-video bg-zinc-950 flex items-center justify-center overflow-hidden">
-                    {item.type === 'infographic' && item.svg ? (
-                      <div
-                        className="w-full h-full pointer-events-none"
-                        dangerouslySetInnerHTML={{ __html: item.svg }}
-                      />
-                    ) : (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={item.url}
-                        alt={item.prompt ?? 'Generated image'}
-                        className="w-full h-full object-cover"
-                      />
-                    )}
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={item.url}
+                      alt={item.prompt ?? 'Generated image'}
+                      className="w-full h-full object-cover"
+                    />
 
                     {/* Hover overlay */}
                     <div className="absolute inset-0 bg-zinc-900/70 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
@@ -132,13 +125,8 @@ export function MediaLibraryClient({ companyId }: { companyId: string }) {
                   {/* Info */}
                   <div className="p-3 space-y-2">
                     <div className="flex items-center justify-between gap-2">
-                      <span className={cn(
-                        'text-[10px] font-medium px-1.5 py-0.5 rounded',
-                        item.type === 'image'
-                          ? 'bg-blue-500/15 text-blue-300'
-                          : 'bg-emerald-500/15 text-emerald-300'
-                      )}>
-                        {item.type === 'image' ? 'AI Image' : 'Infographic'}
+                      <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-300">
+                        AI Image
                       </span>
                       <span className="text-[10px] text-zinc-600">
                         {format(new Date(item.created_at), 'MMM d')}

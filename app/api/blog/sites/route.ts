@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { DEFAULT_FRONTMATTER_TEMPLATE } from '@/lib/blog/frontmatter'
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
@@ -42,7 +43,13 @@ export async function POST(request: Request) {
 
   const { data, error } = await supabase
     .from('blog_sites')
-    .insert({ company_id, name, base_url, default_author: default_author ?? null, frontmatter_template: frontmatter_template ?? undefined })
+    .insert({
+      company_id,
+      name,
+      base_url,
+      default_author: default_author ?? null,
+      frontmatter_template: frontmatter_template ?? DEFAULT_FRONTMATTER_TEMPLATE,
+    })
     .select()
     .single()
 

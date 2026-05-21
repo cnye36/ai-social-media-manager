@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils'
 import type { Article, ArticleStatus, BlogSite } from '@/types/database'
 import type { ArticleFormat } from '@/types/agents'
 import type { GeneratedFrontmatter } from '@/app/api/generate/article/route'
+import { buildArticleFrontmatter } from '@/lib/blog/frontmatter'
 
 const FORMAT_OPTIONS: { value: ArticleFormat; label: string; icon: React.ReactNode }[] = [
   { value: 'blog_post', label: 'Blog Post', icon: <BookOpen className="w-3 h-3" /> },
@@ -34,18 +35,6 @@ function toDatetimeLocal(iso: string | null): string {
 
 function titleToSlug(title: string): string {
   return title.toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-').replace(/-+/g, '-').slice(0, 80)
-}
-
-function renderFrontmatter(template: string, values: Record<string, string | string[]>): string {
-  let result = template
-  for (const [key, value] of Object.entries(values)) {
-    const placeholder = `{{${key}}}`
-    const rendered = Array.isArray(value)
-      ? value.map(v => `"${v}"`).join(', ')
-      : String(value)
-    result = result.replaceAll(placeholder, rendered)
-  }
-  return result
 }
 
 interface ArticleEditorClientProps {
@@ -252,47 +241,18 @@ export function ArticleEditorClient({ article: initialArticle, companyId, sites,
       ? format(new Date(scheduledFor), 'yyyy-MM-dd')
       : format(new Date(), 'yyyy-MM-dd')
     const articleSlug = slug || titleToSlug(title)
-    const escQ = (s: string) => s.replace(/"/g, '\\"')
 
-    // Use site custom template if configured, otherwise generate canonical YAML
-    if (selectedSite?.frontmatter_template) {
-      const fm = renderFrontmatter(selectedSite.frontmatter_template, {
-        metaTitle: metaTitle || title,
-        metaDescription: metaDescription,
-        date: articleDate,
-        slug: articleSlug,
-        categories,
-        tags,
-        author,
-      })
-      return `${fm}\n\n${body}`
-    }
-
-    const categoriesYaml = categories.length > 0
-      ? categories.map(c => `- ${c}`).join('\n')
-      : '- Uncategorized'
-
-    const tagsYaml = tags.length > 0
-      ? tags.map(t => `- ${t}`).join('\n')
-      : ''
-
-    const imgAlt = escQ(featuredImageAlt || `Featured image for ${title}`)
-
-    const frontmatter = `---
-title: "${escQ(metaTitle || title)}"
-description: "${escQ(metaDescription)}"
-date: ${articleDate}
-author: "${escQ(author)}"
-categories:
-${categoriesYaml}
-tags:
-${tagsYaml}
-featuredImage:
-    src: "/blog-images/${articleSlug}.png"
-    alt: "${imgAlt}"
-    width: 1024
-    height: 768
----`
+    const frontmatter = buildArticleFrontmatter({
+      metaTitle: metaTitle || title,
+      metaDescription,
+      date: articleDate,
+      author,
+      categories,
+      tags,
+      slug: articleSlug,
+      featuredImageAlt: featuredImageAlt || `Featured image for ${title}`,
+      template: selectedSite?.frontmatter_template,
+    })
 
     return `${frontmatter}\n\n${body}`
   }

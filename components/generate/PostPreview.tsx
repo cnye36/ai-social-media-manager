@@ -40,10 +40,9 @@ const CHANNEL_META: Record<Channel, { label: string; icon: React.ReactNode; acce
 }
 
 interface AcceptedMedia {
-  type: 'image' | 'infographic'
+  type: 'image'
   url: string
   storagePath: string
-  svg?: string
 }
 
 interface PostPreviewProps {
@@ -119,7 +118,7 @@ export function PostPreview({
 
   function buildMediaItems() {
     if (!acceptedMedia) return []
-    return [{ type: acceptedMedia.type, url: acceptedMedia.url, storage_path: acceptedMedia.storagePath, svg: acceptedMedia.svg ?? null }]
+    return [{ type: 'image', url: acceptedMedia.url, storage_path: acceptedMedia.storagePath }]
   }
 
   async function handleSave() {
@@ -189,7 +188,7 @@ export function PostPreview({
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          media_items: [{ type: media.type, url: media.url, storage_path: media.storagePath, svg: media.svg ?? null }],
+          media_items: [{ type: 'image', url: media.url, storage_path: media.storagePath }],
         }),
       })
     }
@@ -268,7 +267,7 @@ export function PostPreview({
                 )}
               >
                 <ImageIcon className="w-3.5 h-3.5" />
-                {acceptedMedia ? (acceptedMedia.type === 'image' ? 'Image ✓' : 'Infographic ✓') : 'Add media'}
+                {acceptedMedia ? 'Image ✓' : 'Add image'}
               </Button>
               <Button variant="ghost" size="sm" onClick={handleCopy}>
                 {copied ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
@@ -346,7 +345,7 @@ export function PostPreview({
                 <div className="flex items-center gap-1.5">
                   <ImageIcon className="w-3 h-3 text-violet-400" />
                   <span className="text-[10px] text-zinc-400 font-medium uppercase tracking-wide">
-                    {acceptedMedia.type === 'image' ? 'AI Image' : 'Infographic'} attached
+                    Image attached
                   </span>
                 </div>
                 <button
@@ -356,12 +355,8 @@ export function PostPreview({
                   Remove
                 </button>
               </div>
-              {acceptedMedia.type === 'infographic' && acceptedMedia.svg ? (
-                <div dangerouslySetInnerHTML={{ __html: acceptedMedia.svg }} className="w-full" />
-              ) : (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={acceptedMedia.url} alt="Attached media" className="w-full object-contain max-h-48" />
-              )}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={acceptedMedia.url} alt="Attached image" className="w-full object-contain max-h-48" />
             </div>
           </div>
         )}

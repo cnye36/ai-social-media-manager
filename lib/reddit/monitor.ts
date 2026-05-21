@@ -17,25 +17,30 @@ interface RedditPost {
 }
 
 async function fetchNewPosts(subreddit: string, after?: string | null): Promise<RedditPost[]> {
-  const params = new URLSearchParams({ limit: '25', sort: 'new' })
+  const params = new URLSearchParams({ limit: '100' })
   if (after) params.set('after', after)
 
   const res = await fetch(`${REDDIT_BASE}/r/${subreddit}/new.json?${params}`, {
     headers: { 'User-Agent': USER_AGENT },
-    next: { revalidate: 0 },
+    cache: 'no-store',
   })
 
   if (!res.ok) {
-    console.error(`Reddit fetch failed for r/${subreddit}: ${res.status}`)
+    const body = await res.text().catch(() => '')
+    console.error(`Reddit fetch failed for r/${subreddit}: HTTP ${res.status}`, body.slice(0, 300))
     return []
   }
 
-  const json = await res.json() as { data: { children: { data: RedditPost }[] } }
+  const json = await res.json() as { data?: { children?: { data: RedditPost }[] } }
+  if (!json?.data?.children) {
+    console.error(`Reddit returned unexpected shape for r/${subreddit}:`, JSON.stringify(json).slice(0, 200))
+    return []
+  }
   return json.data.children.map(c => c.data)
 }
 
 function matchesKeywords(post: RedditPost, keywords: string[]): string[] {
-  if (keywords.length === 0) return []
+  if (keywords.length === 0) return ['*']  // no keywords = catch-all, match every post
   const haystack = `${post.title} ${post.selftext}`.toLowerCase()
   return keywords.filter(kw => haystack.includes(kw.toLowerCase()))
 }
@@ -110,12 +115,16 @@ export async function runMonitors(companyId?: string): Promise<{ monitorsChecked
       }
     }
 
+    // Always update the timestamp so the UI reflects activity
     await supabase
       .from('reddit_monitors')
-      .update({
-        last_checked_at: new Date().toISOString(),
-        newest_seen_ids: newSeenIds,
-      })
+      .update({ last_checked_at: new Date().toISOString() })
+      .eq('id', monitor.id)
+
+    // Update per-subreddit cursors — may silently fail if migration hasn't been applied yet
+    await supabase
+      .from('reddit_monitors')
+      .update({ newest_seen_ids: newSeenIds })
       .eq('id', monitor.id)
   }
 
