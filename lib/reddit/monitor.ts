@@ -56,51 +56,67 @@ export async function runMonitors(companyId?: string): Promise<{ monitorsChecked
   let newOpportunities = 0
 
   for (const monitor of monitors) {
-    try {
-      const posts = await fetchNewPosts(monitor.subreddit, monitor.newest_seen_id)
-      if (!posts.length) continue
+    // Support both old single-subreddit rows and new multi-subreddit rows
+    const subreddits: string[] = monitor.subreddits?.length
+      ? monitor.subreddits
+      : monitor.subreddit
+        ? [monitor.subreddit]
+        : []
 
-      const matched = posts
-        .map(post => ({ post, hits: matchesKeywords(post, monitor.keywords) }))
-        .filter(({ hits }) => hits.length > 0)
+    if (!subreddits.length) continue
 
-      if (matched.length > 0) {
-        const rows = matched.map(({ post, hits }) => ({
-          company_id: monitor.company_id,
-          monitor_id: monitor.id,
-          reddit_post_id: post.name,
-          subreddit: post.subreddit,
-          title: post.title,
-          selftext: post.selftext,
-          url: `https://reddit.com${post.url.startsWith('/') ? post.url : '/' + post.id}`,
-          author: post.author,
-          score: post.score,
-          num_comments: post.num_comments,
-          matched_keywords: hits,
-        }))
+    const seenIds: Record<string, string> = monitor.newest_seen_ids ?? {}
+    const newSeenIds: Record<string, string> = { ...seenIds }
 
-        const { error: insertError, data: inserted } = await supabase
-          .from('reddit_opportunities')
-          .upsert(rows, { onConflict: 'company_id,reddit_post_id', ignoreDuplicates: true })
-          .select('id')
+    for (const subreddit of subreddits) {
+      try {
+        const posts = await fetchNewPosts(subreddit, seenIds[subreddit])
+        if (!posts.length) continue
 
-        if (!insertError) newOpportunities += inserted?.length ?? matched.length
+        const matched = posts
+          .map(post => ({ post, hits: matchesKeywords(post, monitor.keywords) }))
+          .filter(({ hits }) => hits.length > 0)
+
+        if (matched.length > 0) {
+          const rows = matched.map(({ post, hits }) => ({
+            company_id: monitor.company_id,
+            monitor_id: monitor.id,
+            reddit_post_id: post.name,
+            subreddit: post.subreddit,
+            title: post.title,
+            selftext: post.selftext,
+            url: `https://reddit.com${post.url.startsWith('/') ? post.url : '/' + post.id}`,
+            author: post.author,
+            score: post.score,
+            num_comments: post.num_comments,
+            matched_keywords: hits,
+          }))
+
+          const { error: insertError, data: inserted } = await supabase
+            .from('reddit_opportunities')
+            .upsert(rows, { onConflict: 'company_id,reddit_post_id', ignoreDuplicates: true })
+            .select('id')
+
+          if (!insertError) newOpportunities += inserted?.length ?? matched.length
+        }
+
+        // Advance cursor for this subreddit
+        newSeenIds[subreddit] = posts[0].name
+
+        // Stay well within Reddit's rate limits between subreddit fetches
+        await new Promise(r => setTimeout(r, 1100))
+      } catch (err) {
+        console.error(`Monitor error for r/${subreddit}:`, err)
       }
-
-      // Advance the cursor to the newest post we saw this run
-      await supabase
-        .from('reddit_monitors')
-        .update({
-          last_checked_at: new Date().toISOString(),
-          newest_seen_id: posts[0].name,
-        })
-        .eq('id', monitor.id)
-
-      // Small delay between subreddits to stay well within rate limits
-      await new Promise(r => setTimeout(r, 1100))
-    } catch (err) {
-      console.error(`Monitor error for r/${monitor.subreddit}:`, err)
     }
+
+    await supabase
+      .from('reddit_monitors')
+      .update({
+        last_checked_at: new Date().toISOString(),
+        newest_seen_ids: newSeenIds,
+      })
+      .eq('id', monitor.id)
   }
 
   return { monitorsChecked: monitors.length, newOpportunities }

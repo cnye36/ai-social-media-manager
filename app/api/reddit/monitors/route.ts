@@ -17,17 +17,22 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const body = await req.json() as { company_id: string; subreddit: string; keywords: string[] }
-  if (!body.company_id || !body.subreddit) {
-    return NextResponse.json({ error: 'company_id and subreddit required' }, { status: 400 })
+  const body = await req.json() as { company_id: string; subreddits: string[]; keywords: string[] }
+  if (!body.company_id || !body.subreddits?.length) {
+    return NextResponse.json({ error: 'company_id and subreddits required' }, { status: 400 })
   }
+
+  const subreddits = body.subreddits
+    .map(s => s.replace(/^r\//, '').trim().toLowerCase())
+    .filter(Boolean)
 
   const supabase = await createClient()
   const { data, error } = await supabase
     .from('reddit_monitors')
     .insert({
       company_id: body.company_id,
-      subreddit: body.subreddit.replace(/^r\//, '').trim().toLowerCase(),
+      subreddits,
+      subreddit: subreddits[0],  // old NOT NULL column — kept for compat
       keywords: body.keywords ?? [],
     })
     .select()

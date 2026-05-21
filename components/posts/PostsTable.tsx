@@ -81,6 +81,7 @@ export function PostsTable({ posts: initialPosts, companyId }: PostsTableProps) 
 
   function handleUpdated(updated: Post) {
     setPosts(prev => prev.map(p => p.id === updated.id ? updated : p))
+    setEditorPost(prev => prev?.id === updated.id ? updated : prev)
   }
 
   function handleDeleted(id: string) {

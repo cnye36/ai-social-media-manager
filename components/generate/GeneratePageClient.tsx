@@ -584,6 +584,10 @@ export function GeneratePageClient({ companyId, brandColors }: GeneratePageClien
   const [lastParams] = useState<Record<string, unknown>>({})
   const [batchPosts, setBatchPosts] = useState<GeneratedPost[]>([])
   const [batchErrors, setBatchErrors] = useState<string[]>([])
+  // Increment this to force PostPreview to remount with fresh state on each new generation.
+  // Without this, savedPostId + acceptedMedia from a previous post persist and "Update draft"
+  // silently overwrites the old post instead of creating a new draft.
+  const [generationKey, setGenerationKey] = useState(0)
 
   const isBatch = batchPosts.length > 0
   const isThread = batchPosts.length === 1 && Array.isArray(batchPosts[0]?.contentVariants?.thread)
@@ -592,6 +596,7 @@ export function GeneratePageClient({ companyId, brandColors }: GeneratePageClien
     setBatchPosts([]); setBatchErrors([])
     setActiveChannel(channel); setContent(''); setImagePrompt(undefined)
     setIsStreaming(true); setError('')
+    setGenerationKey(k => k + 1)
   }
 
   function handleChunk(chunk: string) { setContent(prev => prev + chunk) }
@@ -606,11 +611,13 @@ export function GeneratePageClient({ companyId, brandColors }: GeneratePageClien
     setActiveChannel(null)
     setContent('')
     setIsStreaming(false)
+    setGenerationKey(k => k + 1)
   }
 
   function handleReset() {
     setActiveChannel(null); setContent(''); setImagePrompt(undefined)
     setError(''); setBatchPosts([]); setBatchErrors([])
+    setGenerationKey(k => k + 1)
   }
 
   return (
@@ -659,6 +666,7 @@ export function GeneratePageClient({ companyId, brandColors }: GeneratePageClien
               />
             ) : (
               <PostPreview
+                key={generationKey}
                 channel={activeChannel}
                 content={content}
                 imagePrompt={imagePrompt}

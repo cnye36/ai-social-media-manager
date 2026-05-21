@@ -5,7 +5,7 @@ interface Params { params: Promise<{ id: string }> }
 
 export async function PATCH(req: NextRequest, { params }: Params) {
   const { id } = await params
-  const body = await req.json() as { subreddit?: string; keywords?: string[]; is_active?: boolean }
+  const body = await req.json() as { subreddits?: string[]; keywords?: string[]; is_active?: boolean }
 
   const supabase = await createClient()
   const { data, error } = await supabase

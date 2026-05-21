@@ -7,101 +7,11 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/compone
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { MediaPanel } from '@/components/generate/MediaPanel'
+import { ChannelPreview } from '@/components/posts/ChannelPreview'
 import { cn } from '@/lib/utils'
 import type { Post, Channel, PostStatus } from '@/types/database'
 
 const BUFFER_CHANNELS: Channel[] = ['linkedin', 'x', 'facebook']
-
-// ─── Channel preview mockups ────────────────────────────────────────────────
-
-function ChannelPreview({ channel, content, mediaUrl }: {
-  channel: Channel
-  content: string
-  mediaUrl?: string
-}) {
-  const clean = content.split('\n--\nIMAGE_PROMPT:')[0].trim()
-
-  if (channel === 'linkedin') return (
-    <div className="rounded-lg border border-blue-500/20 bg-zinc-950 p-3 space-y-2.5 text-left">
-      <div className="flex items-center gap-2">
-        <div className="w-8 h-8 rounded-full bg-blue-500/20 flex items-center justify-center flex-shrink-0 text-blue-300 text-xs font-bold">C</div>
-        <div>
-          <p className="text-xs font-semibold text-white leading-none">Your Company</p>
-          <p className="text-[10px] text-zinc-500 mt-0.5">Just now · 🌐</p>
-        </div>
-      </div>
-      <p className="text-[11px] text-zinc-300 leading-relaxed whitespace-pre-wrap line-clamp-6">{clean}</p>
-      {mediaUrl && <img src={mediaUrl} alt="" className="w-full rounded max-h-24 object-cover" />}
-      <div className="flex gap-4 pt-1.5 border-t border-zinc-800/60">
-        {['👍 Like', '💬 Comment', '↗ Share'].map(a => (
-          <span key={a} className="text-[10px] text-zinc-600">{a}</span>
-        ))}
-      </div>
-    </div>
-  )
-
-  if (channel === 'x') return (
-    <div className="rounded-lg border border-zinc-600/30 bg-zinc-950 p-3 space-y-2 text-left">
-      <div className="flex items-center gap-2">
-        <div className="w-8 h-8 rounded-full bg-zinc-700 flex items-center justify-center flex-shrink-0 text-zinc-300 text-xs font-bold">C</div>
-        <div className="flex items-baseline gap-1">
-          <span className="text-xs font-semibold text-white">Company</span>
-          <span className="text-[10px] text-zinc-500">@company</span>
-        </div>
-      </div>
-      <p className="text-[11px] text-zinc-200 leading-relaxed whitespace-pre-wrap">{clean}</p>
-      {mediaUrl && <img src={mediaUrl} alt="" className="w-full rounded-xl max-h-24 object-cover" />}
-      <div className="flex justify-between items-center pt-1">
-        <div className="flex gap-4">
-          {['💬', '↺', '♥', '↗'].map(a => <span key={a} className="text-[10px] text-zinc-600">{a}</span>)}
-        </div>
-        <span className={cn('text-[10px] tabular-nums', clean.length > 280 ? 'text-red-400 font-medium' : 'text-zinc-600')}>
-          {clean.length}/280
-        </span>
-      </div>
-    </div>
-  )
-
-  if (channel === 'facebook') return (
-    <div className="rounded-lg border border-blue-400/20 bg-zinc-950 p-3 space-y-2.5 text-left">
-      <div className="flex items-center gap-2">
-        <div className="w-8 h-8 rounded-full bg-blue-400/20 flex items-center justify-center flex-shrink-0 text-blue-300 text-xs font-bold">C</div>
-        <div>
-          <p className="text-xs font-semibold text-white leading-none">Your Company</p>
-          <p className="text-[10px] text-zinc-500 mt-0.5">Just now · 🌐</p>
-        </div>
-      </div>
-      <p className="text-[11px] text-zinc-300 leading-relaxed whitespace-pre-wrap line-clamp-6">{clean}</p>
-      {mediaUrl && <img src={mediaUrl} alt="" className="w-full max-h-24 object-cover" />}
-      <div className="flex gap-4 pt-1.5 border-t border-zinc-800/60">
-        {['👍 Like', '💬 Comment', '↗ Share'].map(a => (
-          <span key={a} className="text-[10px] text-zinc-600">{a}</span>
-        ))}
-      </div>
-    </div>
-  )
-
-  // Reddit
-  return (
-    <div className="rounded-lg border border-orange-500/20 bg-zinc-950 p-3 space-y-2 text-left">
-      <div className="flex items-center gap-1.5 text-[10px] text-zinc-500">
-        <span className="text-orange-400 font-medium">r/subreddit</span>
-        <span>·</span>
-        <span>Posted by u/you</span>
-      </div>
-      <p className="text-xs font-semibold text-white line-clamp-1">{clean.split('\n')[0] || clean}</p>
-      <p className="text-[11px] text-zinc-400 leading-relaxed line-clamp-3 whitespace-pre-wrap">
-        {clean.split('\n').slice(1).join('\n')}
-      </p>
-      {mediaUrl && <img src={mediaUrl} alt="" className="w-full rounded max-h-24 object-cover" />}
-      <div className="flex gap-3">
-        {['⬆ Vote', '💬 Comment', '↗ Share'].map(a => (
-          <span key={a} className="text-[10px] text-zinc-600">{a}</span>
-        ))}
-      </div>
-    </div>
-  )
-}
 
 // ─── Formatting ribbon ───────────────────────────────────────────────────────
 
@@ -413,6 +323,8 @@ export function PostEditorModal({
                   }]
                   setPendingMediaUrl(r.url)
                   setPendingMediaItems(newItems)
+                  // Switch to Post tab immediately so the user sees the media attached
+                  setTab('post')
                   const res = await fetch(`/api/posts/${post.id}`, {
                     method: 'PATCH',
                     headers: { 'Content-Type': 'application/json' },
