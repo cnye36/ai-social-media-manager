@@ -28,7 +28,6 @@ interface Integration {
 export function BufferConnect({ companyId }: { companyId: string }) {
   const [integration, setIntegration] = useState<Integration | null | undefined>(undefined)
   const [token, setToken] = useState('')
-  const [orgId, setOrgId] = useState('')
   const [showReconnect, setShowReconnect] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -41,13 +40,13 @@ export function BufferConnect({ companyId }: { companyId: string }) {
   }, [companyId])
 
   async function handleConnect() {
-    if (!token.trim() || !orgId.trim()) return
+    if (!token.trim()) return
     setLoading(true)
     setError('')
     const res = await fetch('/api/buffer', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ companyId, accessToken: token.trim(), organizationId: orgId.trim() }),
+      body: JSON.stringify({ companyId, accessToken: token.trim() }),
     })
     const data = await res.json() as { profiles?: BufferProfile[]; error?: string }
     setLoading(false)
@@ -57,7 +56,6 @@ export function BufferConnect({ companyId }: { companyId: string }) {
     }
     setIntegration({ id: '', profiles: data.profiles ?? [], connected_at: new Date().toISOString() })
     setToken('')
-    setOrgId('')
     setShowReconnect(false)
   }
 
@@ -66,6 +64,7 @@ export function BufferConnect({ companyId }: { companyId: string }) {
     setLoading(true)
     await fetch(`/api/buffer?companyId=${companyId}`, { method: 'DELETE' })
     setIntegration(null)
+    setToken('')
     setShowReconnect(false)
     setLoading(false)
   }
@@ -122,7 +121,7 @@ export function BufferConnect({ companyId }: { companyId: string }) {
             ))}
           </div>
           <p className="text-[11px] text-zinc-600 leading-relaxed pt-1">
-            Scheduled posts for these channels route through Buffer automatically. PNG images are attached as URLs; SVG infographics are text-only.
+            Scheduled posts for these channels route through Buffer automatically. Generated images are attached as URLs when present.
           </p>
           <div className="flex gap-2 pt-1">
             <Button size="sm" variant="ghost" onClick={() => setShowReconnect(true)} className="text-xs text-zinc-500">
@@ -144,28 +143,17 @@ export function BufferConnect({ companyId }: { companyId: string }) {
       {(!integration || showReconnect) && (
         <div className="space-y-3">
           <div className="space-y-1.5">
-            <label className="text-xs text-zinc-400 font-medium">Buffer access token</label>
+            <label className="text-xs text-zinc-400 font-medium">Buffer API key</label>
             <input
               type="password"
               value={token}
               onChange={e => setToken(e.target.value)}
-              placeholder="Paste your MCP token"
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-violet-500/60"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-xs text-zinc-400 font-medium">Organization ID</label>
-            <input
-              type="text"
-              value={orgId}
-              onChange={e => setOrgId(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleConnect()}
-              placeholder="e.g. 5e9a1b2c3d4e5f6a7b8c9d0e"
+              placeholder="Paste your API key"
               className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-violet-500/60"
             />
             <p className="text-[11px] text-zinc-600 leading-relaxed">
-              Both found at{' '}
+              Found at{' '}
               <a
                 href="https://publish.buffer.com/settings/integrations/mcp"
                 target="_blank" rel="noopener noreferrer"
@@ -184,7 +172,7 @@ export function BufferConnect({ companyId }: { companyId: string }) {
           )}
 
           <div className="flex gap-2">
-            <Button size="sm" onClick={handleConnect} disabled={loading || !token.trim() || !orgId.trim()}>
+            <Button size="sm" onClick={handleConnect} disabled={loading || !token.trim()}>
               <Link2 className="w-3.5 h-3.5" />
               {loading ? 'Connecting…' : 'Connect Buffer'}
             </Button>

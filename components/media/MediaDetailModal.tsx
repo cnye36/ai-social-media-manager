@@ -7,7 +7,6 @@ import {
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { Badge } from '@/components/ui/badge'
-import { cn } from '@/lib/utils'
 import type { Channel } from '@/types/database'
 
 export interface ModalMediaItem {
@@ -35,8 +34,6 @@ interface MediaDetailModalProps {
 export function MediaDetailModal({ item, companyId, onClose }: MediaDetailModalProps) {
   const [copied, setCopied] = useState(false)
   const [currentUrl, setCurrentUrl] = useState(item.url)
-  const [currentSvg, setCurrentSvg] = useState(item.svg)
-  const [currentType, setCurrentType] = useState(item.type)
 
   const [canvaLoading, setCanvaLoading] = useState(false)
   const [canvaUrl, setCanvaUrl] = useState<string | null>(null)
@@ -55,7 +52,7 @@ export function MediaDetailModal({ item, companyId, onClose }: MediaDetailModalP
   function download() {
     const a = document.createElement('a')
     a.href = currentUrl
-    a.download = `media-${item.id}.${currentType === 'infographic' ? 'svg' : 'png'}`
+    a.download = `media-${item.id}.png`
     a.target = '_blank'
     a.click()
   }
@@ -103,12 +100,10 @@ export function MediaDetailModal({ item, companyId, onClose }: MediaDetailModalP
           postId: item.post_id ?? undefined,
         }),
       })
-      const data = await res.json() as { url?: string; svg?: string; type?: string; error?: string }
-      if (!res.ok) throw new Error(data.error ?? 'Media generation failed')
+      const data = await res.json() as { url?: string; error?: string }
+      if (!res.ok) throw new Error(data.error ?? 'Image generation failed')
 
       setCurrentUrl(data.url ?? currentUrl)
-      setCurrentSvg(data.svg ?? null)
-      setCurrentType((data.type as 'image' | 'infographic') ?? currentType)
       setCanvaUrl(null)
     } catch (err) {
       setRegenError((err as Error).message)
@@ -129,16 +124,10 @@ export function MediaDetailModal({ item, companyId, onClose }: MediaDetailModalP
         style={{ maxHeight: '92vh' }}
         onClick={e => e.stopPropagation()}
       >
-        {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-800 shrink-0">
           <div className="flex items-center gap-3">
-            <span className={cn(
-              'text-xs font-medium px-2 py-0.5 rounded',
-              currentType === 'image'
-                ? 'bg-blue-500/15 text-blue-300'
-                : 'bg-emerald-500/15 text-emerald-300'
-            )}>
-              {currentType === 'image' ? 'AI Image' : 'Infographic'}
+            <span className="text-xs font-medium px-2 py-0.5 rounded bg-blue-500/15 text-blue-300">
+              AI Image
             </span>
             <span className="text-xs text-zinc-500">
               {format(new Date(item.created_at), 'MMM d, yyyy · h:mm a')}
@@ -152,30 +141,17 @@ export function MediaDetailModal({ item, companyId, onClose }: MediaDetailModalP
           </button>
         </div>
 
-        {/* Body */}
         <div className="flex flex-1 overflow-hidden min-h-0">
-
-          {/* Image pane */}
           <div className="flex-1 flex items-center justify-center bg-zinc-900 overflow-auto p-6">
-            {currentType === 'infographic' && currentSvg ? (
-              <div
-                className="w-full max-w-3xl rounded-xl overflow-hidden shadow-xl"
-                dangerouslySetInnerHTML={{ __html: currentSvg }}
-              />
-            ) : (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={currentUrl}
-                alt={item.prompt ?? 'Generated image'}
-                className="max-w-full max-h-full object-contain rounded-xl shadow-xl"
-              />
-            )}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={currentUrl}
+              alt={item.prompt ?? 'Generated image'}
+              className="max-w-full max-h-full object-contain rounded-xl shadow-xl"
+            />
           </div>
 
-          {/* Side panel */}
           <div className="w-72 shrink-0 border-l border-zinc-800 flex flex-col overflow-y-auto">
-
-            {/* Quick actions */}
             <div className="p-4 border-b border-zinc-800 space-y-2">
               <p className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider mb-3">Actions</p>
 
@@ -236,12 +212,11 @@ export function MediaDetailModal({ item, companyId, onClose }: MediaDetailModalP
               </div>
             </div>
 
-            {/* Canva Design Assistant */}
             <div className="p-4 border-b border-zinc-800 space-y-3">
               <div>
-                <p className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">Canva Design Assistant</p>
+                <p className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">Image assistant</p>
                 <p className="text-xs text-zinc-600 mt-1 leading-relaxed">
-                  Describe what you want, regenerate the image, then open in Canva to refine.
+                  Describe changes to regenerate with AI, or open in Canva to refine layout and text.
                 </p>
               </div>
 
@@ -253,7 +228,7 @@ export function MediaDetailModal({ item, companyId, onClose }: MediaDetailModalP
                     regenerate()
                   }
                 }}
-                placeholder="e.g. Dark background, bold white headline, LinkedIn banner format…"
+                placeholder="e.g. Dark background, bold white headline, infographic with 3 stat cards…"
                 rows={4}
                 className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-violet-500 resize-none"
               />
@@ -289,7 +264,6 @@ export function MediaDetailModal({ item, companyId, onClose }: MediaDetailModalP
               <p className="text-[10px] text-zinc-700 text-center">⌘ Enter to regenerate</p>
             </div>
 
-            {/* Meta info */}
             <div className="p-4 space-y-4 text-xs">
               {item.prompt && (
                 <div>

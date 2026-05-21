@@ -1,11 +1,12 @@
 'use client'
 
 import { useState, useRef } from 'react'
-import { Copy, Check, Save, RefreshCw, Image as ImageIcon, Bold, Italic, List, Send } from 'lucide-react'
+import { Copy, Check, Save, RefreshCw, Image as ImageIcon, Bold, Italic, List, Send, Eye, Pencil } from 'lucide-react'
 import { LinkedInIcon, XIcon, RedditIcon, FacebookIcon } from '@/components/ui/channel-icons'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { MediaPanel } from './MediaPanel'
+import { ChannelPreview } from '@/components/posts/ChannelPreview'
 import { cn } from '@/lib/utils'
 import type { Channel } from '@/types/database'
 
@@ -39,10 +40,9 @@ const CHANNEL_META: Record<Channel, { label: string; icon: React.ReactNode; acce
 }
 
 interface AcceptedMedia {
-  type: 'image' | 'infographic'
+  type: 'image'
   url: string
   storagePath: string
-  svg?: string
 }
 
 interface PostPreviewProps {
@@ -69,6 +69,7 @@ export function PostPreview({
   const [acceptedMedia, setAcceptedMedia] = useState<AcceptedMedia | null>(null)
   const [bufferState, setBufferState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
   const [bufferError, setBufferError] = useState('')
+  const [viewMode, setViewMode] = useState<'edit' | 'preview'>('edit')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const displayContent = editedContent ?? content
@@ -117,7 +118,7 @@ export function PostPreview({
 
   function buildMediaItems() {
     if (!acceptedMedia) return []
-    return [{ type: acceptedMedia.type, url: acceptedMedia.url, storage_path: acceptedMedia.storagePath, svg: acceptedMedia.svg ?? null }]
+    return [{ type: 'image', url: acceptedMedia.url, storage_path: acceptedMedia.storagePath }]
   }
 
   async function handleSave() {
@@ -181,12 +182,13 @@ export function PostPreview({
   // When media is accepted after a post has already been saved, immediately persist it
   async function handleMediaAccept(media: AcceptedMedia) {
     setAcceptedMedia(media)
+    setViewMode('preview')  // jump to preview so user sees the result immediately
     if (savedPostId) {
       await fetch(`/api/posts/${savedPostId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          media_items: [{ type: media.type, url: media.url, storage_path: media.storagePath, svg: media.svg ?? null }],
+          media_items: [{ type: 'image', url: media.url, storage_path: media.storagePath }],
         }),
       })
     }
@@ -228,6 +230,33 @@ export function PostPreview({
                 <RefreshCw className="w-3.5 h-3.5" />
                 New
               </Button>
+              {/* Edit / Preview toggle */}
+              <div className="flex items-center rounded-lg border border-zinc-700 overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setViewMode('edit')}
+                  className={cn(
+                    'flex items-center gap-1 px-2 py-1 text-xs transition-colors',
+                    viewMode === 'edit'
+                      ? 'bg-zinc-700 text-white'
+                      : 'text-zinc-500 hover:text-zinc-300'
+                  )}
+                >
+                  <Pencil className="w-3 h-3" /> Edit
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('preview')}
+                  className={cn(
+                    'flex items-center gap-1 px-2 py-1 text-xs transition-colors',
+                    viewMode === 'preview'
+                      ? 'bg-zinc-700 text-white'
+                      : 'text-zinc-500 hover:text-zinc-300'
+                  )}
+                >
+                  <Eye className="w-3 h-3" /> Preview
+                </button>
+              </div>
               <Button
                 variant="ghost"
                 size="sm"
@@ -238,7 +267,7 @@ export function PostPreview({
                 )}
               >
                 <ImageIcon className="w-3.5 h-3.5" />
-                {acceptedMedia ? (acceptedMedia.type === 'image' ? 'Image ✓' : 'Infographic ✓') : 'Add media'}
+                {acceptedMedia ? 'Image ✓' : 'Add image'}
               </Button>
               <Button variant="ghost" size="sm" onClick={handleCopy}>
                 {copied ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
@@ -272,6 +301,12 @@ export function PostPreview({
               {cleanContent}
               <span className="inline-block w-0.5 h-4 bg-violet-400 animate-pulse ml-0.5 align-middle" />
             </pre>
+          ) : viewMode === 'preview' && channel ? (
+            <ChannelPreview
+              channel={channel}
+              content={cleanContent}
+              mediaUrl={acceptedMedia?.url}
+            />
           ) : (
             <>
               <div className="flex items-center gap-0.5 border border-zinc-800 rounded-lg p-1 w-fit">
@@ -310,7 +345,7 @@ export function PostPreview({
                 <div className="flex items-center gap-1.5">
                   <ImageIcon className="w-3 h-3 text-violet-400" />
                   <span className="text-[10px] text-zinc-400 font-medium uppercase tracking-wide">
-                    {acceptedMedia.type === 'image' ? 'AI Image' : 'Infographic'} attached
+                    Image attached
                   </span>
                 </div>
                 <button
@@ -320,12 +355,8 @@ export function PostPreview({
                   Remove
                 </button>
               </div>
-              {acceptedMedia.type === 'infographic' && acceptedMedia.svg ? (
-                <div dangerouslySetInnerHTML={{ __html: acceptedMedia.svg }} className="w-full" />
-              ) : (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={acceptedMedia.url} alt="Attached media" className="w-full object-contain max-h-48" />
-              )}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={acceptedMedia.url} alt="Attached image" className="w-full object-contain max-h-48" />
             </div>
           </div>
         )}

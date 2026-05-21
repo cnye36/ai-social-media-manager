@@ -6,13 +6,7 @@ import { format } from 'date-fns'
 import { cn } from '@/lib/utils'
 import { MediaDetailModal } from '@/components/media/MediaDetailModal'
 import type { ModalMediaItem } from '@/components/media/MediaDetailModal'
-
-interface MediaResult {
-  type: 'image' | 'infographic'
-  url: string
-  storagePath: string
-  svg?: string
-}
+import type { MediaResult } from '@/types/media'
 
 interface LibraryItem {
   id: string
@@ -158,10 +152,9 @@ export function MediaPanel({ postContent, companyId, channel, postId, brandColor
   function acceptFromLibrary(item: LibraryItem) {
     if (!onAccept) return
     onAccept({
-      type: item.type,
+      type: 'image',
       url: item.url,
       storagePath: item.storage_path ?? item.storagePath ?? '',
-      svg: item.svg ?? undefined,
     })
   }
 
@@ -231,24 +224,20 @@ export function MediaPanel({ postContent, companyId, channel, postId, brandColor
             {loading && (
               <div className="absolute inset-0 flex flex-col items-center justify-center bg-zinc-900/90 z-10 gap-3">
                 <Loader2 className="w-8 h-8 text-violet-400 animate-spin" />
-                <p className="text-sm text-zinc-400">Generating media…</p>
+                <p className="text-sm text-zinc-400">Generating image…</p>
               </div>
             )}
 
             {!current && !loading && (
               <div className="flex flex-col items-center gap-3 py-12 text-zinc-600">
                 <ImageIcon className="w-10 h-10" />
-                <p className="text-sm">Generate media for this post</p>
+                <p className="text-sm">Generate an image for this post</p>
               </div>
             )}
 
             {current && (
-              current.result.type === 'infographic' && current.result.svg ? (
-                <div className="w-full" dangerouslySetInnerHTML={{ __html: current.result.svg }} />
-              ) : (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={current.result.url} alt="Generated media" className="w-full object-contain max-h-[480px]" />
-              )
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={current.result.url} alt="Generated image" className="w-full object-contain max-h-[480px]" />
             )}
           </div>
 
@@ -301,16 +290,16 @@ export function MediaPanel({ postContent, companyId, channel, postId, brandColor
                     onClick={acceptMedia}
                     className="flex-1 py-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg text-sm font-medium transition-colors"
                   >
-                    Use this media
+                    Use this image
                   </button>
                   <button
                     onClick={sendToCanva}
                     disabled={canvaLoading}
                     className="flex items-center gap-1.5 px-3 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-sm font-medium transition-colors disabled:opacity-40"
-                    title="Edit in Canva"
+                    title="Open in Canva to edit"
                   >
                     {canvaLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <LayoutTemplate className="w-4 h-4" />}
-                    Canva
+                    Edit in Canva
                     {canvaUrl && <ExternalLink className="w-3 h-3" />}
                   </button>
                 </>
@@ -359,12 +348,8 @@ export function MediaPanel({ postContent, companyId, channel, postId, brandColor
               <div className="grid grid-cols-2 gap-2 max-h-[420px] overflow-y-auto pr-0.5">
                 {libraryItems.map(item => (
                   <div key={item.id} className="group relative aspect-square bg-zinc-900 rounded-lg overflow-hidden border border-zinc-800 hover:border-violet-500/50 transition-colors">
-                    {item.type === 'infographic' && item.svg ? (
-                      <div className="w-full h-full pointer-events-none" dangerouslySetInnerHTML={{ __html: item.svg }} />
-                    ) : (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={item.url} alt={item.prompt ?? ''} className="w-full h-full object-cover" />
-                    )}
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={item.url} alt={item.prompt ?? ''} className="w-full h-full object-cover" />
 
                     {/* Hover actions */}
                     <div className="absolute inset-0 bg-zinc-900/80 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2 p-2">
@@ -381,8 +366,8 @@ export function MediaPanel({ postContent, companyId, channel, postId, brandColor
                           id: item.id,
                           url: item.url,
                           prompt: item.prompt,
-                          type: item.type,
-                          svg: item.svg,
+                          type: 'image',
+                          svg: null,
                           storage_path: item.storage_path ?? item.storagePath,
                           post_id: null,
                           created_at: item.created_at,
@@ -391,16 +376,13 @@ export function MediaPanel({ postContent, companyId, channel, postId, brandColor
                         className="flex items-center justify-center gap-1 px-2 py-1 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 rounded text-[11px] w-full transition-colors"
                       >
                         <Maximize2 className="w-3 h-3" />
-                        View &amp; Edit in Canva
+                        View &amp; edit in Canva
                       </button>
                     </div>
 
                     <div className="absolute bottom-1.5 left-1.5 right-1.5 flex items-center justify-between pointer-events-none">
-                      <span className={cn(
-                        'text-[9px] font-medium px-1.5 py-0.5 rounded',
-                        item.type === 'image' ? 'bg-blue-900/80 text-blue-300' : 'bg-emerald-900/80 text-emerald-300'
-                      )}>
-                        {item.type === 'image' ? 'Image' : 'Infographic'}
+                      <span className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-blue-900/80 text-blue-300">
+                        Image
                       </span>
                       <span className="text-[9px] text-zinc-500 bg-zinc-900/80 px-1 py-0.5 rounded">
                         {format(new Date(item.created_at), 'MMM d')}

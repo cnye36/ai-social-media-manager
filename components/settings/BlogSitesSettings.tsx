@@ -5,16 +5,7 @@ import { Plus, Trash2, ChevronDown, ChevronUp, ExternalLink, Loader2, Check } fr
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import type { BlogSite } from '@/types/database'
-
-const DEFAULT_TEMPLATE = `---
-title: "{{metaTitle}}"
-description: "{{metaDescription}}"
-date: "{{date}}"
-slug: "{{slug}}"
-categories: [{{categories}}]
-tags: [{{tags}}]
-author: "{{author}}"
----`
+import { DEFAULT_FRONTMATTER_TEMPLATE } from '@/lib/blog/frontmatter'
 
 interface BlogSitesSettingsProps {
   companyId: string
@@ -138,7 +129,7 @@ export function BlogSitesSettings({ companyId, initialSites }: BlogSitesSettings
                 <div className="space-y-1.5">
                   <label className="text-[10px] text-zinc-500 uppercase tracking-widest font-medium">
                     Frontmatter template
-                    <span className="ml-2 normal-case font-normal text-zinc-600">Use {'{{metaTitle}}'}, {'{{slug}}'}, {'{{categories}}'}, {'{{tags}}'}, {'{{date}}'}, {'{{author}}'}, {'{{metaDescription}}'}</span>
+                    <span className="ml-2 normal-case font-normal text-zinc-600">Use {'{{metaTitle}}'}, {'{{metaDescription}}'}, {'{{date}}'}, {'{{author}}'}, {'{{categoriesYaml}}'}, {'{{tagsSection}}'}, {'{{featuredImageSrc}}'}, {'{{featuredImageAlt}}'}, {'{{featuredImageWidth}}'}, {'{{featuredImageHeight}}'}</span>
                   </label>
                   <textarea
                     value={edit.template}
@@ -154,7 +145,7 @@ export function BlogSitesSettings({ companyId, initialSites }: BlogSitesSettings
                     {edit.saving ? 'Saving…' : edit.saved ? 'Saved!' : 'Save changes'}
                   </Button>
                   <button
-                    onClick={() => setEdit(site.id, { template: DEFAULT_TEMPLATE })}
+                    onClick={() => setEdit(site.id, { template: DEFAULT_FRONTMATTER_TEMPLATE })}
                     className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
                   >
                     Reset to default

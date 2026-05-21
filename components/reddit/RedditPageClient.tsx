@@ -36,7 +36,7 @@ interface RedditOpportunity {
 
 interface RedditMonitor {
   id: string
-  subreddit: string
+  subreddits: string[]
   keywords: string[]
   is_active: boolean
   last_checked_at: string | null
@@ -541,8 +541,10 @@ function OpportunitiesTab({ companyId }: { companyId: string }) {
 function MonitorsTab({ companyId }: { companyId: string }) {
   const [monitors, setMonitors] = useState<RedditMonitor[]>([])
   const [loading, setLoading] = useState(true)
-  const [newSubreddit, setNewSubreddit] = useState('')
-  const [newKeywords, setNewKeywords] = useState('')
+  const [subredditInput, setSubredditInput] = useState('')
+  const [newSubreddits, setNewSubreddits] = useState<string[]>([])
+  const [keywordInput, setKeywordInput] = useState('')
+  const [newKeywordTags, setNewKeywordTags] = useState<string[]>([])
   const [adding, setAdding] = useState(false)
   const [addError, setAddError] = useState('')
 
@@ -553,24 +555,76 @@ function MonitorsTab({ companyId }: { companyId: string }) {
       .catch(() => setLoading(false))
   }, [companyId])
 
+  function addSubredditTag(raw: string) {
+    const sub = raw.replace(/^r\//, '').trim().toLowerCase()
+    if (!sub || newSubreddits.includes(sub)) return
+    setNewSubreddits(prev => [...prev, sub])
+    setSubredditInput('')
+  }
+
+  function removeSubredditTag(sub: string) {
+    setNewSubreddits(prev => prev.filter(s => s !== sub))
+  }
+
+  function handleSubredditKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Enter' || e.key === ',') {
+      e.preventDefault()
+      addSubredditTag(subredditInput)
+    } else if (e.key === 'Backspace' && !subredditInput && newSubreddits.length > 0) {
+      setNewSubreddits(prev => prev.slice(0, -1))
+    }
+  }
+
+  function addKeywordTag(raw: string) {
+    const kw = raw.trim()
+    if (!kw || newKeywordTags.includes(kw)) return
+    setNewKeywordTags(prev => [...prev, kw])
+    setKeywordInput('')
+  }
+
+  function removeKeywordTag(kw: string) {
+    setNewKeywordTags(prev => prev.filter(k => k !== kw))
+  }
+
+  function handleKeywordKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      addKeywordTag(keywordInput)
+    } else if (e.key === 'Backspace' && !keywordInput && newKeywordTags.length > 0) {
+      setNewKeywordTags(prev => prev.slice(0, -1))
+    }
+  }
+
   async function addMonitor(e: React.FormEvent) {
     e.preventDefault()
-    if (!newSubreddit.trim()) return
+    // commit any text still in either input
+    const pendingSub = subredditInput.replace(/^r\//, '').trim().toLowerCase()
+    const subreddits = pendingSub
+      ? [...new Set([...newSubreddits, pendingSub])]
+      : newSubreddits
+    if (!subreddits.length) return
+
+    const pendingKw = keywordInput.trim()
+    const keywords = pendingKw
+      ? [...new Set([...newKeywordTags, pendingKw])]
+      : newKeywordTags
+
     setAdding(true)
     setAddError('')
 
-    const keywords = newKeywords.split(',').map(k => k.trim()).filter(Boolean)
     const res = await fetch('/api/reddit/monitors', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ company_id: companyId, subreddit: newSubreddit.trim(), keywords }),
+      body: JSON.stringify({ company_id: companyId, subreddits, keywords }),
     })
 
     if (res.ok) {
       const created = await res.json() as RedditMonitor
       setMonitors(prev => [...prev, created])
-      setNewSubreddit('')
-      setNewKeywords('')
+      setNewSubreddits([])
+      setSubredditInput('')
+      setNewKeywordTags([])
+      setKeywordInput('')
     } else {
       const d = await res.json() as { error?: string }
       setAddError(d.error ?? 'Failed to add monitor')
@@ -594,6 +648,8 @@ function MonitorsTab({ companyId }: { companyId: string }) {
     if (res.ok) setMonitors(prev => prev.filter(m => m.id !== id))
   }
 
+  const canSubmit = newSubreddits.length > 0 || subredditInput.replace(/^r\//, '').trim().length > 0
+
   return (
     <div className="space-y-6">
       {/* Existing monitors */}
@@ -605,7 +661,7 @@ function MonitorsTab({ companyId }: { companyId: string }) {
         <div className="flex flex-col items-center justify-center h-40 text-center border border-dashed border-zinc-700 rounded-xl">
           <Radio className="w-8 h-8 text-zinc-600 mb-3" />
           <p className="text-zinc-500 text-sm">No monitors yet</p>
-          <p className="text-zinc-600 text-xs mt-1">Add your first subreddit below</p>
+          <p className="text-zinc-600 text-xs mt-1">Add your first monitor below</p>
         </div>
       ) : (
         <div className="space-y-2">
@@ -618,11 +674,13 @@ function MonitorsTab({ companyId }: { companyId: string }) {
               )}
             >
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1.5">
-                  <span className="text-sm font-semibold text-orange-400">r/{monitor.subreddit}</span>
+                <div className="flex items-center flex-wrap gap-1.5 mb-1.5">
+                  {(monitor.subreddits ?? []).map(sub => (
+                    <span key={sub} className="text-sm font-semibold text-orange-400">r/{sub}</span>
+                  ))}
                   {monitor.last_checked_at && (
                     <span className="text-[10px] text-zinc-600">
-                      last checked {timeAgo(monitor.last_checked_at)}
+                      · last checked {timeAgo(monitor.last_checked_at)}
                     </span>
                   )}
                 </div>
@@ -667,25 +725,46 @@ function MonitorsTab({ companyId }: { companyId: string }) {
         </h3>
         <form onSubmit={addMonitor} className="space-y-4">
           <div className="space-y-1.5">
-            <Label htmlFor="mon-sub">Subreddit</Label>
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 text-sm">r/</span>
+            <Label>
+              Subreddits <span className="text-zinc-500 font-normal text-xs">(add multiple — press Enter or comma after each)</span>
+            </Label>
+            {/* Tag input */}
+            <div
+              className="flex flex-wrap gap-1.5 min-h-[40px] w-full px-2 py-1.5 bg-zinc-800 border border-zinc-700 rounded-lg focus-within:ring-1 focus-within:ring-orange-500 cursor-text"
+              onClick={e => (e.currentTarget.querySelector('input') as HTMLInputElement | null)?.focus()}
+            >
+              {newSubreddits.map(sub => (
+                <span
+                  key={sub}
+                  className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded bg-orange-900/40 border border-orange-800/60 text-orange-300 text-xs font-medium"
+                >
+                  r/{sub}
+                  <button
+                    type="button"
+                    onClick={() => removeSubredditTag(sub)}
+                    className="text-orange-500 hover:text-orange-200 transition-colors"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              ))}
               <input
-                id="mon-sub"
                 type="text"
-                value={newSubreddit}
-                onChange={e => setNewSubreddit(e.target.value.replace(/^r\//, ''))}
-                placeholder="automation"
-                required
-                className="w-full pl-7 pr-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-white placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-orange-500"
+                value={subredditInput}
+                onChange={e => setSubredditInput(e.target.value.replace(/,/g, ''))}
+                onKeyDown={handleSubredditKeyDown}
+                onBlur={() => { if (subredditInput.trim()) addSubredditTag(subredditInput) }}
+                placeholder={newSubreddits.length === 0 ? 'automation' : 'add another…'}
+                className="flex-1 min-w-[120px] bg-transparent text-sm text-white placeholder-zinc-600 focus:outline-none py-0.5 px-1"
               />
             </div>
+            {/* Suggested subreddit chips */}
             <div className="flex flex-wrap gap-1.5 pt-1">
-              {SUGGESTED_SUBREDDITS.map(sub => (
+              {SUGGESTED_SUBREDDITS.filter(s => !newSubreddits.includes(s)).map(sub => (
                 <button
                   key={sub}
                   type="button"
-                  onClick={() => setNewSubreddit(sub)}
+                  onClick={() => addSubredditTag(sub)}
                   className="px-2 py-0.5 rounded text-xs bg-zinc-800 text-zinc-500 hover:text-zinc-300 border border-transparent transition-colors"
                 >
                   r/{sub}
@@ -695,17 +774,44 @@ function MonitorsTab({ companyId }: { companyId: string }) {
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="mon-kw">
-              Keywords <span className="text-zinc-500 font-normal text-xs">(comma-separated — leave blank to catch all posts)</span>
+            <Label>
+              Keywords{' '}
+              <span className="text-zinc-500 font-normal text-xs">
+                (press Enter after each · phrases work · leave blank to catch all posts)
+              </span>
             </Label>
-            <input
-              id="mon-kw"
-              type="text"
-              value={newKeywords}
-              onChange={e => setNewKeywords(e.target.value)}
-              placeholder="automation, AI agents, n8n, Zapier"
-              className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-white placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-orange-500"
-            />
+            <div
+              className="flex flex-wrap gap-1.5 min-h-[40px] w-full px-2 py-1.5 bg-zinc-800 border border-zinc-700 rounded-lg focus-within:ring-1 focus-within:ring-orange-500 cursor-text"
+              onClick={e => (e.currentTarget.querySelector('input') as HTMLInputElement | null)?.focus()}
+            >
+              {newKeywordTags.map(kw => (
+                <span
+                  key={kw}
+                  className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded bg-zinc-700 border border-zinc-600 text-zinc-300 text-xs font-medium"
+                >
+                  {kw}
+                  <button
+                    type="button"
+                    onClick={() => removeKeywordTag(kw)}
+                    className="text-zinc-500 hover:text-zinc-200 transition-colors"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              ))}
+              <input
+                type="text"
+                value={keywordInput}
+                onChange={e => setKeywordInput(e.target.value)}
+                onKeyDown={handleKeywordKeyDown}
+                onBlur={() => { if (keywordInput.trim()) addKeywordTag(keywordInput) }}
+                placeholder={newKeywordTags.length === 0 ? 'help with automation' : 'add another…'}
+                className="flex-1 min-w-[160px] bg-transparent text-sm text-white placeholder-zinc-600 focus:outline-none py-0.5 px-1"
+              />
+            </div>
+            <p className="text-[11px] text-zinc-600">
+              Phrases match exactly — &ldquo;help with automation&rdquo; only fires on posts containing those words together.
+            </p>
           </div>
 
           {addError && (
@@ -714,7 +820,7 @@ function MonitorsTab({ companyId }: { companyId: string }) {
 
           <Button
             type="submit"
-            disabled={adding || !newSubreddit.trim()}
+            disabled={adding || !canSubmit}
             className="bg-orange-600 hover:bg-orange-500"
           >
             {adding ? <><Loader2 className="w-4 h-4 animate-spin" /> Adding…</> : <><Plus className="w-4 h-4" /> Add monitor</>}

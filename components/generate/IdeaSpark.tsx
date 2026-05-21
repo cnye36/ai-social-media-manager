@@ -17,11 +17,12 @@ const ANGLE_STYLES: Record<ContentGoal, string> = {
 
 interface IdeaSparkProps {
   companyId: string
+  selectedChannels: Channel[]
   onGenerate: (idea: PostIdea) => void
   disabled?: boolean
 }
 
-export function IdeaSpark({ companyId, onGenerate, disabled }: IdeaSparkProps) {
+export function IdeaSpark({ companyId, selectedChannels, onGenerate, disabled }: IdeaSparkProps) {
   const [open, setOpen] = useState(false)
   const [ideas, setIdeas] = useState<PostIdea[]>([])
   const [loading, setLoading] = useState(false)
@@ -64,7 +65,7 @@ export function IdeaSpark({ companyId, onGenerate, disabled }: IdeaSparkProps) {
   }
 
   function handleSelect(idea: PostIdea, idx: number) {
-    if (disabled || generatingIdx !== null) return
+    if (disabled || generatingIdx !== null || selectedChannels.length === 0) return
     setGeneratingIdx(idx)
     // Close after a brief moment so the user sees the feedback
     setTimeout(() => {
@@ -111,6 +112,12 @@ export function IdeaSpark({ companyId, onGenerate, disabled }: IdeaSparkProps) {
         )}
       </div>
 
+      {open && selectedChannels.length === 0 && (
+        <p className="text-xs text-amber-400/90 py-1">
+          Select at least one channel above — ideas generate only for your toggled channels.
+        </p>
+      )}
+
       {open && (
         <div className="grid grid-cols-1 gap-2 pt-1 pb-2">
           {error ? (
@@ -123,13 +130,13 @@ export function IdeaSpark({ companyId, onGenerate, disabled }: IdeaSparkProps) {
                   key={i}
                   type="button"
                   onClick={() => handleSelect(idea, i)}
-                  disabled={disabled || generatingIdx !== null}
+                  disabled={disabled || generatingIdx !== null || selectedChannels.length === 0}
                   className={cn(
                     'group text-left flex items-start gap-3 p-3 rounded-xl border transition-all',
                     isGenerating
                       ? 'border-violet-500/40 bg-violet-500/5'
                       : 'border-zinc-800 bg-zinc-900 hover:border-zinc-700 hover:bg-zinc-800/60',
-                    (disabled || generatingIdx !== null) && !isGenerating && 'opacity-50 cursor-not-allowed'
+                    (disabled || generatingIdx !== null || selectedChannels.length === 0) && !isGenerating && 'opacity-50 cursor-not-allowed'
                   )}
                 >
                   <div className="flex-1 min-w-0 space-y-1.5">
@@ -146,8 +153,11 @@ export function IdeaSpark({ companyId, onGenerate, disabled }: IdeaSparkProps) {
                     </div>
                     <p className="text-xs text-zinc-500 leading-relaxed">{idea.description}</p>
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      {idea.suggestedChannels.map(ch => (
-                        <Badge key={ch} variant={ch as Channel} className="text-[10px]">{ch}</Badge>
+                      {selectedChannels.map(ch => (
+                        <Badge key={ch} variant={ch} className="text-[10px]">{ch}</Badge>
+                      ))}
+                      {selectedChannels.length === 0 && idea.suggestedChannels.map(ch => (
+                        <Badge key={ch} variant={ch as Channel} className="text-[10px] opacity-60">{ch} (suggested)</Badge>
                       ))}
                     </div>
                   </div>
