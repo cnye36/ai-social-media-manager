@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { fetchNewPosts } from '@/lib/reddit/fetch-posts'
 import { runMonitors } from '@/lib/reddit/monitor'
 
 export const runtime = 'nodejs'
@@ -12,16 +13,24 @@ export async function GET(req: NextRequest) {
 
   const companyId = req.nextUrl.searchParams.get('companyId') ?? undefined
 
-  // ?probe=r/subredditname — quick sanity check: fetch 5 posts from one subreddit and return them
+  // ?probe=automation — sanity check: fetch posts via OAuth → JSON → RSS
   const probe = req.nextUrl.searchParams.get('probe')
   if (probe) {
-    const sub = probe.replace(/^r\//, '')
-    const res = await fetch(`https://www.reddit.com/r/${sub}/new.json?limit=5`, {
-      headers: { 'User-Agent': 'social-media-manager/1.0 (by /u/your_reddit_username)' },
-      cache: 'no-store',
+    const sub = probe.replace(/^r\//, '').trim()
+    const result = await fetchNewPosts(sub)
+    if (!result.ok) {
+      return NextResponse.json({ sub, ...result }, { status: 502 })
+    }
+    return NextResponse.json({
+      sub,
+      source: result.source,
+      count: result.posts.length,
+      sample: result.posts.slice(0, 3).map(p => ({
+        name: p.name,
+        title: p.title,
+        selftext: p.selftext.slice(0, 200),
+      })),
     })
-    const body = await res.text()
-    return NextResponse.json({ status: res.status, sub, body: JSON.parse(body) })
   }
 
   try {

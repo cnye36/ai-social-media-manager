@@ -192,6 +192,12 @@ function FormattingRibbon({ textareaRef, value, setValue }: {
 
 // ─── Opportunity card ─────────────────────────────────────────────────────────
 
+function redditPostUrl(opp: RedditOpportunity): string {
+  if (opp.url.startsWith('http')) return opp.url
+  const id = opp.reddit_post_id.replace(/^t3_/, '')
+  return `https://www.reddit.com/r/${opp.subreddit}/comments/${id}/`
+}
+
 function timeAgo(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime()
   const mins = Math.floor(diff / 60000)
@@ -217,6 +223,7 @@ function OpportunityCard({
   const [copied, setCopied] = useState(false)
 
   const isDismissed = opp.status === 'dismissed'
+  const postUrl = redditPostUrl(opp)
 
   async function handleDraft() {
     setDrafting(true)
@@ -287,7 +294,14 @@ function OpportunityCard({
                 {opp.status.replace('_', ' ')}
               </span>
             </div>
-            <p className="text-sm font-medium text-white leading-snug line-clamp-2">{opp.title}</p>
+            <a
+              href={postUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm font-medium text-white leading-snug line-clamp-2 hover:text-orange-300 transition-colors"
+            >
+              {opp.title}
+            </a>
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <div className="flex items-center gap-1 text-[11px] text-zinc-500">
@@ -298,6 +312,16 @@ function OpportunityCard({
               <MessageSquare className="w-3 h-3" />
               <span>{opp.num_comments}</span>
             </div>
+            <a
+              href={postUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Open post on Reddit"
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] text-zinc-400 hover:text-orange-300 hover:bg-zinc-800 border border-zinc-700/80 transition-colors"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Open</span>
+            </a>
             <button
               onClick={() => setExpanded(e => !e)}
               className="p-1 rounded text-zinc-500 hover:text-white hover:bg-zinc-800 transition-colors"
@@ -323,18 +347,19 @@ function OpportunityCard({
       {expanded && (
         <div className="border-t border-zinc-800 px-4 py-3 space-y-4">
           {/* Post body */}
-          {opp.selftext && (
+          {opp.selftext ? (
             <div className="bg-zinc-800/50 rounded-lg p-3">
               <p className="text-xs text-zinc-400 leading-relaxed whitespace-pre-wrap line-clamp-6">{opp.selftext}</p>
-              <a
-                href={opp.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-[11px] text-zinc-500 hover:text-orange-400 transition-colors mt-2"
-              >
-                View on Reddit <ExternalLink className="w-3 h-3" />
-              </a>
             </div>
+          ) : (
+            <a
+              href={postUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-[11px] text-zinc-500 hover:text-orange-400 transition-colors"
+            >
+              View full post on Reddit <ExternalLink className="w-3 h-3" />
+            </a>
           )}
 
           {/* Reply section */}
@@ -401,16 +426,14 @@ function OpportunityCard({
                   {copied ? <><Check className="w-3.5 h-3.5" /> Copied</> : <><Copy className="w-3.5 h-3.5" /> Copy reply</>}
                 </Button>
               )}
-              {opp.draft_reply && (
-                <a
-                  href={opp.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-md transition-colors border border-zinc-700"
-                >
-                  <ExternalLink className="w-3.5 h-3.5" /> Open Reddit
-                </a>
-              )}
+              <a
+                href={postUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-md transition-colors border border-zinc-700"
+              >
+                <ExternalLink className="w-3.5 h-3.5" /> Open post
+              </a>
               {opp.status !== 'manual_review' && (
                 <button
                   onClick={() => updateStatus('manual_review')}

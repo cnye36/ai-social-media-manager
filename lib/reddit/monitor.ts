@@ -1,43 +1,5 @@
 import { createAdminClient } from '@/lib/supabase/admin'
-
-const USER_AGENT = 'social-media-manager/1.0 (by /u/your_reddit_username)'
-const REDDIT_BASE = 'https://www.reddit.com'
-
-interface RedditPost {
-  id: string        // base36 id, e.g. "abc123"
-  name: string      // fullname, e.g. "t3_abc123"
-  title: string
-  selftext: string
-  url: string
-  author: string
-  score: number
-  num_comments: number
-  subreddit: string
-  created_utc: number
-}
-
-async function fetchNewPosts(subreddit: string, after?: string | null): Promise<RedditPost[]> {
-  const params = new URLSearchParams({ limit: '100' })
-  if (after) params.set('after', after)
-
-  const res = await fetch(`${REDDIT_BASE}/r/${subreddit}/new.json?${params}`, {
-    headers: { 'User-Agent': USER_AGENT },
-    cache: 'no-store',
-  })
-
-  if (!res.ok) {
-    const body = await res.text().catch(() => '')
-    console.error(`Reddit fetch failed for r/${subreddit}: HTTP ${res.status}`, body.slice(0, 300))
-    return []
-  }
-
-  const json = await res.json() as { data?: { children?: { data: RedditPost }[] } }
-  if (!json?.data?.children) {
-    console.error(`Reddit returned unexpected shape for r/${subreddit}:`, JSON.stringify(json).slice(0, 200))
-    return []
-  }
-  return json.data.children.map(c => c.data)
-}
+import { fetchNewPosts, type RedditPost } from '@/lib/reddit/fetch-posts'
 
 function matchesKeywords(post: RedditPost, keywords: string[]): string[] {
   if (keywords.length === 0) return ['*']  // no keywords = catch-all, match every post
@@ -45,7 +7,11 @@ function matchesKeywords(post: RedditPost, keywords: string[]): string[] {
   return keywords.filter(kw => haystack.includes(kw.toLowerCase()))
 }
 
-export async function runMonitors(companyId?: string): Promise<{ monitorsChecked: number; newOpportunities: number }> {
+export async function runMonitors(companyId?: string): Promise<{
+  monitorsChecked: number
+  newOpportunities: number
+  fetchErrors?: { subreddit: string; status: number; source: string; detail: string }[]
+}> {
   const supabase = createAdminClient()
 
   let query = supabase
@@ -59,6 +25,7 @@ export async function runMonitors(companyId?: string): Promise<{ monitorsChecked
   if (error || !monitors?.length) return { monitorsChecked: 0, newOpportunities: 0 }
 
   let newOpportunities = 0
+  const fetchErrors: { subreddit: string; status: number; source: string; detail: string }[] = []
 
   for (const monitor of monitors) {
     // Support both old single-subreddit rows and new multi-subreddit rows
@@ -75,7 +42,22 @@ export async function runMonitors(companyId?: string): Promise<{ monitorsChecked
 
     for (const subreddit of subreddits) {
       try {
-        const posts = await fetchNewPosts(subreddit, seenIds[subreddit])
+        const result = await fetchNewPosts(subreddit, seenIds[subreddit])
+        if (!result.ok) {
+          fetchErrors.push({
+            subreddit,
+            status: result.status,
+            source: result.source,
+            detail: result.detail,
+          })
+          console.error(
+            `Reddit fetch failed for r/${subreddit}: ${result.source} HTTP ${result.status}`,
+            result.detail,
+          )
+          continue
+        }
+
+        const posts = result.posts
         if (!posts.length) continue
 
         const matched = posts
@@ -90,7 +72,9 @@ export async function runMonitors(companyId?: string): Promise<{ monitorsChecked
             subreddit: post.subreddit,
             title: post.title,
             selftext: post.selftext,
-            url: `https://reddit.com${post.url.startsWith('/') ? post.url : '/' + post.id}`,
+            url: post.url.startsWith('http')
+              ? post.url
+              : `https://reddit.com${post.url.startsWith('/') ? post.url : '/' + post.id}`,
             author: post.author,
             score: post.score,
             num_comments: post.num_comments,
@@ -128,7 +112,11 @@ export async function runMonitors(companyId?: string): Promise<{ monitorsChecked
       .eq('id', monitor.id)
   }
 
-  return { monitorsChecked: monitors.length, newOpportunities }
+  return {
+    monitorsChecked: monitors.length,
+    newOpportunities,
+    ...(fetchErrors.length ? { fetchErrors } : {}),
+  }
 }
 
 export async function draftReply(opportunityId: string, companyId: string): Promise<string> {
