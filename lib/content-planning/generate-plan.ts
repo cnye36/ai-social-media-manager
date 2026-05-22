@@ -146,7 +146,7 @@ X-SPECIFIC: You MUST include both "single" and "thread" post_types. Singles use 
 LINKEDIN-SPECIFIC: Never exceed 3 slots in any 7-day window. Never 2 LinkedIn posts on the same day.`
 
   const completion = await openai.chat.completions.parse({
-    model: 'gpt-4.1',
+    model: 'gpt-5.4',
     messages: [
       { role: 'system', content: systemPrompt },
       {

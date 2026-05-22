@@ -86,7 +86,7 @@ export async function POST(
     channels.map(async (channel) => {
       const systemPrompt = [CHANNEL_INSTRUCTIONS[channel], brandContext, knowledgeContext].filter(Boolean).join('\n\n')
       const completion = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: 'gpt-5.4-mini',
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: `Article to promote:\n\n${articleContext}` },

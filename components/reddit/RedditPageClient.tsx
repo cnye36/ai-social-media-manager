@@ -16,7 +16,7 @@ import type { ContentGoal, GeneratedPost, PostLength } from '@/types/agents'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Tab = 'generate' | 'opportunities' | 'monitors'
+type Tab = 'generate' | 'ideas' | 'opportunities' | 'monitors'
 
 interface RedditOpportunity {
   id: string
@@ -42,10 +42,27 @@ interface RedditMonitor {
   last_checked_at: string | null
 }
 
+interface SubredditConfig {
+  id: string
+  company_id: string
+  subreddit: string
+  rules_text: string | null
+  notes: string | null
+  updated_at: string
+}
+
+interface RedditIdea {
+  title: string
+  angle: string
+  type: 'discussion' | 'story' | 'question' | 'resource' | 'ama'
+  why_it_works: string
+}
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const SUGGESTED_SUBREDDITS = [
-  'entrepreneur', 'SaaS', 'startups', 'marketing', 'smallbusiness',
+  'automation', 'ArtificialIntelligence', 'AIAgents', 'ChatGPT',
+  'startups', 'marketing', 'smallbusiness',
   'business', 'productivity', 'technology', 'webdev', 'programming',
 ]
 
@@ -886,9 +903,17 @@ function resolveRedditFromResult(
   return null
 }
 
-function GenerateTab({ companyId }: { companyId: string }) {
-  const [topic, setTopic] = useState('')
-  const [subredditHint, setSubredditHint] = useState('')
+function GenerateTab({
+  companyId,
+  initialTopic = '',
+  initialSubreddit = '',
+}: {
+  companyId: string
+  initialTopic?: string
+  initialSubreddit?: string
+}) {
+  const [topic, setTopic] = useState(initialTopic)
+  const [subredditHint, setSubredditHint] = useState(initialSubreddit)
   const [contentGoal, setContentGoal] = useState<ContentGoal>('engagement')
   const [postLength, setPostLength] = useState<PostLength>('medium')
   const [additionalContext, setAdditionalContext] = useState('')
@@ -1337,6 +1362,406 @@ function GenerateTab({ companyId }: { companyId: string }) {
   )
 }
 
+// ─── Ideas tab ────────────────────────────────────────────────────────────────
+
+const IDEA_TYPE_LABELS: Record<RedditIdea['type'], string> = {
+  discussion: 'Discussion',
+  story: 'Story',
+  question: 'Question',
+  resource: 'Resource',
+  ama: 'AMA',
+}
+
+const IDEA_TYPE_COLORS: Record<RedditIdea['type'], string> = {
+  discussion: 'bg-blue-500/15 text-blue-300 border-blue-500/20',
+  story: 'bg-violet-500/15 text-violet-300 border-violet-500/20',
+  question: 'bg-yellow-500/15 text-yellow-300 border-yellow-500/20',
+  resource: 'bg-green-500/15 text-green-300 border-green-500/20',
+  ama: 'bg-orange-500/15 text-orange-300 border-orange-500/20',
+}
+
+function IdeasTab({
+  companyId,
+  onUseIdea,
+}: {
+  companyId: string
+  onUseIdea: (topic: string, subreddit: string) => void
+}) {
+  // ── Subreddit configs state ──
+  const [configs, setConfigs] = useState<SubredditConfig[]>([])
+  const [configsLoading, setConfigsLoading] = useState(true)
+  const [newSub, setNewSub] = useState('')
+  const [newNotes, setNewNotes] = useState('')
+  const [adding, setAdding] = useState(false)
+  const [addError, setAddError] = useState('')
+  const [expandedConfig, setExpandedConfig] = useState<string | null>(null)
+  const [editingRules, setEditingRules] = useState<string | null>(null)
+  const [editRulesText, setEditRulesText] = useState('')
+  const [savingRules, setSavingRules] = useState(false)
+
+  // ── Ideas state ──
+  const [selectedSub, setSelectedSub] = useState('')
+  const [topicHint, setTopicHint] = useState('')
+  const [ideas, setIdeas] = useState<RedditIdea[]>([])
+  const [generating, setGenerating] = useState(false)
+  const [genError, setGenError] = useState('')
+
+  useEffect(() => {
+    fetch(`/api/reddit/subreddit-configs?companyId=${companyId}`)
+      .then(r => r.json())
+      .then((data: SubredditConfig[]) => {
+        setConfigs(data)
+        if (data.length > 0 && !selectedSub) setSelectedSub(data[0].subreddit)
+      })
+      .catch(() => null)
+      .finally(() => setConfigsLoading(false))
+  }, [companyId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function addConfig(e: React.FormEvent) {
+    e.preventDefault()
+    if (!newSub.trim()) return
+    setAdding(true)
+    setAddError('')
+    const res = await fetch('/api/reddit/subreddit-configs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ company_id: companyId, subreddit: newSub.trim(), notes: newNotes.trim() || undefined }),
+    })
+    if (res.ok) {
+      const created = await res.json() as SubredditConfig
+      setConfigs(prev => [...prev, created])
+      if (!selectedSub) setSelectedSub(created.subreddit)
+      setNewSub('')
+      setNewNotes('')
+    } else {
+      const d = await res.json() as { error?: string }
+      setAddError(d.error ?? 'Failed to add subreddit')
+    }
+    setAdding(false)
+  }
+
+  async function deleteConfig(id: string) {
+    const res = await fetch(`/api/reddit/subreddit-configs/${id}`, { method: 'DELETE' })
+    if (res.ok) {
+      setConfigs(prev => {
+        const next = prev.filter(c => c.id !== id)
+        if (selectedSub === prev.find(c => c.id === id)?.subreddit) {
+          setSelectedSub(next[0]?.subreddit ?? '')
+        }
+        return next
+      })
+    }
+  }
+
+  async function saveRules(id: string) {
+    setSavingRules(true)
+    const res = await fetch(`/api/reddit/subreddit-configs/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rules_text: editRulesText }),
+    })
+    if (res.ok) {
+      const updated = await res.json() as SubredditConfig
+      setConfigs(prev => prev.map(c => c.id === id ? updated : c))
+      setEditingRules(null)
+    }
+    setSavingRules(false)
+  }
+
+  async function generateIdeas(e: React.FormEvent) {
+    e.preventDefault()
+    if (!selectedSub) return
+    setGenerating(true)
+    setGenError('')
+    setIdeas([])
+    const res = await fetch('/api/reddit/ideas', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ companyId, subreddit: selectedSub, topicHint: topicHint.trim() || undefined }),
+    })
+    if (res.ok) {
+      const data = await res.json() as RedditIdea[]
+      setIdeas(data)
+    } else {
+      setGenError('Failed to generate ideas — please try again')
+    }
+    setGenerating(false)
+  }
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+
+      {/* Left: subreddit configs */}
+      <div className="space-y-4">
+        <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
+          <div className="px-5 py-4 border-b border-zinc-800">
+            <h2 className="text-sm font-semibold text-white">Your target subreddits</h2>
+            <p className="text-xs text-zinc-500 mt-0.5">Rules are auto-fetched from Reddit. You can edit them anytime.</p>
+          </div>
+
+          {configsLoading ? (
+            <div className="flex items-center justify-center h-24 text-zinc-500">
+              <Loader2 className="w-5 h-5 animate-spin" />
+            </div>
+          ) : configs.length === 0 ? (
+            <div className="px-5 py-8 text-center text-zinc-500 text-sm">
+              No subreddits configured yet. Add one below.
+            </div>
+          ) : (
+            <div className="divide-y divide-zinc-800">
+              {configs.map(cfg => (
+                <div key={cfg.id} className="px-5 py-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <button
+                      onClick={() => setExpandedConfig(expandedConfig === cfg.id ? null : cfg.id)}
+                      className="flex items-center gap-2 text-left flex-1 min-w-0"
+                    >
+                      <span className="text-sm font-semibold text-orange-400">r/{cfg.subreddit}</span>
+                      {cfg.rules_text
+                        ? <span className="text-[10px] text-green-500 bg-green-500/10 border border-green-500/20 rounded px-1.5 py-0.5">Rules loaded</span>
+                        : <span className="text-[10px] text-zinc-600 bg-zinc-800 rounded px-1.5 py-0.5">No rules</span>
+                      }
+                      {expandedConfig === cfg.id
+                        ? <ChevronUp className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+                        : <ChevronDown className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+                      }
+                    </button>
+                    <button
+                      onClick={() => deleteConfig(cfg.id)}
+                      className="p-1 rounded text-zinc-600 hover:text-red-400 hover:bg-zinc-800 transition-colors shrink-0"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+
+                  {expandedConfig === cfg.id && (
+                    <div className="mt-3 space-y-3">
+                      {editingRules === cfg.id ? (
+                        <div className="space-y-2">
+                          <label className="text-[10px] text-zinc-600 uppercase tracking-widest">Rules</label>
+                          <textarea
+                            value={editRulesText}
+                            onChange={e => setEditRulesText(e.target.value)}
+                            rows={8}
+                            placeholder="Paste or type the subreddit rules here..."
+                            className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-zinc-300 leading-relaxed resize-y focus:outline-none focus:ring-1 focus:ring-orange-500"
+                          />
+                          <div className="flex gap-2">
+                            <Button
+                              size="sm"
+                              onClick={() => saveRules(cfg.id)}
+                              disabled={savingRules}
+                              className="bg-orange-600 hover:bg-orange-500 text-xs"
+                            >
+                              {savingRules ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Save
+                            </Button>
+                            <Button size="sm" variant="ghost" onClick={() => setEditingRules(null)} className="text-xs">
+                              Cancel
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <label className="text-[10px] text-zinc-600 uppercase tracking-widest">Rules</label>
+                            <button
+                              onClick={() => { setEditingRules(cfg.id); setEditRulesText(cfg.rules_text ?? '') }}
+                              className="flex items-center gap-1 text-[11px] text-zinc-500 hover:text-white transition-colors"
+                            >
+                              <Pencil className="w-3 h-3" /> Edit
+                            </button>
+                          </div>
+                          {cfg.rules_text ? (
+                            <p className="text-xs text-zinc-400 leading-relaxed whitespace-pre-wrap line-clamp-6 bg-zinc-800/50 rounded-lg p-2.5">
+                              {cfg.rules_text}
+                            </p>
+                          ) : (
+                            <p className="text-xs text-zinc-600 italic">No rules saved. Click Edit to add them manually.</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Add form */}
+          <div className="px-5 py-4 border-t border-zinc-800 bg-zinc-900/50">
+            <form onSubmit={addConfig} className="space-y-3">
+              <div className="space-y-1.5">
+                <label className="text-[10px] text-zinc-600 uppercase tracking-widest">Add subreddit</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 text-sm">r/</span>
+                  <input
+                    type="text"
+                    value={newSub}
+                    onChange={e => setNewSub(e.target.value.replace(/^r\//, ''))}
+                    placeholder="entrepreneur"
+                    className="w-full pl-7 pr-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-white placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-orange-500"
+                  />
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {SUGGESTED_SUBREDDITS.map(sub => (
+                    <button
+                      key={sub}
+                      type="button"
+                      onClick={() => setNewSub(sub)}
+                      className="px-1.5 py-0.5 rounded text-[11px] bg-zinc-800 text-zinc-500 hover:text-zinc-300 border border-transparent transition-colors"
+                    >
+                      r/{sub}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] text-zinc-600 uppercase tracking-widest">
+                  Notes <span className="normal-case font-normal">(optional — e.g. "no self-promo on Mon")</span>
+                </label>
+                <input
+                  type="text"
+                  value={newNotes}
+                  onChange={e => setNewNotes(e.target.value)}
+                  placeholder="Any custom notes about posting here..."
+                  className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-white placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-orange-500"
+                />
+              </div>
+              {addError && (
+                <p className="text-xs text-red-400 bg-red-900/20 border border-red-800 rounded-lg px-3 py-2">{addError}</p>
+              )}
+              <Button
+                type="submit"
+                disabled={adding || !newSub.trim()}
+                size="sm"
+                className="bg-orange-600 hover:bg-orange-500 w-full"
+              >
+                {adding
+                  ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Adding + fetching rules…</>
+                  : <><Plus className="w-3.5 h-3.5" /> Add subreddit (auto-fetch rules)</>
+                }
+              </Button>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      {/* Right: ideas generator */}
+      <div className="space-y-4 sticky top-8">
+        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
+          <h2 className="text-sm font-semibold text-white mb-4">Generate ideas</h2>
+          <form onSubmit={generateIdeas} className="space-y-4">
+            <div className="space-y-1.5">
+              <label className="text-[10px] text-zinc-600 uppercase tracking-widest">Target subreddit</label>
+              {configs.length === 0 ? (
+                <p className="text-sm text-zinc-500 italic">Add a subreddit on the left first</p>
+              ) : (
+                <div className="flex flex-wrap gap-1.5">
+                  {configs.map(cfg => (
+                    <button
+                      key={cfg.id}
+                      type="button"
+                      onClick={() => setSelectedSub(cfg.subreddit)}
+                      className={cn(
+                        'px-3 py-1.5 rounded-lg text-sm font-medium border transition-all',
+                        selectedSub === cfg.subreddit
+                          ? 'bg-orange-500/15 text-orange-300 border-orange-500/30'
+                          : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:border-zinc-600 hover:text-white'
+                      )}
+                    >
+                      r/{cfg.subreddit}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-[10px] text-zinc-600 uppercase tracking-widest">
+                Topic hint <span className="normal-case font-normal text-zinc-500">(optional)</span>
+              </label>
+              <input
+                type="text"
+                value={topicHint}
+                onChange={e => setTopicHint(e.target.value)}
+                placeholder="e.g. automation, our recent product launch, lessons learned..."
+                className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-white placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-orange-500"
+              />
+            </div>
+
+            <Button
+              type="submit"
+              disabled={generating || !selectedSub}
+              className="w-full bg-orange-600 hover:bg-orange-500"
+            >
+              {generating
+                ? <><Loader2 className="w-4 h-4 animate-spin" /> Analyzing r/{selectedSub} and generating…</>
+                : <><Sparkles className="w-4 h-4" /> Create ideas for r/{selectedSub || '…'}</>
+              }
+            </Button>
+
+            {genError && (
+              <p className="text-sm text-red-400 bg-red-900/20 border border-red-800 rounded-lg px-3 py-2">{genError}</p>
+            )}
+          </form>
+        </div>
+
+        {/* Ideas list */}
+        {ideas.length > 0 && (
+          <div className="space-y-3">
+            <p className="text-xs text-zinc-500 px-1">
+              {ideas.length} ideas for r/{selectedSub} — click <span className="text-orange-400">Use this</span> to open in the generator
+            </p>
+            {ideas.map((idea, i) => (
+              <div
+                key={i}
+                className="bg-zinc-900 border border-zinc-700 rounded-xl p-4 space-y-3 hover:border-zinc-600 transition-colors"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-sm font-semibold text-white leading-snug flex-1">{idea.title}</p>
+                  <span className={cn(
+                    'text-[10px] px-1.5 py-0.5 rounded border font-medium shrink-0',
+                    IDEA_TYPE_COLORS[idea.type] ?? 'bg-zinc-800 text-zinc-400 border-zinc-700'
+                  )}>
+                    {IDEA_TYPE_LABELS[idea.type] ?? idea.type}
+                  </span>
+                </div>
+
+                <p className="text-xs text-zinc-400 leading-relaxed">{idea.angle}</p>
+
+                <div className="bg-zinc-800/60 rounded-lg p-2.5">
+                  <p className="text-[11px] text-zinc-500 leading-relaxed">
+                    <span className="text-zinc-600 font-medium uppercase tracking-wider text-[10px]">Why it works: </span>
+                    {idea.why_it_works}
+                  </p>
+                </div>
+
+                <Button
+                  size="sm"
+                  onClick={() => onUseIdea(idea.title, selectedSub)}
+                  className="bg-orange-600 hover:bg-orange-500 w-full"
+                >
+                  Use this idea <ArrowUp className="w-3.5 h-3.5 rotate-90" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {!generating && ideas.length === 0 && selectedSub && (
+          <div className="flex flex-col items-center justify-center h-40 border border-dashed border-zinc-800 rounded-xl text-center">
+            <Sparkles className="w-7 h-7 text-zinc-700 mb-2" />
+            <p className="text-sm text-zinc-500">Ideas will appear here</p>
+            <p className="text-xs text-zinc-600 mt-1">
+              Reads r/{selectedSub} rules and trending posts to generate on-brand ideas
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ─── Main page client ─────────────────────────────────────────────────────────
 
 interface RedditPageClientProps {
@@ -1345,10 +1770,21 @@ interface RedditPageClientProps {
 }
 
 export function RedditPageClient({ companyId }: RedditPageClientProps) {
-  const [tab, setTab] = useState<Tab>('generate')
+  const [tab, setTab] = useState<Tab>('ideas')
+  const [generateKey, setGenerateKey] = useState(0)
+  const [prefillTopic, setPrefillTopic] = useState('')
+  const [prefillSubreddit, setPrefillSubreddit] = useState('')
+
+  function handleUseIdea(topic: string, subreddit: string) {
+    setPrefillTopic(topic)
+    setPrefillSubreddit(subreddit)
+    setGenerateKey(k => k + 1)
+    setTab('generate')
+  }
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
-    { id: 'generate', label: 'Generate', icon: <Sparkles className="w-3.5 h-3.5" /> },
+    { id: 'ideas', label: 'Ideas', icon: <Sparkles className="w-3.5 h-3.5" /> },
+    { id: 'generate', label: 'Generate', icon: <MessageSquare className="w-3.5 h-3.5" /> },
     { id: 'opportunities', label: 'Opportunities', icon: <Radio className="w-3.5 h-3.5" /> },
     { id: 'monitors', label: 'Monitors', icon: <Eye className="w-3.5 h-3.5" /> },
   ]
@@ -1389,7 +1825,17 @@ export function RedditPageClient({ companyId }: RedditPageClientProps) {
         </div>
 
         {/* Tab content */}
-        {tab === 'generate' && <GenerateTab companyId={companyId} />}
+        {tab === 'ideas' && (
+          <IdeasTab companyId={companyId} onUseIdea={handleUseIdea} />
+        )}
+        {tab === 'generate' && (
+          <GenerateTab
+            key={generateKey}
+            companyId={companyId}
+            initialTopic={prefillTopic}
+            initialSubreddit={prefillSubreddit}
+          />
+        )}
         {tab === 'opportunities' && <OpportunitiesTab companyId={companyId} />}
         {tab === 'monitors' && <MonitorsTab companyId={companyId} />}
       </div>
