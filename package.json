@@ -24,6 +24,7 @@
     "@supabase/supabase-js": "^2.105.4",
     "@tailwindcss/typography": "^0.5.19",
     "@tiptap/extension-code-block-lowlight": "^3.23.5",
+    "@tiptap/extension-image": "^3.23.6",
     "@tiptap/extension-link": "^3.23.5",
     "@tiptap/extension-placeholder": "^3.23.5",
     "@tiptap/extension-underline": "^3.23.5",

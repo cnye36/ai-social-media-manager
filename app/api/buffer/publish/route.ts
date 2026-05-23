@@ -36,7 +36,32 @@ export async function POST(req: NextRequest) {
 
   try {
     const result = await publishViaBuffer(post as Post)
-    return NextResponse.json(result)
+
+    const updates: Record<string, unknown> = {}
+    if (result.scheduledFor) {
+      updates.scheduled_for = result.scheduledFor
+      updates.status = 'scheduled'
+    }
+    if (result.platformPostId) {
+      const params = (post.generation_params && typeof post.generation_params === 'object')
+        ? post.generation_params as Record<string, unknown>
+        : {}
+      updates.generation_params = { ...params, buffer_post_id: result.platformPostId }
+    }
+
+    let updatedPost = post
+    if (Object.keys(updates).length > 0) {
+      const { data, error } = await supabase
+        .from('posts')
+        .update(updates)
+        .eq('id', postId)
+        .select()
+        .single()
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+      if (data) updatedPost = data
+    }
+
+    return NextResponse.json({ ...result, post: updatedPost })
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 400 })
   }

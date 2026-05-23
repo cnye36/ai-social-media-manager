@@ -6,7 +6,10 @@ interface Params { params: Promise<{ id: string }> }
 
 export async function POST(req: NextRequest, { params }: Params) {
   const { id } = await params
-  const { companyId } = await req.json() as { companyId: string }
+  const { companyId, additionalContext } = await req.json() as {
+    companyId: string
+    additionalContext?: string
+  }
 
   if (!companyId) return NextResponse.json({ error: 'companyId required' }, { status: 400 })
 
@@ -21,7 +24,7 @@ export async function POST(req: NextRequest, { params }: Params) {
   if (!company) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   try {
-    const draft = await draftReply(id, companyId)
+    const draft = await draftReply(id, companyId, additionalContext)
     return NextResponse.json({ draft_reply: draft })
   } catch (err) {
     console.error('Draft reply error:', err)

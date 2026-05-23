@@ -560,6 +560,7 @@ function MultiPostPreviewer({ posts, batchErrors, companyId, brandColors, onRese
           companyId={companyId}
           channel={mediaTarget === 'shared' ? posts[0].channel : activePost.channel}
           brandColors={brandColors}
+          suggestedPrompt={activePost.imagePrompt}
           onAccept={handleMediaAccept}
         />
       )}

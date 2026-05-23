@@ -76,6 +76,7 @@ export function PostEditorModal({
   const [saveSuccess, setSaveSuccess] = useState(false)
   const [bufferState, setBufferState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
   const [bufferError, setBufferError] = useState('')
+  const [bufferQueuedAt, setBufferQueuedAt] = useState<string | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
@@ -89,6 +90,7 @@ export function PostEditorModal({
       setSaveSuccess(false)
       setBufferState('idle')
       setBufferError('')
+      setBufferQueuedAt(null)
       setTab('post')
     }
   }, [post?.id, open])
@@ -176,6 +178,17 @@ export function PostEditorModal({
       body: JSON.stringify({ postId: post.id }),
     })
     if (res.ok) {
+      const data = await res.json() as { post?: Post; scheduledFor?: string }
+      const queuedAt = data.post?.scheduled_for ?? data.scheduledFor ?? null
+      if (data.post) {
+        onUpdate?.(data.post)
+        setStatus(data.post.status as PostStatus)
+        setScheduledFor(toDatetimeLocal(data.post.scheduled_for))
+      } else if (queuedAt) {
+        setStatus('scheduled')
+        setScheduledFor(toDatetimeLocal(queuedAt))
+      }
+      setBufferQueuedAt(queuedAt)
       setBufferState('sent')
     } else {
       const d = await res.json().catch(() => ({}))
@@ -314,6 +327,11 @@ export function PostEditorModal({
                 channel={channel}
                 postId={post.id}
                 brandColors={brandColors}
+                suggestedPrompt={
+                  typeof post.generation_params?.imagePrompt === 'string'
+                    ? post.generation_params.imagePrompt
+                    : undefined
+                }
                 onAccept={async r => {
                   const newItems: Post['media_items'] = [{
                     type: 'image',
@@ -360,7 +378,13 @@ export function PostEditorModal({
                 className={cn(bufferState === 'sent' && 'text-green-400')}
               >
                 {bufferState === 'sent' ? <Check className="w-3.5 h-3.5" /> : <Send className="w-3.5 h-3.5" />}
-                {bufferState === 'sending' ? 'Sending…' : bufferState === 'sent' ? 'Queued!' : 'Buffer'}
+                {bufferState === 'sending'
+                  ? 'Sending…'
+                  : bufferState === 'sent'
+                    ? bufferQueuedAt
+                      ? format(new Date(bufferQueuedAt), 'MMM d · h:mm a')
+                      : 'Queued!'
+                    : 'Buffer'}
               </Button>
             )}
             <Button variant="secondary" size="icon" onClick={handleCopy} title="Copy">

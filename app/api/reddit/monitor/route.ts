@@ -13,7 +13,7 @@ export async function GET(req: NextRequest) {
 
   const companyId = req.nextUrl.searchParams.get('companyId') ?? undefined
 
-  // ?probe=automation — sanity check: fetch posts via OAuth → JSON → RSS
+  // ?probe=automation — sanity check: fetch posts from public RSS
   const probe = req.nextUrl.searchParams.get('probe')
   if (probe) {
     const sub = probe.replace(/^r\//, '').trim()
@@ -28,6 +28,7 @@ export async function GET(req: NextRequest) {
       sample: result.posts.slice(0, 3).map(p => ({
         name: p.name,
         title: p.title,
+        posted_at: p.created_utc > 0 ? new Date(p.created_utc * 1000).toISOString() : null,
         selftext: p.selftext.slice(0, 200),
       })),
     })

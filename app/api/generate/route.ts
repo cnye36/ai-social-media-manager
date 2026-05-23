@@ -101,7 +101,7 @@ export async function POST(request: Request) {
           { role: 'system', content: systemPrompt },
           { role: 'user', content: `Write a ${channel} post about: ${topic}` },
         ],
-        max_tokens: 800,
+        max_completion_tokens: 800,
         temperature: 0.7,
       })
 

@@ -7,12 +7,13 @@ import Link from '@tiptap/extension-link'
 import Underline from '@tiptap/extension-underline'
 import Placeholder from '@tiptap/extension-placeholder'
 import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
+import Image from '@tiptap/extension-image'
 import { createLowlight, common } from 'lowlight'
 import { Markdown } from 'tiptap-markdown'
 import {
   Bold, Italic, UnderlineIcon, Strikethrough, Code, CodeSquare,
   Heading1, Heading2, Heading3, List, ListOrdered, Quote,
-  Minus, Link2, Link2Off, Undo2, Redo2,
+  Minus, Link2, Link2Off, Undo2, Redo2, ImageIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -22,6 +23,8 @@ export interface RichTextEditorHandle {
   getMarkdown: () => string
   setMarkdown: (md: string) => void
   getEditor: () => Editor | null
+  insertImage: (url: string, alt?: string) => void
+  getSelectionContext: () => string
 }
 
 interface ToolbarButtonProps {
@@ -56,7 +59,13 @@ function Divider() {
   return <div className="w-px h-4 bg-zinc-700 mx-1 flex-shrink-0" />
 }
 
-function Toolbar({ editor }: { editor: Editor | null }) {
+function Toolbar({
+  editor,
+  onInsertImageClick,
+}: {
+  editor: Editor | null
+  onInsertImageClick?: () => void
+}) {
   if (!editor) return null
 
   function setLink() {
@@ -206,6 +215,15 @@ function Toolbar({ editor }: { editor: Editor | null }) {
 
       <Divider />
 
+      {onInsertImageClick && (
+        <>
+          <ToolbarButton onClick={onInsertImageClick} title="Generate / insert image">
+            <ImageIcon className="w-4 h-4" />
+          </ToolbarButton>
+          <Divider />
+        </>
+      )}
+
       {/* History */}
       <ToolbarButton
         onClick={() => editor.chain().focus().undo().run()}
@@ -229,11 +247,12 @@ interface RichTextEditorProps {
   initialMarkdown?: string
   placeholder?: string
   onChange?: (markdown: string) => void
+  onInsertImageClick?: () => void
   className?: string
 }
 
 export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(
-  function RichTextEditor({ initialMarkdown = '', placeholder = 'Start writing…', onChange, className }, ref) {
+  function RichTextEditor({ initialMarkdown = '', placeholder = 'Start writing…', onChange, onInsertImageClick, className }, ref) {
     const editor = useEditor({
       immediatelyRender: true,
       extensions: [
@@ -246,6 +265,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
         Link.configure({ openOnClick: false, autolink: true }),
         Placeholder.configure({ placeholder }),
         CodeBlockLowlight.configure({ lowlight }),
+        Image.configure({ inline: false, allowBase64: false }),
         Markdown.configure({
           html: false,
           tightLists: true,
@@ -283,15 +303,31 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
       editor?.commands.setContent(md)
     }, [editor])
 
+    const insertImage = useCallback((url: string, alt = '') => {
+      editor?.chain().focus().setImage({ src: url, alt }).run()
+    }, [editor])
+
+    const getSelectionContext = useCallback(() => {
+      if (!editor) return ''
+      const { from, to } = editor.state.selection
+      const selected = editor.state.doc.textBetween(from, to, ' ').trim()
+      if (selected) return selected
+      const $from = editor.state.doc.resolve(from)
+      const start = Math.max(0, $from.start($from.depth) - 400)
+      return editor.state.doc.textBetween(start, from, '\n').trim().slice(-400)
+    }, [editor])
+
     useImperativeHandle(ref, () => ({
       getMarkdown,
       setMarkdown,
       getEditor: () => editor,
-    }), [editor, getMarkdown, setMarkdown])
+      insertImage,
+      getSelectionContext,
+    }), [editor, getMarkdown, setMarkdown, insertImage, getSelectionContext])
 
     return (
       <div className={cn('rounded-xl border border-zinc-800 bg-zinc-900/30 overflow-hidden', className)}>
-        <Toolbar editor={editor} />
+        <Toolbar editor={editor} onInsertImageClick={onInsertImageClick} />
         <EditorContent editor={editor} />
       </div>
     )

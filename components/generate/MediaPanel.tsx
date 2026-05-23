@@ -4,7 +4,9 @@ import { useState, useEffect } from 'react'
 import { ImageIcon, LayoutTemplate, RefreshCw, ExternalLink, ChevronLeft, ChevronRight, Loader2, X, Library, Maximize2 } from 'lucide-react'
 import { format } from 'date-fns'
 import { cn } from '@/lib/utils'
+import { HoverDownloadImage } from '@/components/media/HoverDownloadImage'
 import { MediaDetailModal } from '@/components/media/MediaDetailModal'
+import { ImagePromptBox } from '@/components/media/ImagePromptBox'
 import type { ModalMediaItem } from '@/components/media/MediaDetailModal'
 import type { MediaResult } from '@/types/media'
 
@@ -30,15 +32,18 @@ interface MediaPanelProps {
   channel: string
   postId?: string
   brandColors?: { primary?: string; accent?: string }
+  /** Suggested prompt from post generation (IMAGE_PROMPT suffix, etc.) */
+  suggestedPrompt?: string
   onAccept?: (result: MediaResult) => void
 }
 
 type PanelTab = 'generate' | 'library'
 
-export function MediaPanel({ postContent, companyId, channel, postId, brandColors, onAccept }: MediaPanelProps) {
+export function MediaPanel({ postContent, companyId, channel, postId, brandColors, suggestedPrompt, onAccept }: MediaPanelProps) {
   const [activeTab, setActiveTab] = useState<PanelTab>('generate')
 
   // ── Generate tab state ───────────────────────────────────────────────────────
+  const [promptDraft, setPromptDraft] = useState(suggestedPrompt ?? '')
   const [history, setHistory] = useState<HistoryEntry[]>([])
   const [historyIndex, setHistoryIndex] = useState(-1)
   const [refinementNote, setRefinementNote] = useState('')
@@ -62,6 +67,10 @@ export function MediaPanel({ postContent, companyId, channel, postId, brandColor
     if (activeTab === 'library') loadLibrary()
   }, [activeTab])
 
+  useEffect(() => {
+    setPromptDraft(prev => (prev.trim() ? prev : (suggestedPrompt ?? '')))
+  }, [suggestedPrompt])
+
   async function loadLibrary() {
     setLibraryLoading(true)
     setLibraryError(null)
@@ -77,7 +86,7 @@ export function MediaPanel({ postContent, companyId, channel, postId, brandColor
     }
   }
 
-  async function generate(note: string) {
+  async function generate(note: string, useDraftPrompt = false) {
     if (loading) return
     setLoading(true)
     setError(null)
@@ -92,6 +101,7 @@ export function MediaPanel({ postContent, companyId, channel, postId, brandColor
           refinementNote: note || undefined,
           brandColors,
           postId,
+          imagePrompt: useDraftPrompt && promptDraft.trim() ? promptDraft.trim() : undefined,
         }),
       })
 
@@ -108,6 +118,7 @@ export function MediaPanel({ postContent, companyId, channel, postId, brandColor
         return [...trimmed, entry]
       })
       setHistoryIndex(prev => prev + 1)
+      setPromptDraft(result.promptUsed)
       setRefinementNote('')
     } catch (err) {
       setError((err as Error).message)
@@ -155,6 +166,7 @@ export function MediaPanel({ postContent, companyId, channel, postId, brandColor
       type: 'image',
       url: item.url,
       storagePath: item.storage_path ?? item.storagePath ?? '',
+      promptUsed: item.prompt ?? '',
     })
   }
 
@@ -236,8 +248,13 @@ export function MediaPanel({ postContent, companyId, channel, postId, brandColor
             )}
 
             {current && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={current.result.url} alt="Generated image" className="w-full object-contain max-h-[480px]" />
+              <HoverDownloadImage
+                src={current.result.url}
+                alt="Generated image"
+                className="w-full object-contain max-h-[480px]"
+                wrapperClassName="w-full"
+                buttonClassName={history.length > 1 ? 'top-2 left-2 right-auto' : undefined}
+              />
             )}
           </div>
 
@@ -249,18 +266,33 @@ export function MediaPanel({ postContent, companyId, channel, postId, brandColor
           )}
 
           <div className="p-4 space-y-3 border-t border-zinc-800">
+            {current?.result.promptUsed && (
+              <ImagePromptBox
+                label="Prompt used for this image"
+                value={current.result.promptUsed}
+                readOnly
+              />
+            )}
+
+            <ImagePromptBox
+              label={suggestedPrompt ? 'Suggested / custom image prompt' : 'Image prompt (optional)'}
+              value={promptDraft}
+              onChange={setPromptDraft}
+              hint="Edit and generate from this prompt, or leave blank to auto-craft from post content."
+            />
+
             {history.length > 0 && iterationsLeft > 0 && (
               <div className="flex gap-2">
                 <input
                   type="text"
                   value={refinementNote}
                   onChange={e => setRefinementNote(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && !e.shiftKey && generate(refinementNote)}
+                  onKeyDown={e => e.key === 'Enter' && !e.shiftKey && generate(refinementNote, false)}
                   placeholder={`Refine… (${iterationsLeft} left)`}
                   className="flex-1 bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-violet-500"
                 />
                 <button
-                  onClick={() => generate(refinementNote)}
+                  onClick={() => generate(refinementNote, false)}
                   disabled={loading || !refinementNote.trim()}
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-sm font-medium transition-colors disabled:opacity-40"
                 >
@@ -277,12 +309,12 @@ export function MediaPanel({ postContent, companyId, channel, postId, brandColor
             <div className="flex gap-2">
               {!current ? (
                 <button
-                  onClick={() => generate('')}
+                  onClick={() => generate('', Boolean(promptDraft.trim()))}
                   disabled={loading}
                   className="flex-1 flex items-center justify-center gap-2 py-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
                 >
                   {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImageIcon className="w-4 h-4" />}
-                  Generate
+                  {promptDraft.trim() ? 'Generate from prompt' : 'Generate'}
                 </button>
               ) : (
                 <>
@@ -348,15 +380,20 @@ export function MediaPanel({ postContent, companyId, channel, postId, brandColor
               <div className="grid grid-cols-2 gap-2 max-h-[420px] overflow-y-auto pr-0.5">
                 {libraryItems.map(item => (
                   <div key={item.id} className="group relative aspect-square bg-zinc-900 rounded-lg overflow-hidden border border-zinc-800 hover:border-violet-500/50 transition-colors">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={item.url} alt={item.prompt ?? ''} className="w-full h-full object-cover" />
+                    <HoverDownloadImage
+                      src={item.url}
+                      alt={item.prompt ?? ''}
+                      className="w-full h-full object-cover"
+                      wrapperClassName="w-full h-full"
+                      downloadFilename={`media-${item.id}.png`}
+                    />
 
                     {/* Hover actions */}
-                    <div className="absolute inset-0 bg-zinc-900/80 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2 p-2">
+                    <div className="absolute inset-0 bg-zinc-900/80 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2 p-2 pointer-events-none">
                       <button
                         type="button"
                         onClick={() => acceptFromLibrary(item)}
-                        className="px-2 py-1 bg-violet-600 hover:bg-violet-500 text-white rounded text-[11px] font-medium w-full transition-colors"
+                        className="pointer-events-auto px-2 py-1 bg-violet-600 hover:bg-violet-500 text-white rounded text-[11px] font-medium w-full transition-colors"
                       >
                         Use this image
                       </button>
@@ -373,14 +410,19 @@ export function MediaPanel({ postContent, companyId, channel, postId, brandColor
                           created_at: item.created_at,
                           posts: null,
                         })}
-                        className="flex items-center justify-center gap-1 px-2 py-1 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 rounded text-[11px] w-full transition-colors"
+                        className="pointer-events-auto flex items-center justify-center gap-1 px-2 py-1 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 rounded text-[11px] w-full transition-colors"
                       >
                         <Maximize2 className="w-3 h-3" />
                         View &amp; edit in Canva
                       </button>
                     </div>
 
-                    <div className="absolute bottom-1.5 left-1.5 right-1.5 flex items-center justify-between pointer-events-none">
+                    {item.prompt && (
+                      <div className="absolute bottom-0 left-0 right-0 px-1.5 py-1 bg-zinc-950/90 pointer-events-none">
+                        <p className="text-[8px] text-zinc-500 line-clamp-2 leading-tight">{item.prompt}</p>
+                      </div>
+                    )}
+                    <div className="absolute top-1.5 left-1.5 right-1.5 flex items-center justify-between pointer-events-none">
                       <span className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-blue-900/80 text-blue-300">
                         Image
                       </span>

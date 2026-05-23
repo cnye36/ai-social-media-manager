@@ -121,6 +121,122 @@ async function callTool(
   return extractContent(result)
 }
 
+/** Map our post to Buffer MCP `create_post` args (GraphQL CreatePostInput). */
+function buildCreatePostArgs(
+  post: Post,
+  profile: { id: string },
+  organizationId: string,
+  schema?: McpTool['inputSchema']
+): Record<string, unknown> {
+  const props = schema?.properties ?? {}
+  const has = (key: string) => key in props
+
+  const scheduled = post.scheduled_for ? new Date(post.scheduled_for).toISOString() : undefined
+  const image = post.media_items?.find(m => m.type === 'image' && m.url)
+
+  const mode = scheduled ? 'customScheduled' : 'addToQueue'
+  const schedulingType = 'automatic'
+  const assets = image?.url ? [{ image: { url: image.url } }] : []
+
+  const args: Record<string, unknown> = {}
+
+  if (has('channelId')) args.channelId = profile.id
+  if (has('channel_id')) args.channel_id = profile.id
+  if (has('text')) args.text = post.content
+  if (has('content') && !has('text')) args.content = post.content
+  if (has('schedulingType')) args.schedulingType = schedulingType
+  if (has('scheduling_type')) args.scheduling_type = schedulingType
+  if (has('mode')) args.mode = mode
+  if (has('assets')) args.assets = assets
+  if (has('organizationId')) args.organizationId = organizationId
+
+  if (scheduled) {
+    if (has('dueAt')) args.dueAt = scheduled
+    if (has('due_at')) args.due_at = scheduled
+    if (has('scheduledAt')) args.scheduledAt = scheduled
+    if (has('scheduled_at')) args.scheduled_at = scheduled
+  }
+
+  // Fallback when schema is missing — use Buffer GraphQL field names
+  if (!Object.keys(args).length) {
+    return {
+      channelId: profile.id,
+      text: post.content,
+      schedulingType,
+      mode,
+      assets,
+      organizationId,
+      ...(scheduled ? { dueAt: scheduled } : {}),
+    }
+  }
+
+  return args
+}
+
+/** Extract Buffer post id and queue slot from create_post / get_post payloads. */
+function parseBufferPostMeta(data: unknown): { postId?: string; dueAt?: string } {
+  const dueKeys = ['dueAt', 'due_at', 'scheduledAt', 'scheduled_at'] as const
+  const idKeys = ['id', 'postId', 'post_id', 'update_id', 'updateId'] as const
+
+  function fromObject(o: Record<string, unknown>): { postId?: string; dueAt?: string } {
+    const dueAt = dueKeys.map(k => o[k]).find(v => typeof v === 'string' && v) as string | undefined
+    const postId = idKeys.map(k => o[k]).find(v => typeof v === 'string' && v) as string | undefined
+    return { postId, dueAt }
+  }
+
+  function visit(obj: unknown): { postId?: string; dueAt?: string } {
+    if (!obj || typeof obj !== 'object') return {}
+    if (Array.isArray(obj)) {
+      for (const item of obj) {
+        const found = visit(item)
+        if (found.dueAt) return found
+      }
+      return {}
+    }
+    const o = obj as Record<string, unknown>
+    const direct = fromObject(o)
+    if (o.post && typeof o.post === 'object') {
+      const nested = visit(o.post)
+      return {
+        postId: nested.postId ?? direct.postId,
+        dueAt: nested.dueAt ?? direct.dueAt,
+      }
+    }
+    if (direct.dueAt) return direct
+    for (const val of Object.values(o)) {
+      if (val && typeof val === 'object') {
+        const nested = visit(val)
+        if (nested.dueAt) {
+          return { postId: nested.postId ?? direct.postId, dueAt: nested.dueAt }
+        }
+      }
+    }
+    return direct
+  }
+
+  return visit(data)
+}
+
+async function fetchBufferPostDueAt(
+  token: string,
+  bufferPostId: string,
+  tools: McpTool[],
+  sessionId?: string
+): Promise<string | undefined> {
+  const getTool = pickTool(tools, ['get_post', 'getPost', 'post', 'fetch_post', 'get_update'])
+  if (!getTool) return undefined
+
+  const props = getTool.inputSchema?.properties ?? {}
+  const args: Record<string, unknown> = {}
+  if ('postId' in props) args.postId = bufferPostId
+  if ('post_id' in props) args.post_id = bufferPostId
+  if ('id' in props) args.id = bufferPostId
+  if (!Object.keys(args).length) args.id = bufferPostId
+
+  const data = await callTool(token, getTool.name, args, sessionId)
+  return parseBufferPostMeta(data).dueAt
+}
+
 // ─── Public API ──────────────────────────────────────────────────────────────
 
 export async function fetchBufferProfiles(
@@ -209,32 +325,12 @@ export async function publishViaBuffer(post: Post): Promise<PublishResult> {
     throw new Error(`No post-creation tool found. Available: ${tools.map(t => t.name).join(', ')}`)
   }
 
-  const schema = createTool.inputSchema
-  const knownKeys = schema?.properties ? new Set(Object.keys(schema.properties)) : null
-
-  const scheduled = post.scheduled_for ? new Date(post.scheduled_for).toISOString() : undefined
-  const image = post.media_items?.find(m => m.type === 'image' && m.url)
-
-  const allArgs: Record<string, unknown> = {
-    // channel identifier — Buffer MCP accepts various names
-    channel_id: profile.id,
-    channelId: profile.id,
-    profile_id: profile.id,
-    organizationId: integration.organization_id,
-    // content
-    text: post.content,
-    content: post.content,
-    // scheduling — Buffer GraphQL API requires these; MCP may default them
-    schedulingType: scheduled ? 'scheduled' : 'queue',
-    mode: scheduled ? 'SCHEDULED' : 'QUEUE',
-    assets: image?.url ? [{ url: image.url }] : [],
-    ...(scheduled ? { scheduled_at: scheduled, scheduledAt: scheduled, due_at: scheduled, dueAt: scheduled } : {}),
-    ...(image?.url ? { media_urls: [image.url], mediaUrls: [image.url], image_url: image.url, image_urls: [image.url] } : {}),
-  }
-
-  const args = knownKeys
-    ? Object.fromEntries(Object.entries(allArgs).filter(([k]) => knownKeys.has(k)))
-    : allArgs
+  const args = buildCreatePostArgs(
+    post,
+    profile,
+    integration.organization_id,
+    createTool.inputSchema
+  )
 
   const result = await callTool(integration.access_token, createTool.name, args, sessionId)
 
@@ -246,8 +342,17 @@ export async function publishViaBuffer(post: Post): Promise<PublishResult> {
     }
   }
 
-  const r = result as Record<string, string> | null
-  const postId = r?.id ?? r?.post_id ?? r?.update_id ?? r?.postId ?? r?.updateId
+  let { postId: platformPostId, dueAt } = parseBufferPostMeta(result)
 
-  return { success: true, platformPostId: postId }
+  if (!dueAt && platformPostId) {
+    dueAt = await fetchBufferPostDueAt(
+      integration.access_token, platformPostId, tools, sessionId
+    )
+  }
+
+  return {
+    success: true,
+    platformPostId,
+    scheduledFor: dueAt ? new Date(dueAt).toISOString() : undefined,
+  }
 }

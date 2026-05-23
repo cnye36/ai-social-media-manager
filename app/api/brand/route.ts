@@ -50,6 +50,7 @@ export async function PUT(request: Request) {
     tone, voice_notes, target_audience, keywords, avoid_phrases, color_palette, channel_overrides,
     company_description, products_services, value_proposition, ideal_customer_profile,
     pain_points, competitors, geographic_focus, company_stage, team_size,
+    preferred_stack,
   } = body
 
   const payload = {
@@ -69,6 +70,7 @@ export async function PUT(request: Request) {
     geographic_focus: geographic_focus ?? null,
     company_stage: company_stage ?? null,
     team_size: team_size ?? null,
+    preferred_stack: preferred_stack?.trim() || null,
   }
 
   const { data: updated, error: updateError } = await supabase

@@ -1,18 +1,34 @@
-// TODO: Submit an approved reply to Reddit (auto-eligible subs only).
-//
-// POST /api/reddit/opportunities/[id]/post-reply
-//   Body: { companyId: string }
-//   1. Verify user owns companyId
-//   2. Load opportunity — must have status = 'drafted' and a draft_reply
-//   3. Load reddit_subreddit_configs — abort if reply_policy != 'auto'
-//      (client should not show the button, but guard here too)
-//   4. Load reddit OAuth tokens for company from reddit_accounts table
-//      Auto-refresh token if expired (POST https://www.reddit.com/api/v1/access_token)
-//   5. POST to https://oauth.reddit.com/api/comment
-//      { thing_id: opportunity.reddit_post_id, text: opportunity.draft_reply }
-//   6. Update opportunity: status = 'replied', posted_reddit_comment_id = response.id
-//   7. Return { success: true, commentId }
+import { NextRequest, NextResponse } from 'next/server'
+import { createClient } from '@/lib/supabase/server'
+import { postRedditReply } from '@/lib/reddit/post-reply'
 
-export async function POST() {
-  return new Response('Not yet implemented', { status: 501 })
+export async function POST(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const { id } = await params
+  const body = (await req.json()) as { companyId?: string }
+  if (!body.companyId) {
+    return NextResponse.json({ error: 'companyId required' }, { status: 400 })
+  }
+
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const { data: company } = await supabase
+    .from('companies')
+    .select('id')
+    .eq('id', body.companyId)
+    .single()
+
+  if (!company) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
+  try {
+    const result = await postRedditReply(id, body.companyId)
+    return NextResponse.json({ success: true, ...result })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Post reply failed'
+    return NextResponse.json({ error: message }, { status: 400 })
+  }
 }

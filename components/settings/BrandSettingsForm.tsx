@@ -38,6 +38,7 @@ export function BrandSettingsForm({ companyId, initialData }: BrandSettingsFormP
   const [geographicFocus, setGeographicFocus] = useState(initialData?.geographic_focus ?? '')
   const [companyStage, setCompanyStage] = useState(initialData?.company_stage ?? '')
   const [teamSize, setTeamSize] = useState(initialData?.team_size ?? '')
+  const [preferredStack, setPreferredStack] = useState(initialData?.preferred_stack ?? '')
 
   // Tag inputs
   const [keywordInput, setKeywordInput] = useState('')
@@ -82,6 +83,7 @@ export function BrandSettingsForm({ companyId, initialData }: BrandSettingsFormP
         geographic_focus: geographicFocus,
         company_stage: companyStage,
         team_size: teamSize,
+        preferred_stack: preferredStack.trim() || null,
       }),
     })
     setSaving(false)
@@ -112,6 +114,19 @@ export function BrandSettingsForm({ companyId, initialData }: BrandSettingsFormP
             onChange={e => setCompanyDescription(e.target.value)}
             placeholder="We build B2B SaaS tools that help operations teams automate repetitive workflows without writing code..."
             rows={3}
+          />
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="preferred-stack">
+            Preferred tech stack{' '}
+            <span className="text-zinc-500 font-normal text-xs">(used by all AI writers — Reddit, LinkedIn, etc.)</span>
+          </Label>
+          <Input
+            id="preferred-stack"
+            value={preferredStack}
+            onChange={e => setPreferredStack(e.target.value)}
+            placeholder="TypeScript, React, Next.js"
           />
         </div>
 

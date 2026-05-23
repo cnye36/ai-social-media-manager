@@ -1,5 +1,9 @@
 import { createAdminClient } from '@/lib/supabase/admin'
+import { preferredStackGuidance } from '@/lib/content-planning/brand-context'
 import { fetchNewPosts, type RedditPost } from '@/lib/reddit/fetch-posts'
+import type { BrandProfile } from '@/types/database'
+
+const OPPORTUNITY_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
 
 function matchesKeywords(post: RedditPost, keywords: string[]): string[] {
   if (keywords.length === 0) return ['*']  // no keywords = catch-all, match every post
@@ -7,9 +11,34 @@ function matchesKeywords(post: RedditPost, keywords: string[]): string[] {
   return keywords.filter(kw => haystack.includes(kw.toLowerCase()))
 }
 
+function redditPostedAtIso(post: RedditPost): string {
+  if (post.created_utc > 0) {
+    return new Date(post.created_utc * 1000).toISOString()
+  }
+  return new Date().toISOString()
+}
+
+/** Delete opportunities whose Reddit post is older than one week. */
+export async function pruneOldOpportunities(
+  supabase: ReturnType<typeof createAdminClient>,
+  companyId?: string,
+): Promise<number> {
+  const cutoff = new Date(Date.now() - OPPORTUNITY_MAX_AGE_MS).toISOString()
+  let query = supabase.from('reddit_opportunities').delete().lt('posted_at', cutoff)
+  if (companyId) query = query.eq('company_id', companyId)
+
+  const { data, error } = await query.select('id')
+  if (error) {
+    console.error('Failed to prune old reddit opportunities:', error.message)
+    return 0
+  }
+  return data?.length ?? 0
+}
+
 export async function runMonitors(companyId?: string): Promise<{
   monitorsChecked: number
   newOpportunities: number
+  pruned?: number
   fetchErrors?: { subreddit: string; status: number; source: string; detail: string }[]
 }> {
   const supabase = createAdminClient()
@@ -60,9 +89,14 @@ export async function runMonitors(companyId?: string): Promise<{
         const posts = result.posts
         if (!posts.length) continue
 
+        const ageCutoffSec = (Date.now() - OPPORTUNITY_MAX_AGE_MS) / 1000
         const matched = posts
           .map(post => ({ post, hits: matchesKeywords(post, monitor.keywords) }))
-          .filter(({ hits }) => hits.length > 0)
+          .filter(({ post, hits }) => {
+            if (hits.length === 0) return false
+            if (post.created_utc > 0 && post.created_utc < ageCutoffSec) return false
+            return true
+          })
 
         if (matched.length > 0) {
           const rows = matched.map(({ post, hits }) => ({
@@ -79,6 +113,7 @@ export async function runMonitors(companyId?: string): Promise<{
             score: post.score,
             num_comments: post.num_comments,
             matched_keywords: hits,
+            posted_at: redditPostedAtIso(post),
           }))
 
           const { error: insertError, data: inserted } = await supabase
@@ -87,6 +122,17 @@ export async function runMonitors(companyId?: string): Promise<{
             .select('id')
 
           if (!insertError) newOpportunities += inserted?.length ?? matched.length
+
+          // Keep posted_at accurate when the post was already ingested (upsert skips duplicates)
+          await Promise.all(
+            rows.map(row =>
+              supabase
+                .from('reddit_opportunities')
+                .update({ posted_at: row.posted_at })
+                .eq('company_id', row.company_id)
+                .eq('reddit_post_id', row.reddit_post_id),
+            ),
+          )
         }
 
         // Advance cursor for this subreddit
@@ -112,19 +158,27 @@ export async function runMonitors(companyId?: string): Promise<{
       .eq('id', monitor.id)
   }
 
+  const pruned = await pruneOldOpportunities(supabase, companyId)
+
   return {
     monitorsChecked: monitors.length,
     newOpportunities,
+    ...(pruned > 0 ? { pruned } : {}),
     ...(fetchErrors.length ? { fetchErrors } : {}),
   }
 }
 
-export async function draftReply(opportunityId: string, companyId: string): Promise<string> {
+export async function draftReply(
+  opportunityId: string,
+  companyId: string,
+  additionalContext?: string,
+): Promise<string> {
   const supabase = createAdminClient()
 
-  const [{ data: opp }, { data: brand }, { data: config }] = await Promise.all([
+  const [{ data: opp }, { data: brand }, { data: company }, { data: config }] = await Promise.all([
     supabase.from('reddit_opportunities').select('*').eq('id', opportunityId).single(),
     supabase.from('brand_profiles').select('*').eq('company_id', companyId).maybeSingle(),
+    supabase.from('companies').select('name').eq('id', companyId).single(),
     supabase.from('reddit_subreddit_configs')
       .select('rules_text, notes, reply_policy')
       .eq('company_id', companyId)
@@ -141,26 +195,47 @@ export async function draftReply(opportunityId: string, companyId: string): Prom
     .eq('subreddit', opp.subreddit)
     .maybeSingle()
 
-  const companyName = (brand as { company_name?: string } | null)?.company_name ?? 'our company'
-  const brandVoice = (brand as { brand_voice?: string } | null)?.brand_voice ?? ''
+  const companyName = company?.name ?? 'our company'
+  const brandProfile = brand as BrandProfile | null
+  const stackLine = preferredStackGuidance(brandProfile)
+
+  const contextNote = additionalContext?.trim()
 
   const systemPrompt = [
-    `You are a genuine Reddit user who works at ${companyName}.`,
-    brandVoice ? `Brand voice: ${brandVoice}` : '',
-    `You are replying to a post in r/${opp.subreddit}.`,
+    `You are a genuine Reddit user participating in r/${opp.subreddit}.`,
+    `You may work at ${companyName}, but you are replying as a helpful community member first.`,
+    brandProfile?.voice_notes ? `Voice (subtle): ${brandProfile.voice_notes}` : '',
+    brandProfile?.tone ? `Tone: ${brandProfile.tone}` : '',
+    stackLine ?? '',
     subConfig?.rules_text ? `Subreddit rules:\n${subConfig.rules_text}` : '',
     subConfig?.notes ? `Notes on this subreddit:\n${subConfig.notes}` : '',
     '',
     'Write a reply that:',
-    '- Leads with genuine value or insight, not promotion',
+    '- Leads with genuine value, a specific tip, or lived experience — not a pitch',
+    '- Does NOT name the company, product, or URL unless the user instructions below explicitly ask you to',
+    '- Never says "we at [company]", "our platform", "check us out", or similar marketing language by default',
     '- Is conversational and first-person',
-    '- Mentions the company only if directly and naturally relevant',
     '- Never uses em dashes (—) — they signal AI-generated content',
-    '- Is concise (2-4 paragraphs max)',
+    '- Is concise (2-4 short paragraphs max)',
     '- Does NOT start with "Great question!" or any sycophantic opener',
+    contextNote
+      ? '- Follow the user instructions below; they override default tone when they conflict'
+      : '',
   ].filter(Boolean).join('\n')
 
-  const userPrompt = `Post title: ${opp.title}\n\nPost body:\n${opp.selftext || '(no body text)'}\n\nWrite your reply:`
+  const userParts = [
+    `Post title: ${opp.title}`,
+    `Post body:\n${opp.selftext || '(no body text)'}`,
+  ]
+  if (contextNote) {
+    userParts.push(
+      '',
+      'User instructions for this reply (follow closely):',
+      contextNote,
+    )
+  }
+  userParts.push('', 'Write your reply:')
+  const userPrompt = userParts.join('\n')
 
   const { OpenAI } = await import('openai')
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
@@ -172,7 +247,7 @@ export async function draftReply(opportunityId: string, companyId: string): Prom
       { role: 'user', content: userPrompt },
     ],
     temperature: 0.7,
-    max_tokens: 600,
+    max_completion_tokens: 600,
   })
 
   const reply = completion.choices[0]?.message?.content?.trim() ?? ''

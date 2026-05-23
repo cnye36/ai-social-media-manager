@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { preferredStackGuidance } from '@/lib/content-planning/brand-context'
+import type { BrandProfile } from '@/types/database'
 import OpenAI from 'openai'
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
@@ -25,27 +27,25 @@ export async function POST(req: NextRequest) {
 
   const cleanSub = subreddit.replace(/^r\//, '')
 
-  const [configResult, brandResult] = await Promise.all([
+  const [configResult, companyResult, brandResult] = await Promise.all([
     supabase
       .from('reddit_subreddit_configs')
       .select('rules_text, notes')
       .eq('company_id', companyId)
       .eq('subreddit', cleanSub)
       .maybeSingle(),
-    supabase
-      .from('brand_profiles')
-      .select('brand_name, brand_voice, target_audience, value_proposition, content_pillars')
-      .eq('company_id', companyId)
-      .maybeSingle(),
+    supabase.from('companies').select('name').eq('id', companyId).single(),
+    supabase.from('brand_profiles').select('*').eq('company_id', companyId).maybeSingle(),
   ])
 
   const trendingTitles = await fetchTrendingTitles(cleanSub)
 
   const prompt = buildPrompt({
     subreddit: cleanSub,
+    companyName: companyResult.data?.name ?? null,
     rulesText: configResult.data?.rules_text ?? null,
     notes: configResult.data?.notes ?? null,
-    brand: brandResult.data,
+    brand: brandResult.data as BrandProfile | null,
     trendingTitles,
     topicHint,
   })
@@ -71,19 +71,14 @@ export async function POST(req: NextRequest) {
 
 function buildPrompt(params: {
   subreddit: string
+  companyName: string | null
   rulesText: string | null
   notes: string | null
-  brand: {
-    brand_name?: string
-    brand_voice?: string
-    target_audience?: string
-    value_proposition?: string
-    content_pillars?: string[]
-  } | null
+  brand: BrandProfile | null
   trendingTitles: string[]
   topicHint?: string
 }): string {
-  const { subreddit, rulesText, notes, brand, trendingTitles, topicHint } = params
+  const { subreddit, companyName, rulesText, notes, brand, trendingTitles, topicHint } = params
   const lines: string[] = []
 
   lines.push(`You are a Reddit content strategist who deeply understands community culture and what gets upvoted vs removed.`)
@@ -108,14 +103,19 @@ function buildPrompt(params: {
     trendingTitles.forEach((t, i) => lines.push(`${i + 1}. ${t}`))
   }
 
-  if (brand) {
+  if (companyName || brand) {
     lines.push(``)
     lines.push(`## Brand context (write as a genuine community member at this company)`)
-    if (brand.brand_name) lines.push(`Company: ${brand.brand_name}`)
-    if (brand.brand_voice) lines.push(`Voice: ${brand.brand_voice}`)
-    if (brand.target_audience) lines.push(`Audience: ${brand.target_audience}`)
-    if (brand.value_proposition) lines.push(`What they do: ${brand.value_proposition}`)
-    if (brand.content_pillars?.length) lines.push(`Topics: ${brand.content_pillars.join(', ')}`)
+    if (companyName) lines.push(`Company: ${companyName}`)
+    if (brand?.tone) lines.push(`Tone: ${brand.tone}`)
+    if (brand?.voice_notes) lines.push(`Voice: ${brand.voice_notes}`)
+    if (brand?.target_audience) lines.push(`Audience: ${brand.target_audience}`)
+    if (brand?.company_description) lines.push(`What we do: ${brand.company_description}`)
+    if (brand?.products_services) lines.push(`Products/services: ${brand.products_services}`)
+    if (brand?.value_proposition) lines.push(`Value proposition: ${brand.value_proposition}`)
+    if (brand?.keywords?.length) lines.push(`Topics/keywords: ${brand.keywords.join(', ')}`)
+    const stackLine = preferredStackGuidance(brand)
+    if (stackLine) lines.push(stackLine)
   }
 
   if (topicHint?.trim()) {
@@ -145,6 +145,9 @@ function buildPrompt(params: {
   lines.push(`- Every idea must comply with the subreddit rules listed above`)
   lines.push(`- Never use em dashes (—) — they are the clearest AI giveaway`)
   lines.push(`- No hashtags, no CTAs, no "check out my product"`)
+  if (brand?.preferred_stack?.trim()) {
+    lines.push(`- Technical examples and tooling should lean toward: ${brand.preferred_stack.trim()}`)
+  }
 
   return lines.join('\n')
 }

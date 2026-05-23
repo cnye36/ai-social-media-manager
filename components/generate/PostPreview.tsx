@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef } from 'react'
+import { format } from 'date-fns'
 import { Copy, Check, Save, RefreshCw, Image as ImageIcon, Bold, Italic, List, Send, Eye, Pencil } from 'lucide-react'
 import { LinkedInIcon, XIcon, RedditIcon, FacebookIcon } from '@/components/ui/channel-icons'
 import { Button } from '@/components/ui/button'
@@ -8,6 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { MediaPanel } from './MediaPanel'
 import { ChannelPreview } from '@/components/posts/ChannelPreview'
 import { cn } from '@/lib/utils'
+import { HoverDownloadImage } from '@/components/media/HoverDownloadImage'
 import type { Channel } from '@/types/database'
 
 const BUFFER_CHANNELS: Channel[] = ['linkedin', 'x', 'facebook']
@@ -69,6 +71,7 @@ export function PostPreview({
   const [acceptedMedia, setAcceptedMedia] = useState<AcceptedMedia | null>(null)
   const [bufferState, setBufferState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
   const [bufferError, setBufferError] = useState('')
+  const [bufferQueuedAt, setBufferQueuedAt] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<'edit' | 'preview'>('edit')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -171,6 +174,8 @@ export function PostPreview({
       body: JSON.stringify({ postId: savedPostId }),
     })
     if (res.ok) {
+      const data = await res.json() as { scheduledFor?: string; post?: { scheduled_for?: string | null } }
+      setBufferQueuedAt(data.post?.scheduled_for ?? data.scheduledFor ?? null)
       setBufferState('sent')
     } else {
       const d = await res.json().catch(() => ({}))
@@ -287,7 +292,13 @@ export function PostPreview({
                   className={cn(bufferState === 'sent' && 'text-green-400')}
                 >
                   {bufferState === 'sent' ? <Check className="w-3.5 h-3.5" /> : <Send className="w-3.5 h-3.5" />}
-                  {bufferState === 'sending' ? 'Sending…' : bufferState === 'sent' ? 'Queued!' : 'Buffer'}
+                  {bufferState === 'sending'
+                    ? 'Sending…'
+                    : bufferState === 'sent'
+                      ? bufferQueuedAt
+                        ? format(new Date(bufferQueuedAt), 'MMM d · h:mm a')
+                        : 'Queued!'
+                      : 'Buffer'}
                 </Button>
               )}
             </div>
@@ -355,8 +366,12 @@ export function PostPreview({
                   Remove
                 </button>
               </div>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={acceptedMedia.url} alt="Attached image" className="w-full object-contain max-h-48" />
+              <HoverDownloadImage
+                src={acceptedMedia.url}
+                alt="Attached image"
+                className="w-full object-contain max-h-48"
+                wrapperClassName="w-full"
+              />
             </div>
           </div>
         )}
@@ -394,6 +409,7 @@ export function PostPreview({
           channel={channel}
           brandColors={brandColors}
           postId={savedPostId ?? undefined}
+          suggestedPrompt={imagePrompt}
           onAccept={handleMediaAccept}
         />
       )}

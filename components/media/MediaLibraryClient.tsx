@@ -5,6 +5,7 @@ import { format } from 'date-fns'
 import { ImageIcon, Maximize2, RefreshCw, Loader2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
+import { HoverDownloadImage } from '@/components/media/HoverDownloadImage'
 import { MediaDetailModal } from '@/components/media/MediaDetailModal'
 import type { ModalMediaItem } from '@/components/media/MediaDetailModal'
 import type { Channel } from '@/types/database'
@@ -106,20 +107,21 @@ export function MediaLibraryClient({ companyId }: { companyId: string }) {
                 >
                   {/* Thumbnail */}
                   <div className="relative aspect-video bg-zinc-950 flex items-center justify-center overflow-hidden">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
+                    <HoverDownloadImage
                       src={item.url}
                       alt={item.prompt ?? 'Generated image'}
                       className="w-full h-full object-cover"
+                      wrapperClassName="w-full h-full"
+                      downloadFilename={`media-${item.id}.png`}
+                      overlay={
+                        <div className="absolute inset-0 bg-zinc-900/70 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+                          <div className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 backdrop-blur-sm text-white rounded-lg text-xs font-medium border border-white/10">
+                            <Maximize2 className="w-3.5 h-3.5" />
+                            View &amp; Edit
+                          </div>
+                        </div>
+                      }
                     />
-
-                    {/* Hover overlay */}
-                    <div className="absolute inset-0 bg-zinc-900/70 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                      <div className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 backdrop-blur-sm text-white rounded-lg text-xs font-medium border border-white/10">
-                        <Maximize2 className="w-3.5 h-3.5" />
-                        View &amp; Edit
-                      </div>
-                    </div>
                   </div>
 
                   {/* Info */}

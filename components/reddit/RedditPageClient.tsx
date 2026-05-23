@@ -10,6 +10,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
+import { format, formatDistanceToNow } from 'date-fns'
 import { cn } from '@/lib/utils'
 import { parseRedditPost, type RedditPostContent } from '@/lib/reddit/parse'
 import type { ContentGoal, GeneratedPost, PostLength } from '@/types/agents'
@@ -31,6 +32,7 @@ interface RedditOpportunity {
   matched_keywords: string[]
   status: 'new' | 'drafted' | 'replied' | 'dismissed' | 'manual_review'
   draft_reply: string | null
+  posted_at: string
   seen_at: string
 }
 
@@ -80,8 +82,8 @@ const LENGTHS: { id: PostLength; label: string }[] = [
 ]
 
 const STATUS_FILTERS = [
-  { id: undefined, label: 'All' },
   { id: 'new', label: 'New' },
+  { id: undefined, label: 'All' },
   { id: 'drafted', label: 'Drafted' },
   { id: 'manual_review', label: 'Manual' },
   { id: 'dismissed', label: 'Dismissed' },
@@ -216,12 +218,14 @@ function redditPostUrl(opp: RedditOpportunity): string {
 }
 
 function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime()
-  const mins = Math.floor(diff / 60000)
-  if (mins < 60) return `${mins}m ago`
-  const hrs = Math.floor(mins / 60)
-  if (hrs < 24) return `${hrs}h ago`
-  return `${Math.floor(hrs / 24)}d ago`
+  return formatDistanceToNow(new Date(iso), { addSuffix: true })
+}
+
+function formatPostedAt(iso: string): string {
+  const d = new Date(iso)
+  const relative = formatDistanceToNow(d, { addSuffix: true })
+  const absolute = format(d, 'MMM d, yyyy · h:mm a')
+  return `${relative} · ${absolute}`
 }
 
 function OpportunityCard({
@@ -237,23 +241,33 @@ function OpportunityCard({
   const [drafting, setDrafting] = useState(false)
   const [editingReply, setEditingReply] = useState(false)
   const [replyText, setReplyText] = useState(opp.draft_reply ?? '')
+  const [draftContext, setDraftContext] = useState('')
   const [copied, setCopied] = useState(false)
+  const [draftError, setDraftError] = useState<string | null>(null)
 
   const isDismissed = opp.status === 'dismissed'
   const postUrl = redditPostUrl(opp)
 
   async function handleDraft() {
     setDrafting(true)
+    setDraftError(null)
     try {
       const res = await fetch(`/api/reddit/opportunities/${opp.id}/draft-reply`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ companyId }),
+        body: JSON.stringify({
+          companyId,
+          additionalContext: draftContext.trim() || undefined,
+        }),
       })
       if (res.ok) {
         const { draft_reply } = await res.json() as { draft_reply: string }
         setReplyText(draft_reply)
         onUpdate({ id: opp.id, draft_reply, status: 'drafted' })
+        setEditingReply(false)
+      } else {
+        const body = await res.json().catch(() => ({}))
+        setDraftError(typeof body.error === 'string' ? body.error : 'Failed to draft reply')
       }
     } finally {
       setDrafting(false)
@@ -306,7 +320,9 @@ function OpportunityCard({
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap mb-1.5">
               <span className="text-xs font-semibold text-orange-400">r/{opp.subreddit}</span>
-              <span className="text-[11px] text-zinc-600">u/{opp.author} · {timeAgo(opp.seen_at)}</span>
+              <span className="text-[11px] text-zinc-600" title="When this was posted on Reddit">
+                u/{opp.author} · Posted {formatPostedAt(opp.posted_at)}
+              </span>
               <span className={cn('text-[10px] px-1.5 py-0.5 rounded border font-medium', statusColors[opp.status])}>
                 {opp.status.replace('_', ' ')}
               </span>
@@ -321,14 +337,6 @@ function OpportunityCard({
             </a>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            <div className="flex items-center gap-1 text-[11px] text-zinc-500">
-              <ArrowUp className="w-3 h-3" />
-              <span>{opp.score}</span>
-            </div>
-            <div className="flex items-center gap-1 text-[11px] text-zinc-500">
-              <MessageSquare className="w-3 h-3" />
-              <span>{opp.num_comments}</span>
-            </div>
             <a
               href={postUrl}
               target="_blank"
@@ -393,13 +401,35 @@ function OpportunityCard({
               )}
             </div>
 
-            {!opp.draft_reply && !drafting && (
+            <div className="space-y-1.5">
+              <Label className="text-[11px] text-zinc-500 font-normal">
+                Instructions for the AI{' '}
+                <span className="text-zinc-600">(optional — angle, what to mention or avoid)</span>
+              </Label>
+              <Textarea
+                value={draftContext}
+                onChange={e => setDraftContext(e.target.value)}
+                rows={3}
+                disabled={drafting}
+                placeholder="e.g. Share a practical tip only. Do not mention our product. Reference my experience with React hooks, keep it under 3 sentences."
+                className="bg-zinc-800 border-zinc-700 text-sm resize-none"
+              />
+            </div>
+
+            {draftError && (
+              <p className="text-xs text-red-400 bg-red-900/20 border border-red-800 rounded-lg px-3 py-2">
+                {draftError}
+              </p>
+            )}
+
+            {!drafting && (
               <Button
                 size="sm"
                 onClick={handleDraft}
                 className="bg-violet-600 hover:bg-violet-500 text-white w-full"
               >
-                <Sparkles className="w-3.5 h-3.5" /> Draft reply with AI
+                <Sparkles className="w-3.5 h-3.5" />
+                {opp.draft_reply ? 'Redraft reply with AI' : 'Draft reply with AI'}
               </Button>
             )}
 
@@ -483,7 +513,7 @@ function OpportunityCard({
 
 function OpportunitiesTab({ companyId }: { companyId: string }) {
   const [opportunities, setOpportunities] = useState<RedditOpportunity[]>([])
-  const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined)
+  const [statusFilter, setStatusFilter] = useState<string | undefined>('new')
   const [loading, setLoading] = useState(true)
 
   const fetchOpportunities = useCallback(async () => {

@@ -1,6 +1,7 @@
 'use client'
 
 import { cn } from '@/lib/utils'
+import { HoverDownloadImage } from '@/components/media/HoverDownloadImage'
 import type { Channel } from '@/types/database'
 
 interface ChannelPreviewProps {
@@ -21,11 +22,11 @@ function MediaBlock({ url, channel }: { url: string; channel: Channel }) {
     reddit: 'aspect-video',
   }
   return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
+    <HoverDownloadImage
       src={url}
       alt="Post media"
-      className={cn('w-full object-cover', aspectClass[channel])}
+      className="w-full h-full object-cover"
+      wrapperClassName={cn('w-full block overflow-hidden', aspectClass[channel])}
     />
   )
 }

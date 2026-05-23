@@ -52,6 +52,8 @@ export interface ArticleFrontmatterInput {
   tags: string[]
   slug: string
   featuredImageAlt: string
+  /** When set (e.g. generated cover URL), used instead of /blog-images/{slug}.png */
+  featuredImageSrc?: string
   template?: string
 }
 
@@ -59,7 +61,7 @@ export function buildArticleFrontmatter(input: ArticleFrontmatterInput): string 
   const categories = input.categories.length > 0 ? input.categories : ['Uncategorized']
   const categoriesYaml = yamlList(categories)
   const tagsSection = input.tags.length > 0 ? `tags: \n${yamlList(input.tags)}\n` : ''
-  const featuredImageSrc = featuredImagePath(input.slug)
+  const featuredImageSrc = input.featuredImageSrc?.trim() || featuredImagePath(input.slug)
   const featuredImageAlt = escapeYamlDoubleQuoted(
     input.featuredImageAlt || `Featured image for ${input.metaTitle}`,
   )

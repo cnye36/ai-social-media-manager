@@ -6,12 +6,17 @@ import { format } from 'date-fns'
 import {
   ArrowLeft, Loader2, Trash2, CalendarClock, Sparkles, Check,
   Tag, X, Copy, Wand2, ChevronDown, ChevronUp, ExternalLink,
-  Code2, BookOpen, LayoutList, Microscope,
+  Code2, BookOpen, LayoutList, Microscope, ImageIcon,
 } from 'lucide-react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { RichTextEditor, type RichTextEditorHandle } from './RichTextEditor'
+import { ArticleMediaPanel } from './ArticleMediaPanel'
 import { SocialFromArticle } from './SocialFromArticle'
+import { HoverDownloadImage } from '@/components/media/HoverDownloadImage'
+import { ImagePromptBox } from '@/components/media/ImagePromptBox'
+import { extractImagePrompts, imagePromptBeforeOffset, stripImagePromptComments } from '@/lib/blog/image-prompts'
+import type { MediaResult } from '@/types/media'
 import { cn } from '@/lib/utils'
 import type { Article, ArticleStatus, BlogSite } from '@/types/database'
 import type { ArticleFormat } from '@/types/agents'
@@ -41,10 +46,13 @@ interface ArticleEditorClientProps {
   article: Article
   companyId: string
   sites: BlogSite[]
+  brandColors?: { primary?: string; accent?: string }
   autoGenerate?: boolean
 }
 
-export function ArticleEditorClient({ article: initialArticle, companyId, sites, autoGenerate = false }: ArticleEditorClientProps) {
+export function ArticleEditorClient({
+  article: initialArticle, companyId, sites, brandColors, autoGenerate = false,
+}: ArticleEditorClientProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const editorRef = useRef<RichTextEditorHandle>(null)
@@ -61,6 +69,11 @@ export function ArticleEditorClient({ article: initialArticle, companyId, sites,
   const [tags, setTags] = useState<string[]>(initialArticle.tags ?? [])
   const [author, setAuthor] = useState(initialArticle.author ?? '')
   const [featuredImageAlt, setFeaturedImageAlt] = useState('')
+  const [featuredImageUrl, setFeaturedImageUrl] = useState(initialArticle.featured_image_url ?? '')
+  const [featuredImagePrompt, setFeaturedImagePrompt] = useState(initialArticle.featured_image_prompt ?? '')
+  const [coverSuggestedPrompt, setCoverSuggestedPrompt] = useState(initialArticle.featured_image_prompt ?? '')
+  const [inlineSuggestedPrompt, setInlineSuggestedPrompt] = useState('')
+  const [showInlineMedia, setShowInlineMedia] = useState(false)
   const [catInput, setCatInput] = useState('')
   const [tagInput, setTagInput] = useState('')
 
@@ -79,6 +92,7 @@ export function ArticleEditorClient({ article: initialArticle, companyId, sites,
   const [aiInstruction, setAiInstruction] = useState('')
   const [aiEditing, setAiEditing] = useState(false)
   const [wordCount, setWordCount] = useState(0)
+  const [editorBody, setEditorBody] = useState(initialArticle.body)
   const [copied, setCopied] = useState(false)
   const [frontmatterOpen, setFrontmatterOpen] = useState(true)
   const [mdxViewOpen, setMdxViewOpen] = useState(false)
@@ -110,6 +124,7 @@ export function ArticleEditorClient({ article: initialArticle, companyId, sites,
 
   // Word count from editor content
   const handleEditorChange = useCallback((markdown: string) => {
+    setEditorBody(markdown)
     setWordCount(markdown.split(/\s+/).filter(Boolean).length)
   }, [])
 
@@ -160,6 +175,12 @@ export function ArticleEditorClient({ article: initialArticle, companyId, sites,
       if (data.defaultAuthor && !author) setAuthor(data.defaultAuthor)
       setExcerpt(data.frontmatter.metaDescription)
       if (data.frontmatter.featuredImageAlt) setFeaturedImageAlt(data.frontmatter.featuredImageAlt)
+      if (data.frontmatter.coverImagePrompt) {
+        setCoverSuggestedPrompt(data.frontmatter.coverImagePrompt)
+        if (!featuredImagePrompt) setFeaturedImagePrompt(data.frontmatter.coverImagePrompt)
+      }
+      const inlinePrompts = extractImagePrompts(body)
+      if (inlinePrompts[0]) setInlineSuggestedPrompt(inlinePrompts[0])
       // Auto-save the generated content
       if (body) {
         const saveRes = await fetch(`/api/articles/${initialArticle.id}`, {
@@ -217,6 +238,8 @@ export function ArticleEditorClient({ article: initialArticle, companyId, sites,
         meta_title: metaTitle || null, meta_description: metaDescription || null,
         author: author || null, status,
         scheduled_for: scheduledFor ? new Date(scheduledFor).toISOString() : null,
+        featured_image_url: featuredImageUrl || null,
+        featured_image_prompt: featuredImagePrompt || null,
       }),
     })
     if (res.ok) {
@@ -235,8 +258,38 @@ export function ArticleEditorClient({ article: initialArticle, companyId, sites,
     router.push(`/${companyId}/blog`)
   }
 
+  function openInlineImagePanel() {
+    const md = editorRef.current?.getMarkdown() ?? ''
+    const editor = editorRef.current?.getEditor()
+    const offset = editor?.state.selection.from ?? md.length
+    const near = imagePromptBeforeOffset(md, offset)
+    const section = editorRef.current?.getSelectionContext() ?? ''
+    setInlineSuggestedPrompt(near ?? section.slice(0, 500))
+    setShowInlineMedia(true)
+  }
+
+  async function handleCoverImage(result: MediaResult) {
+    setFeaturedImageUrl(result.url)
+    setFeaturedImagePrompt(result.promptUsed)
+    await fetch(`/api/articles/${initialArticle.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        featured_image_url: result.url,
+        featured_image_prompt: result.promptUsed,
+      }),
+    })
+  }
+
+  function handleInlineImage(result: MediaResult) {
+    const alt = featuredImageAlt || result.promptUsed.slice(0, 120)
+    editorRef.current?.insertImage(result.url, alt)
+    setShowInlineMedia(false)
+  }
+
   function buildMdxContent() {
-    const body = editorRef.current?.getMarkdown() ?? ''
+    const rawBody = editorRef.current?.getMarkdown() ?? ''
+    const body = stripImagePromptComments(rawBody)
     const articleDate = scheduledFor
       ? format(new Date(scheduledFor), 'yyyy-MM-dd')
       : format(new Date(), 'yyyy-MM-dd')
@@ -251,6 +304,7 @@ export function ArticleEditorClient({ article: initialArticle, companyId, sites,
       tags,
       slug: articleSlug,
       featuredImageAlt: featuredImageAlt || `Featured image for ${title}`,
+      featuredImageSrc: featuredImageUrl || undefined,
       template: selectedSite?.frontmatter_template,
     })
 
@@ -398,8 +452,26 @@ export function ArticleEditorClient({ article: initialArticle, companyId, sites,
               initialMarkdown={initialArticle.body}
               placeholder="Start writing, or click 'AI Write' to generate a complete article…"
               onChange={handleEditorChange}
+              onInsertImageClick={openInlineImagePanel}
             />
           </div>
+
+          {showInlineMedia && (
+            <ArticleMediaPanel
+              companyId={companyId}
+              articleId={initialArticle.id}
+              articleTitle={title}
+              contentContext={[
+                title,
+                editorRef.current?.getSelectionContext() ?? editorBody.slice(0, 800),
+                excerpt,
+              ].filter(Boolean).join('\n\n')}
+              mode="inline"
+              suggestedPrompt={inlineSuggestedPrompt}
+              brandColors={brandColors}
+              onInsertInline={handleInlineImage}
+            />
+          )}
 
           <p className="text-xs text-zinc-700 text-right">{wordCount} words</p>
 
@@ -535,19 +607,51 @@ export function ArticleEditorClient({ article: initialArticle, companyId, sites,
                 </div>
 
                 {/* Featured Image */}
-                <div className="space-y-1.5 border-t border-zinc-800 pt-4">
-                  <label className="text-[10px] text-zinc-500 uppercase tracking-widest font-medium">
-                    Featured Image
+                <div className="space-y-3 border-t border-zinc-800 pt-4">
+                  <label className="text-[10px] text-zinc-500 uppercase tracking-widest font-medium flex items-center gap-1">
+                    <ImageIcon className="w-3 h-3" />
+                    Cover image
                   </label>
-                  <p className="text-[10px] text-zinc-600 font-mono">
-                    /blog-images/{slug || 'your-slug'}.png
-                  </p>
+                  {featuredImageUrl ? (
+                    <div className="rounded-lg overflow-hidden border border-zinc-700">
+                      <HoverDownloadImage
+                        src={featuredImageUrl}
+                        alt={featuredImageAlt}
+                        className="w-full object-cover max-h-40"
+                        wrapperClassName="w-full"
+                        downloadFilename={`${slug || 'cover'}.png`}
+                      />
+                    </div>
+                  ) : (
+                    <p className="text-[10px] text-zinc-600 font-mono">
+                      Static path: /blog-images/{slug || 'your-slug'}.png — or generate below
+                    </p>
+                  )}
+                  <ImagePromptBox
+                    label="Cover image prompt"
+                    value={featuredImagePrompt || coverSuggestedPrompt}
+                    onChange={v => {
+                      setFeaturedImagePrompt(v)
+                      setCoverSuggestedPrompt(v)
+                    }}
+                    hint="Suggested on AI write, or edit before generating. Saved with the article."
+                  />
                   <textarea
                     value={featuredImageAlt}
                     onChange={e => setFeaturedImageAlt(e.target.value)}
-                    placeholder="Alt text / image description — AI fills this in on generation"
-                    rows={3}
+                    placeholder="Accessibility alt text for the cover image"
+                    rows={2}
                     className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-xs text-zinc-300 leading-relaxed resize-none focus:outline-none focus:ring-1 focus:ring-violet-500/60"
+                  />
+                  <ArticleMediaPanel
+                    companyId={companyId}
+                    articleId={initialArticle.id}
+                    articleTitle={title}
+                    contentContext={[title, excerpt, editorBody.slice(0, 2000)].filter(Boolean).join('\n\n')}
+                    mode="cover"
+                    suggestedPrompt={coverSuggestedPrompt || featuredImagePrompt}
+                    brandColors={brandColors}
+                    onUseCover={handleCoverImage}
                   />
                 </div>
               </div>

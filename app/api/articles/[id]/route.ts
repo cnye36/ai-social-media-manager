@@ -57,6 +57,7 @@ export async function PATCH(
   const {
     title, body: articleBody, excerpt, tags, categories, slug,
     site_id, meta_title, meta_description, author, status, scheduled_for,
+    featured_image_url, featured_image_prompt,
   } = body
 
   const updates: Record<string, unknown> = {}
@@ -72,6 +73,8 @@ export async function PATCH(
   if (author !== undefined) updates.author = author || null
   if (status !== undefined) updates.status = status
   if (scheduled_for !== undefined) updates.scheduled_for = scheduled_for || null
+  if (featured_image_url !== undefined) updates.featured_image_url = featured_image_url || null
+  if (featured_image_prompt !== undefined) updates.featured_image_prompt = featured_image_prompt || null
   if (status === 'published') updates.published_at = new Date().toISOString()
 
   const { data, error } = await supabase

@@ -29,6 +29,8 @@ Return a JSON object:
 
 WHAT WORKS: Sharing what you learned (with specifics), asking for honest feedback, showing your work, unique data or research, stories of failure and recovery.
 WHAT TO AVOID: "Check out our product!", vague claims, anything that reads like an ad, engagement bait, posting the same content to multiple subreddits simultaneously.
+
+TECH CONTEXT: If the COMPANY INTEL section lists a preferred tech stack, use that stack for any code examples, framework mentions, or build advice (e.g. TypeScript + React over Python or Vue unless the topic demands otherwise). Sound like someone who actually ships with that stack.
 `.trim()
 
 export function buildRedditAgent(params: {

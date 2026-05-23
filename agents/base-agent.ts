@@ -1,4 +1,5 @@
 import type { BrandProfile } from '@/types/database'
+import { preferredStackGuidance } from '@/lib/content-planning/brand-context'
 import type { RetrievedChunk } from '@/lib/rag/retrieve'
 import type { ContentGoal, PostLength } from '@/types/agents'
 
@@ -41,6 +42,7 @@ export function buildBaseSystemPrompt(params: {
     brand.geographic_focus && `- Geographic focus: ${brand.geographic_focus}`,
     brand.company_stage && `- Stage: ${brand.company_stage}`,
     brand.team_size && `- Team size: ${brand.team_size}`,
+    preferredStackGuidance(brand) && `- ${preferredStackGuidance(brand)}`,
   ].filter(Boolean) : []
 
   const companyIntelSection = intelLines.length > 0

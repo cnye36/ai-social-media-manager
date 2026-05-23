@@ -22,8 +22,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY
 SUPABASE_SERVICE_ROLE_KEY   # admin client only — never exposed to browser
 OPENAI_API_KEY
 CRON_SECRET                 # bearer token checked by /api/cron/publish and /api/reddit/monitor
-REDDIT_CLIENT_ID            # optional — script app; enables oauth.reddit.com (preferred over RSS)
-REDDIT_CLIENT_SECRET        # optional — paired with REDDIT_CLIENT_ID
+REDDIT_USER_AGENT           # optional — User-Agent for public RSS fetches
 ```
 
 ## Architecture overview

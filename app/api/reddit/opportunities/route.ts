@@ -11,8 +11,8 @@ export async function GET(req: NextRequest) {
     .from('reddit_opportunities')
     .select('*')
     .eq('company_id', companyId)
-    .order('seen_at', { ascending: false })
-    .limit(50)
+    .order('posted_at', { ascending: false })
+    .limit(100)
 
   if (status) query = query.eq('status', status)
 

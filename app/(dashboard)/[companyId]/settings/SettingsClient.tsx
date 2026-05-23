@@ -6,6 +6,7 @@ import { Building2, Palette, BookOpen, Link2, Globe } from 'lucide-react'
 import { CompanySettingsForm } from '@/components/settings/CompanySettingsForm'
 import { BrandSettingsForm } from '@/components/settings/BrandSettingsForm'
 import { BufferConnect } from '@/components/settings/BufferConnect'
+import { RedditConnect } from '@/components/settings/RedditConnect'
 import { CanvaConnect } from '@/components/settings/CanvaConnect'
 import { ScrapeForm } from '@/components/knowledge/ScrapeForm'
 import { ManualEntryForm } from '@/components/knowledge/ManualEntryForm'
@@ -99,6 +100,16 @@ export function SettingsClient({
               </p>
             </div>
             <BufferConnect companyId={company.id} />
+          </div>
+
+          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
+            <div className="mb-5">
+              <h2 className="font-semibold text-white">Reddit</h2>
+              <p className="text-zinc-400 text-sm mt-0.5">
+                Connect your Reddit account to monitor subreddits with live stats and post reply drafts.
+              </p>
+            </div>
+            <RedditConnect companyId={company.id} />
           </div>
         </div>
       )}

@@ -17,6 +17,8 @@ export interface GeneratedFrontmatter {
   categories: string[]
   tags: string[]
   featuredImageAlt: string
+  /** Image generation prompt for the blog cover (same detail level as IMAGE_PROMPT comments). */
+  coverImagePrompt: string
 }
 
 function titleToSlug(title: string): string {
@@ -107,7 +109,7 @@ Return a JSON object:
         { role: 'user', content: outlinePrompt },
       ],
       response_format: { type: 'json_object' },
-      max_tokens: 800,
+      max_completion_tokens: 800,
       temperature: 0.7,
     })
     const parsed = JSON.parse(outlineRes.choices[0]?.message?.content ?? '{}') as {
@@ -167,12 +169,13 @@ Return JSON with ALL fields:
   "slug": "url-friendly-slug-max-60-chars",
   "categories": ["Proper Case Category", "Another Category"],
   "tags": ["Proper Case Tag", "Another Tag", "Tag Three", "Tag Four", "Tag Five"],
-  "featuredImageAlt": "Vivid, descriptive alt text for the blog featured image — describe what the image should depict visually in 1-2 sentences, referencing the article topic and brand aesthetics"
+  "featuredImageAlt": "Accessibility alt text for the cover image (concise, 1 sentence)",
+  "coverImagePrompt": "Detailed AI image generation prompt for the blog cover/hero — style, subject, mood, lighting, composition, brand-appropriate palette (2-3 sentences)"
 }`,
         },
       ],
       response_format: { type: 'json_object' },
-      max_tokens: 500,
+      max_completion_tokens: 500,
       temperature: 0.4,
     })
 
@@ -185,6 +188,7 @@ Return JSON with ALL fields:
       categories: rawFm.categories ?? [],
       tags: rawFm.tags ?? [],
       featuredImageAlt: rawFm.featuredImageAlt ?? `Featured image for article: ${title}`,
+      coverImagePrompt: rawFm.coverImagePrompt ?? rawFm.featuredImageAlt ?? `Editorial cover image for: ${title}`,
     }
 
     // Apply site default author if provided

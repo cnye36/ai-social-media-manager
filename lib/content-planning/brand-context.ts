@@ -1,5 +1,15 @@
 import type { BrandProfile, Company, Post } from '@/types/database'
 
+/** One-line instruction for agents when a preferred stack is configured. */
+export function preferredStackGuidance(brand: BrandProfile | null): string | null {
+  const stack = brand?.preferred_stack?.trim()
+  if (!stack) return null
+  return (
+    `Preferred tech stack: ${stack}. ` +
+    'When giving examples, tooling suggestions, architecture advice, or code-related ideas, default to this stack unless the topic clearly requires something else.'
+  )
+}
+
 export function buildBrandContext(company: Company, brand: BrandProfile | null): string {
   const lines: string[] = [`Company: ${company.name}`]
   if (company.website_url) lines.push(`Website: ${company.website_url}`)
@@ -23,6 +33,7 @@ export function buildBrandContext(company: Company, brand: BrandProfile | null):
     brand.company_stage ? `Stage: ${brand.company_stage}` : null,
     brand.keywords?.length ? `Keywords: ${brand.keywords.join(', ')}` : null,
     brand.avoid_phrases?.length ? `Avoid: ${brand.avoid_phrases.join(', ')}` : null,
+    preferredStackGuidance(brand),
   ].filter((line): line is string => Boolean(line))
 
   lines.push(...brandLines)

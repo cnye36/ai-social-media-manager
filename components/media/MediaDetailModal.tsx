@@ -7,6 +7,8 @@ import {
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { Badge } from '@/components/ui/badge'
+import { HoverDownloadImage } from '@/components/media/HoverDownloadImage'
+import { downloadMediaFile } from '@/lib/media/download'
 import type { Channel } from '@/types/database'
 
 export interface ModalMediaItem {
@@ -49,12 +51,8 @@ export function MediaDetailModal({ item, companyId, onClose }: MediaDetailModalP
     setTimeout(() => setCopied(false), 2000)
   }
 
-  function download() {
-    const a = document.createElement('a')
-    a.href = currentUrl
-    a.download = `media-${item.id}.png`
-    a.target = '_blank'
-    a.click()
+  async function download() {
+    await downloadMediaFile(currentUrl, `media-${item.id}.png`)
   }
 
   async function openInCanva(imageUrl: string, title: string) {
@@ -143,11 +141,12 @@ export function MediaDetailModal({ item, companyId, onClose }: MediaDetailModalP
 
         <div className="flex flex-1 overflow-hidden min-h-0">
           <div className="flex-1 flex items-center justify-center bg-zinc-900 overflow-auto p-6">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
+            <HoverDownloadImage
               src={currentUrl}
               alt={item.prompt ?? 'Generated image'}
               className="max-w-full max-h-full object-contain rounded-xl shadow-xl"
+              wrapperClassName="max-w-full max-h-full flex items-center justify-center"
+              downloadFilename={`media-${item.id}.png`}
             />
           </div>
 

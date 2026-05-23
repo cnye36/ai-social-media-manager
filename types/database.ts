@@ -35,6 +35,8 @@ export interface BrandProfile {
   geographic_focus: string | null
   company_stage: string | null
   team_size: string | null
+  /** Primary languages/frameworks for examples and technical content (e.g. "TypeScript, React") */
+  preferred_stack: string | null
 }
 
 export interface KnowledgeChunk {
@@ -84,6 +86,8 @@ export interface Article {
   meta_title: string | null
   meta_description: string | null
   author: string | null
+  featured_image_url: string | null
+  featured_image_prompt: string | null
   status: ArticleStatus
   scheduled_for: string | null
   published_at: string | null
@@ -124,6 +128,7 @@ export interface MediaLibraryItem {
   type: 'image' | 'infographic'
   svg: string | null
   post_id: string | null
+  article_id: string | null
   created_at: string
 }
 

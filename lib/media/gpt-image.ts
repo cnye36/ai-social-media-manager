@@ -30,8 +30,9 @@ export async function generateImage(params: {
   companyId: string
   size?: ImageSize
   postId?: string
+  articleId?: string
 }): Promise<GeneratedImage> {
-  const { prompt, companyId, size, postId } = params
+  const { prompt, companyId, size, postId, articleId } = params
   const apiSize = normalizeImageSize(size)
 
   const response = await openai.images.generate({
@@ -68,6 +69,7 @@ export async function generateImage(params: {
       type: 'image',
       svg: null,
       post_id: postId ?? null,
+      article_id: articleId ?? null,
     })
     if (error) console.warn('[media-library] image save failed:', error.message, error.code)
   })()

@@ -61,7 +61,7 @@ Rules:
           content: `Instruction: ${instruction}\n\nArticle to edit:\n\n${currentBody}`,
         },
       ],
-      max_tokens: 3000,
+      max_completion_tokens: 3000,
       temperature: 0.6,
     })
 

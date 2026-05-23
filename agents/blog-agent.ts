@@ -75,6 +75,13 @@ UNIVERSAL WRITING RULES:
 - Do NOT include an H1 at the top — the article title is handled separately
 - End with a clear, specific CTA tied to ${companyName}'s actual products or services
 
+IMAGES (editor hints — not visible in published MDX):
+- After the opening section, add a cover image hint on its own line:
+  <!-- IMAGE_PROMPT: vivid description of an editorial hero/cover image for this article -->
+- For 2–4 sections that benefit from a visual (diagrams, comparisons, workflows, data), add on the line after that section's last paragraph:
+  <!-- IMAGE_PROMPT: detailed description of the illustration/infographic for this section -->
+- Prompts must be specific: subject, style, mood, colors, composition. No placeholder URLs.
+
 OUTPUT: Return ONLY the complete markdown article body — no preamble, no "here's the article", no explanation.`
 
   return new Agent({
