@@ -157,7 +157,10 @@ export function PlanDetailClient({ companyId, initialPlan }: PlanDetailClientPro
       const res = await fetch(`/api/posts/${slot.post_id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'scheduled' }),
+        body: JSON.stringify({
+          status: 'scheduled',
+          scheduled_for: slot.scheduled_for,
+        }),
       })
       if (res.ok) {
         const updated: Post = await res.json()

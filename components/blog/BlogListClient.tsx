@@ -160,10 +160,17 @@ export function BlogListClient({ articles: initialArticles, companyId }: BlogLis
               </div>
 
               <div className="flex items-center gap-3 shrink-0">
-                {article.scheduled_for && (
+                {(article.status === 'published' ? article.published_at : article.scheduled_for) && (
                   <span className="flex items-center gap-1 text-xs text-zinc-500">
                     <CalendarClock className="w-3 h-3" />
-                    {format(new Date(article.scheduled_for), 'MMM d, h:mm a')}
+                    {format(
+                      new Date(
+                        (article.status === 'published'
+                          ? article.published_at
+                          : article.scheduled_for)!,
+                      ),
+                      'MMM d, h:mm a',
+                    )}
                   </span>
                 )}
                 <Badge variant={article.status as ArticleStatus}>{article.status}</Badge>

@@ -17,6 +17,8 @@ export interface GenerateRequest {
   postLength: PostLength
   additionalContext?: string
   threadMode?: boolean
+  /** Reddit only: when true, agent fills the disclosure field; when false, omit entirely */
+  includeDisclosure?: boolean
 }
 
 export interface GeneratedPost {

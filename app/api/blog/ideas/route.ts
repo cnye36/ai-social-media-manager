@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { createClient } from '@/lib/supabase/server'
 import { retrieve } from '@/lib/rag/retrieve'
+import { buildIdeasDedupContext, fetchExistingArticles } from '@/lib/blog/existing-articles'
 import type { ContentGoal } from '@/types/agents'
 import type { ArticleFormat } from '@/types/agents'
 
@@ -46,24 +47,19 @@ export async function POST(request: Request) {
     .single()
   if (!company) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
-  const [{ data: brand }, { data: existing }, chunks] = await Promise.all([
+  const [{ data: brand }, existingArticles, chunks] = await Promise.all([
     supabase
       .from('brand_profiles')
       .select('tone, target_audience, keywords, voice_notes, company_description, products_services')
       .eq('company_id', companyId)
       .maybeSingle(),
-    supabase
-      .from('articles')
-      .select('title, scheduled_for')
-      .eq('company_id', companyId)
-      .order('created_at', { ascending: false })
-      .limit(30),
+    fetchExistingArticles(supabase, companyId, 50),
     retrieve(companyId, 'expertise how-to guides insights tutorials thought leadership value', 10, 0.3).catch(
       () => [] as Awaited<ReturnType<typeof retrieve>>
     ),
   ])
 
-  const existingTitles = existing?.map(a => `- "${a.title}"`).join('\n') ?? ''
+  const existingArticlesContext = buildIdeasDedupContext(existingArticles)
 
   const brandContext = [
     brand?.company_description && `About: ${brand.company_description}`,
@@ -90,8 +86,7 @@ ${brandContext}
 Knowledge base:
 ${knowledgeContext}
 
-${existingTitles ? `Already written (do NOT suggest these or close variants):\n${existingTitles}\n` : ''}
-Generate exactly ${count} fresh, specific ${formatLabel} ideas grounded in the company's actual expertise.
+${existingArticlesContext ? `${existingArticlesContext}\n\n` : ''}Generate exactly ${count} fresh, specific ${formatLabel} ideas grounded in the company's actual expertise.
 
 TITLE FORMAT: ${titleGuidance}
 

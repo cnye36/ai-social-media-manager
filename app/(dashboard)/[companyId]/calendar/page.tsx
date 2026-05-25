@@ -1,5 +1,11 @@
 import { createClient } from '@/lib/supabase/server'
 import { ContentCalendar } from '@/components/calendar/ContentCalendar'
+import {
+  calendarSortKey,
+  filterArticlesForCalendar,
+  filterPostsForCalendar,
+} from '@/lib/calendar-items'
+import { publishDueContent } from '@/lib/publishing/publish-due'
 import { startOfMonth, endOfMonth, subMonths, addMonths } from 'date-fns'
 
 interface Props {
@@ -10,27 +16,30 @@ export default async function CalendarPage({ params }: Props) {
   const { companyId } = await params
   const supabase = await createClient()
 
-  const rangeStart = startOfMonth(subMonths(new Date(), 1)).toISOString()
-  const rangeEnd = endOfMonth(addMonths(new Date(), 1)).toISOString()
+  await publishDueContent(supabase, { companyId }).catch(() => {
+    // Non-blocking: cron still handles overdue publishes
+  })
 
-  const [{ data: posts }, { data: articles }] = await Promise.all([
+  const rangeStart = startOfMonth(subMonths(new Date(), 1))
+  const rangeEnd = endOfMonth(addMonths(new Date(), 1))
+
+  const [{ data: rawPosts }, { data: rawArticles }] = await Promise.all([
     supabase
       .from('posts')
       .select('*')
       .eq('company_id', companyId)
-      .not('scheduled_for', 'is', null)
-      .gte('scheduled_for', rangeStart)
-      .lte('scheduled_for', rangeEnd)
-      .order('scheduled_for'),
+      .in('status', ['scheduled', 'published']),
     supabase
       .from('articles')
       .select('*')
       .eq('company_id', companyId)
-      .not('scheduled_for', 'is', null)
-      .gte('scheduled_for', rangeStart)
-      .lte('scheduled_for', rangeEnd)
-      .order('scheduled_for'),
+      .in('status', ['scheduled', 'published']),
   ])
+
+  const posts = filterPostsForCalendar(rawPosts ?? [], rangeStart, rangeEnd)
+    .sort((a, b) => (calendarSortKey(a) ?? '').localeCompare(calendarSortKey(b) ?? ''))
+  const articles = filterArticlesForCalendar(rawArticles ?? [], rangeStart, rangeEnd)
+    .sort((a, b) => (calendarSortKey(a) ?? '').localeCompare(calendarSortKey(b) ?? ''))
 
   return (
     <div className="p-8 max-w-6xl mx-auto">
@@ -42,8 +51,8 @@ export default async function CalendarPage({ params }: Props) {
       </div>
 
       <ContentCalendar
-        posts={posts ?? []}
-        articles={articles ?? []}
+        posts={posts}
+        articles={articles}
         companyId={companyId}
         generateHref={`/${companyId}/generate`}
       />

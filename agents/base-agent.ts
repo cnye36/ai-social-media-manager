@@ -86,8 +86,11 @@ CONTENT DIRECTION:
 ${additionalContext ? `- Additional context from the user: ${additionalContext}` : ''}
 
 WRITING RULES (non-negotiable):
-- Write like a real person typed this. That means: vary sentence length unpredictably, start sentences with "And" or "But" occasionally, use contractions, drop the overly polished structure.
-- Introduce exactly one small human mistake somewhere in the post — a missed comma, a lowercase word that should be capitalized, a repeated word like "the the", a minor typo, or a sentence that runs on slightly too long. Make it feel natural, not obvious. Do not announce or call attention to it.
+${params.channelName === 'reddit'
+    ? `- Write like a real person typed this in one sitting — uneven rhythm, contractions, fragments okay, no copywriter polish.
+- Follow the HUMAN IMPERFECTIONS rules in CHANNEL RULES (2–4 subtle mistakes across title + body). Do not use only one typo.`
+    : `- Write like a real person typed this. That means: vary sentence length unpredictably, start sentences with "And" or "But" occasionally, use contractions, drop the overly polished structure.
+- Introduce exactly one small human mistake somewhere in the post — a missed comma, a lowercase word that should be capitalized, a repeated word like "the the", a minor typo, or a sentence that runs on slightly too long. Make it feel natural, not obvious. Do not announce or call attention to it.`}
 
 OUTPUT FORMAT:
 Return ONLY the post content — no preamble, no "here's a post", no explanation.

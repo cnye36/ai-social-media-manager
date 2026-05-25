@@ -10,6 +10,15 @@ import { MediaPanel } from '@/components/generate/MediaPanel'
 import { ChannelPreview } from '@/components/posts/ChannelPreview'
 import { cn } from '@/lib/utils'
 import type { Post, Channel, PostStatus } from '@/types/database'
+import {
+  buildStatusDatetimePayload,
+  datetimeFieldLabel,
+  initialDatetimeLocal,
+  onDatetimeChange,
+  onStatusSelect,
+  syncDatetimeFieldsFromSaved,
+  toDatetimeLocal,
+} from '@/lib/content-status'
 
 const BUFFER_CHANNELS: Channel[] = ['linkedin', 'x', 'facebook']
 
@@ -38,13 +47,6 @@ function FormattingRibbon({ onFormat }: { onFormat: (type: 'bold' | 'italic' | '
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function toDatetimeLocal(iso: string | null): string {
-  if (!iso) return ''
-  const d = new Date(iso)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
 
 // ─── Modal ───────────────────────────────────────────────────────────────────
 
@@ -83,7 +85,11 @@ export function PostEditorModal({
     if (post && open) {
       setContent(post.content)
       setStatus(post.status as PostStatus)
-      setScheduledFor(toDatetimeLocal(post.scheduled_for))
+      setScheduledFor(initialDatetimeLocal(
+        post.status as PostStatus,
+        post.scheduled_for,
+        post.published_at,
+      ))
       setPendingMediaUrl(null)
       setPendingMediaItems(null)
       setSaveError('')
@@ -133,19 +139,21 @@ export function PostEditorModal({
     if (!post) return
     setSaving(true); setSaveError('')
     const mediaItems = pendingMediaItems ?? post.media_items
+    const statusPayload = buildStatusDatetimePayload(status, scheduledFor)
     const res = await fetch(`/api/posts/${post.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         content,
-        status,
-        scheduled_for: scheduledFor ? new Date(scheduledFor).toISOString() : null,
+        ...statusPayload,
         media_items: mediaItems,
       }),
     })
     if (res.ok) {
       const updated = await res.json() as Post
       onUpdate?.(updated)
+      setStatus(updated.status as PostStatus)
+      setScheduledFor(syncDatetimeFieldsFromSaved(updated))
       setSaveSuccess(true)
       setTimeout(() => setSaveSuccess(false), 2500)
     } else {
@@ -281,7 +289,11 @@ export function PostEditorModal({
                   {STATUSES.map(s => (
                     <button
                       key={s}
-                      onClick={() => { setStatus(s); if (s !== 'scheduled') setScheduledFor('') }}
+                      onClick={() => {
+                        const next = onStatusSelect(s, scheduledFor)
+                        setStatus(next.status)
+                        setScheduledFor(next.datetime)
+                      }}
                       className={cn(
                         'flex-1 py-1.5 rounded-lg text-xs font-medium capitalize transition-colors',
                         status === s ? 'bg-violet-600 text-white' : 'bg-zinc-800 text-zinc-400 hover:text-white'
@@ -297,18 +309,20 @@ export function PostEditorModal({
               <div className="space-y-2">
                 <label className="text-[10px] text-zinc-600 uppercase tracking-widest flex items-center gap-1.5">
                   <CalendarClock className="w-3.5 h-3.5" />
-                  Schedule for
+                  {datetimeFieldLabel(status)}
                 </label>
                 <input
                   type="datetime-local"
                   value={scheduledFor}
-                  onChange={e => {
-                    setScheduledFor(e.target.value)
-                    if (e.target.value) setStatus('scheduled')
-                  }}
+                  onChange={e => setScheduledFor(onDatetimeChange(e.target.value))}
                   className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-violet-500/60 [color-scheme:dark]"
                 />
-                {scheduledFor && (
+                {status === 'published' && (
+                  <p className="text-xs text-zinc-500">
+                    Backdating is fine — pick when this actually went live, then save.
+                  </p>
+                )}
+                {scheduledFor && status !== 'published' && (
                   <button
                     onClick={() => { setScheduledFor(''); setStatus('draft') }}
                     className="text-xs text-zinc-600 hover:text-red-400 transition-colors"

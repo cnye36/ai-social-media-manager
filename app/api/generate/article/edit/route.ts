@@ -54,7 +54,8 @@ Rules:
 - Return ONLY the complete edited markdown article — no explanations, no preamble
 - Preserve all existing internal markdown links unless instructed to change them
 - Keep the same overall structure unless instructed otherwise
-- Match the brand voice`,
+- Match the brand voice
+- Do NOT add image prompts or <!-- IMAGE_PROMPT: ... --> comments — images are managed outside the article body`,
         },
         {
           role: 'user',

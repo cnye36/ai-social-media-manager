@@ -57,7 +57,7 @@ export async function PATCH(
   const {
     title, body: articleBody, excerpt, tags, categories, slug,
     site_id, meta_title, meta_description, author, status, scheduled_for,
-    featured_image_url, featured_image_prompt,
+    published_at, featured_image_url, featured_image_prompt,
   } = body
 
   const updates: Record<string, unknown> = {}
@@ -71,11 +71,27 @@ export async function PATCH(
   if (meta_title !== undefined) updates.meta_title = meta_title || null
   if (meta_description !== undefined) updates.meta_description = meta_description || null
   if (author !== undefined) updates.author = author || null
-  if (status !== undefined) updates.status = status
-  if (scheduled_for !== undefined) updates.scheduled_for = scheduled_for || null
+  if (status !== undefined) {
+    updates.status = status
+    if (status === 'published') {
+      updates.published_at = published_at ?? new Date().toISOString()
+      updates.scheduled_for = null
+    } else if (status === 'draft' || status === 'archived') {
+      if (scheduled_for !== undefined) updates.scheduled_for = scheduled_for || null
+      else updates.scheduled_for = null
+    } else if (status === 'scheduled' && scheduled_for !== undefined) {
+      updates.scheduled_for = scheduled_for || null
+    }
+  } else if (scheduled_for !== undefined) {
+    updates.scheduled_for = scheduled_for || null
+  }
+
   if (featured_image_url !== undefined) updates.featured_image_url = featured_image_url || null
   if (featured_image_prompt !== undefined) updates.featured_image_prompt = featured_image_prompt || null
-  if (status === 'published') updates.published_at = new Date().toISOString()
+
+  if (status !== 'published' && published_at !== undefined) {
+    updates.published_at = published_at
+  }
 
   const { data, error } = await supabase
     .from('articles')

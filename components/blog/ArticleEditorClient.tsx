@@ -15,10 +15,18 @@ import { ArticleMediaPanel } from './ArticleMediaPanel'
 import { SocialFromArticle } from './SocialFromArticle'
 import { HoverDownloadImage } from '@/components/media/HoverDownloadImage'
 import { ImagePromptBox } from '@/components/media/ImagePromptBox'
-import { extractImagePrompts, imagePromptBeforeOffset, stripImagePromptComments } from '@/lib/blog/image-prompts'
+import { stripImagePromptComments } from '@/lib/blog/image-prompts'
 import type { MediaResult } from '@/types/media'
 import { cn } from '@/lib/utils'
 import type { Article, ArticleStatus, BlogSite } from '@/types/database'
+import {
+  buildStatusDatetimePayload,
+  datetimeFieldLabel,
+  initialDatetimeLocal,
+  onDatetimeChange,
+  onStatusSelect,
+  syncDatetimeFieldsFromSaved,
+} from '@/lib/content-status'
 import type { ArticleFormat } from '@/types/agents'
 import type { GeneratedFrontmatter } from '@/app/api/generate/article/route'
 import { buildArticleFrontmatter } from '@/lib/blog/frontmatter'
@@ -30,13 +38,6 @@ const FORMAT_OPTIONS: { value: ArticleFormat; label: string; icon: React.ReactNo
 ]
 
 const STATUSES: ArticleStatus[] = ['draft', 'scheduled', 'published', 'archived']
-
-function toDatetimeLocal(iso: string | null): string {
-  if (!iso) return ''
-  const d = new Date(iso)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
 
 function titleToSlug(title: string): string {
   return title.toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-').replace(/-+/g, '-').slice(0, 80)
@@ -80,7 +81,9 @@ export function ArticleEditorClient({
   // Publishing
   const [selectedSiteId, setSelectedSiteId] = useState(initialArticle.site_id ?? sites[0]?.id ?? '')
   const [status, setStatus] = useState<ArticleStatus>(initialArticle.status)
-  const [scheduledFor, setScheduledFor] = useState(toDatetimeLocal(initialArticle.scheduled_for))
+  const [scheduledFor, setScheduledFor] = useState(
+    initialDatetimeLocal(initialArticle.status, initialArticle.scheduled_for, initialArticle.published_at),
+  )
 
   // UI state
   const [saving, setSaving] = useState(false)
@@ -160,7 +163,7 @@ export function ArticleEditorClient({
     })
     if (res.ok) {
       const data = await res.json() as { body: string; frontmatter: GeneratedFrontmatter; defaultAuthor?: string }
-      const body = data.body?.trim() ?? ''
+      const body = stripImagePromptComments(data.body?.trim() ?? '')
       if (!body) {
         setGenerateError('Generation finished but the article body was empty — try again')
       } else {
@@ -177,10 +180,8 @@ export function ArticleEditorClient({
       if (data.frontmatter.featuredImageAlt) setFeaturedImageAlt(data.frontmatter.featuredImageAlt)
       if (data.frontmatter.coverImagePrompt) {
         setCoverSuggestedPrompt(data.frontmatter.coverImagePrompt)
-        if (!featuredImagePrompt) setFeaturedImagePrompt(data.frontmatter.coverImagePrompt)
+        setFeaturedImagePrompt(data.frontmatter.coverImagePrompt)
       }
-      const inlinePrompts = extractImagePrompts(body)
-      if (inlinePrompts[0]) setInlineSuggestedPrompt(inlinePrompts[0])
       // Auto-save the generated content
       if (body) {
         const saveRes = await fetch(`/api/articles/${initialArticle.id}`, {
@@ -195,6 +196,7 @@ export function ArticleEditorClient({
             slug: data.frontmatter.slug || null,
             meta_title: data.frontmatter.metaTitle || null,
             meta_description: data.frontmatter.metaDescription || null,
+            featured_image_prompt: data.frontmatter.coverImagePrompt || null,
           }),
         })
         if (saveRes.ok) setSaveSuccess(true)
@@ -217,7 +219,8 @@ export function ArticleEditorClient({
     })
     if (res.ok) {
       const data = await res.json() as { body: string }
-      editorRef.current?.setMarkdown(data.body)
+      const edited = stripImagePromptComments(data.body?.trim() ?? '')
+      editorRef.current?.setMarkdown(edited)
       setAiInstruction('')
       setAiEditOpen(false)
     }
@@ -236,13 +239,16 @@ export function ArticleEditorClient({
         title, body, excerpt: excerpt || null, tags, categories,
         slug: slug || null, site_id: selectedSiteId || null,
         meta_title: metaTitle || null, meta_description: metaDescription || null,
-        author: author || null, status,
-        scheduled_for: scheduledFor ? new Date(scheduledFor).toISOString() : null,
+        author: author || null,
+        ...buildStatusDatetimePayload(status, scheduledFor),
         featured_image_url: featuredImageUrl || null,
         featured_image_prompt: featuredImagePrompt || null,
       }),
     })
     if (res.ok) {
+      const updated = await res.json() as Article
+      setStatus(updated.status)
+      setScheduledFor(syncDatetimeFieldsFromSaved(updated))
       setSaveSuccess(true)
       setTimeout(() => setSaveSuccess(false), 2500)
     } else {
@@ -259,12 +265,8 @@ export function ArticleEditorClient({
   }
 
   function openInlineImagePanel() {
-    const md = editorRef.current?.getMarkdown() ?? ''
-    const editor = editorRef.current?.getEditor()
-    const offset = editor?.state.selection.from ?? md.length
-    const near = imagePromptBeforeOffset(md, offset)
     const section = editorRef.current?.getSelectionContext() ?? ''
-    setInlineSuggestedPrompt(near ?? section.slice(0, 500))
+    setInlineSuggestedPrompt(section.slice(0, 500))
     setShowInlineMedia(true)
   }
 
@@ -665,7 +667,11 @@ export function ArticleEditorClient({
               {STATUSES.map(s => (
                 <button
                   key={s}
-                  onClick={() => { setStatus(s); if (s !== 'scheduled') setScheduledFor('') }}
+                  onClick={() => {
+                    const next = onStatusSelect(s, scheduledFor)
+                    setStatus(next.status)
+                    setScheduledFor(next.datetime)
+                  }}
                   className={cn(
                     'py-1.5 rounded-lg text-xs font-medium capitalize transition-colors',
                     status === s ? 'bg-violet-600 text-white' : 'bg-zinc-800 text-zinc-400 hover:text-white'
@@ -681,15 +687,20 @@ export function ArticleEditorClient({
           <div className="rounded-xl border border-zinc-800 bg-zinc-900/30 p-4 space-y-3">
             <label className="text-[10px] text-zinc-500 uppercase tracking-widest font-medium flex items-center gap-1.5">
               <CalendarClock className="w-3.5 h-3.5" />
-              Schedule
+              {datetimeFieldLabel(status)}
             </label>
             <input
               type="datetime-local"
               value={scheduledFor}
-              onChange={e => { setScheduledFor(e.target.value); if (e.target.value) setStatus('scheduled') }}
+              onChange={e => setScheduledFor(onDatetimeChange(e.target.value))}
               className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-violet-500/60 [color-scheme:dark]"
             />
-            {scheduledFor && (
+            {status === 'published' && (
+              <p className="text-xs text-zinc-500">
+                Backdating is fine — pick when this actually went live, then save.
+              </p>
+            )}
+            {scheduledFor && status !== 'published' && (
               <>
                 <p className="text-xs text-zinc-500">{format(new Date(scheduledFor), 'EEE, MMM d, yyyy · h:mm a')}</p>
                 <button onClick={() => { setScheduledFor(''); setStatus('draft') }} className="text-xs text-zinc-600 hover:text-red-400 transition-colors">

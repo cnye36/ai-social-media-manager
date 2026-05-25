@@ -1,11 +1,16 @@
 import { Agent, run, tool } from '@openai/agents'
 import { z } from 'zod'
+import {
+  BLOG_IMAGE_TEXT_OVERLAY_RULES,
+  BLOG_IMAGE_THEME_RULES,
+  normalizeBlogImagePrompt,
+} from '@/lib/blog/image-hooks'
 import { generateImage, normalizeImageSize, type ImageSize } from '@/lib/media/gpt-image'
 import type { MediaResult } from '@/types/media'
 
 const GenerateImageParams = z.object({
   prompt: z.string().describe(
-    'Detailed image generation prompt. Specify style, mood, colors, composition. For infographics, diagrams, or charts: describe layout, headings, labels, icons, and data clearly so they render legibly in the image.'
+    'Detailed image generation prompt: visual scene plus exact on-image hook text to render. For blog: include large legible headline hook (4–10 words, not the article title) integrated with the composition. For infographics: describe layout, labels, and hook typography so text renders legibly.'
   ),
   size: z
     .enum(['1024x1024', '1536x1024', '1024x1536'])
@@ -47,16 +52,18 @@ BRAND COLORS:
 
 Call generate_image exactly once. Return only the tool result — no commentary.`
 
-  const blogInstructions = `You are a creative media specialist for blog articles. Create a single high-quality image that matches the user's intent (cover hero or inline section visual).
+  const blogInstructions = `You are a creative media specialist for blog articles. Create a single high-quality image with an integrated text hook.
+
+${BLOG_IMAGE_TEXT_OVERLAY_RULES}
 
 PROMPT QUALITY:
-- Blog covers: cinematic, editorial, wide composition (1536x1024), no cluttered text overlays unless requested.
-- Inline section images: clear subject, supports the section topic, professional blog aesthetic.
-- Infographics/diagrams: describe layout, labels, and hierarchy so text renders legibly.
+- Always call generate_image with a prompt that specifies BOTH the visual scene AND the exact hook text to render.
+- Invent a 4–10 word curiosity hook from the article content — never use the article title as the overlay.
+- Blog covers: cinematic, editorial, wide composition (1536x1024); place hook text in lower-third or opposite the focal subject.
+- Inline section images: hook should name that section's insight or surprise; clear subject, professional blog aesthetic.
+- Infographics/diagrams: hook + diagram labels must both be legible; describe layout and typography.
 
-BRAND COLORS:
-- Default: violet primary (#7c3aed), soft accent (#a78bfa) when no brand colors are given.
-- Apply brand colors from the user message when provided.
+${BLOG_IMAGE_THEME_RULES}
 
 Call generate_image exactly once. Return only the tool result — no commentary.`
 
@@ -126,6 +133,8 @@ export interface GenerateMediaParams {
   imagePrompt?: string
   purpose?: MediaPurpose
   size?: ImageSize
+  /** Used to forbid using the title verbatim as on-image hook text. */
+  articleTitle?: string
 }
 
 function defaultSize(purpose?: MediaPurpose): ImageSize {
@@ -145,14 +154,19 @@ export async function generateMedia(params: GenerateMediaParams): Promise<MediaR
     imagePrompt,
     purpose,
     size,
+    articleTitle,
   } = params
 
   const linkIds = { postId, articleId }
   const apiSize = normalizeImageSize(size ?? defaultSize(purpose))
+  const isBlog = channel === 'blog' || !!articleId
 
   if (imagePrompt?.trim()) {
+    const prompt = isBlog
+      ? normalizeBlogImagePrompt(imagePrompt.trim(), { articleTitle })
+      : imagePrompt.trim()
     const result = await generateImage({
-      prompt: imagePrompt.trim(),
+      prompt,
       companyId,
       size: apiSize,
       ...linkIds,
@@ -165,8 +179,17 @@ export async function generateMedia(params: GenerateMediaParams): Promise<MediaR
     }
   }
 
-  const colorHint = brandColors?.primary
-    ? `\nBrand colors: primary ${brandColors.primary}${brandColors.accent ? `, accent ${brandColors.accent}` : ''}`
+  const colorHint =
+    !isBlog && brandColors?.primary
+      ? `\nBrand colors: primary ${brandColors.primary}${brandColors.accent ? `, accent ${brandColors.accent}` : ''}`
+      : ''
+
+  const blogThemeHint = isBlog
+    ? `\n${BLOG_IMAGE_THEME_RULES}${
+        brandColors?.primary
+          ? `\nOptional brand accent (use sparingly, only if it fits): ${brandColors.primary}${brandColors.accent ? `, ${brandColors.accent}` : ''}`
+          : ''
+      }`
     : ''
 
   const refinementHint = refinementNote ? `\nUser refinement request: "${refinementNote}"` : ''
@@ -176,16 +199,15 @@ export async function generateMedia(params: GenerateMediaParams): Promise<MediaR
       ? '\nPurpose: inline blog section illustration.'
       : ''
 
-  const isBlog = channel === 'blog' || !!articleId
   const prompt = isBlog
     ? `Create an image for this blog article content:
 
 ---
 ${postContent}
 ---
-${purposeHint}${colorHint}${refinementHint}
+${articleTitle ? `Article title (do NOT use as on-image text): "${articleTitle}"\n` : ''}${purposeHint}${blogThemeHint}${refinementHint}
 
-Call generate_image with size ${apiSize} and a prompt that best matches the content.`
+Call generate_image with size ${apiSize}. Your prompt MUST include a specific visual scene AND a 4–10 word curiosity hook rendered as large integrated typography (not the article title).`
     : `Create an image for this ${channel} post:
 
 ---

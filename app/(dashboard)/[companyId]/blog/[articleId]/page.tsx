@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { ArticleEditorClient } from '@/components/blog/ArticleEditorClient'
+import { publishDueContent } from '@/lib/publishing/publish-due'
 
 interface Props {
   params: Promise<{ companyId: string; articleId: string }>
@@ -11,6 +12,8 @@ export default async function ArticlePage({ params, searchParams }: Props) {
   const { companyId, articleId } = await params
   const { autoGenerate } = await searchParams
   const supabase = await createClient()
+
+  await publishDueContent(supabase, { companyId }).catch(() => {})
 
   const [{ data: article }, { data: sites }, { data: brand }] = await Promise.all([
     supabase.from('articles').select('*').eq('id', articleId).eq('company_id', companyId).single(),

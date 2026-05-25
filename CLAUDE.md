@@ -76,7 +76,12 @@ The `search_knowledge` Supabase function must exist in the database — it's not
 
 `lib/publishing/index.ts` dispatches to per-channel adapters (`linkedin.ts`, `x.ts`, `reddit.ts`, `facebook.ts`). Each adapter reads `post.content` and `post.content_variants` to handle channel-specific formats (e.g. Reddit needs title + body separately).
 
-The cron route `app/api/cron/publish/route.ts` is a GET handler protected by `Authorization: Bearer <CRON_SECRET>`. It fetches all posts with `status = 'scheduled'` and `scheduled_for <= now`, publishes up to 50, and marks them `published`. The `vercel.json` cron array is currently empty — scheduling must be triggered externally.
+Cron routes are GET handlers protected by `Authorization: Bearer <CRON_SECRET>`:
+- `/api/cron/tick` — combined publish-due + Reddit monitor (preferred for external crontab)
+- `/api/cron/publish` — publish overdue scheduled posts/articles only
+- `/api/reddit/monitor` — Reddit RSS scan only
+
+Vercel Hobby only allows **once-per-day** built-in crons; use `scripts/cron-tick.sh` from system crontab on a VPS or dev box instead (`vercel.json` crons array is empty). Overdue publishes also run when users open Calendar, Posts, or Blog.
 
 ### Media generation
 

@@ -1,8 +1,15 @@
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { publishDueContent } from '@/lib/publishing/publish-due'
+import { runMonitors } from '@/lib/reddit/monitor'
 
-// Called by Vercel Cron (vercel.json) or any external cron with CRON_SECRET.
+export const runtime = 'nodejs'
+export const maxDuration = 60
+
+/**
+ * Single external-cron entry point (e.g. system crontab on a VPS).
+ * Runs overdue publish first, then Reddit monitors.
+ */
 export async function GET(request: Request) {
   const auth = request.headers.get('Authorization')
   if (auth !== `Bearer ${process.env.CRON_SECRET}`) {
@@ -12,15 +19,15 @@ export async function GET(request: Request) {
   const supabase = createAdminClient()
 
   try {
-    const result = await publishDueContent(supabase)
+    const publish = await publishDueContent(supabase)
+    const reddit = await runMonitors()
+
     return NextResponse.json({
-      published: result.postsPublished + result.articlesPublished,
-      posts: result.postsPublished,
-      articles: result.articlesPublished,
-      failed: result.failed,
+      publish,
+      reddit,
     })
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Publish failed'
+    const message = err instanceof Error ? err.message : 'Cron tick failed'
     return NextResponse.json({ error: message }, { status: 500 })
   }
 }

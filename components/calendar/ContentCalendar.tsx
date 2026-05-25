@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils'
 import { PostEditorModal } from '@/components/posts/PostEditorModal'
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { LinkedInIcon, XIcon, RedditIcon, FacebookIcon } from '@/components/ui/channel-icons'
+import { calendarDisplayAt } from '@/lib/content-status'
 import type { Post, Channel, Article } from '@/types/database'
 
 const CHANNEL_CHIP: Record<Channel, { bg: string; text: string; icon: React.ReactNode }> = {
@@ -51,13 +52,17 @@ export function ContentCalendar({ posts: initialPosts, articles: initialArticles
   const days = eachDayOfInterval({ start: calStart, end: calEnd })
 
   function itemsForDay(day: Date): CalendarItem[] {
-    const posts: CalendarItem[] = allPosts
-      .filter(p => p.scheduled_for && isSameDay(new Date(p.scheduled_for), day))
-      .map(p => ({ type: 'post', data: p, time: new Date(p.scheduled_for!) }))
+    const posts: CalendarItem[] = allPosts.flatMap(p => {
+      const at = calendarDisplayAt(p)
+      if (!at || !isSameDay(at, day)) return []
+      return [{ type: 'post' as const, data: p, time: at }]
+    })
 
-    const articles: CalendarItem[] = initialArticles
-      .filter(a => a.scheduled_for && isSameDay(new Date(a.scheduled_for), day))
-      .map(a => ({ type: 'article', data: a, time: new Date(a.scheduled_for!) }))
+    const articles: CalendarItem[] = initialArticles.flatMap(a => {
+      const at = calendarDisplayAt(a)
+      if (!at || !isSameDay(at, day)) return []
+      return [{ type: 'article' as const, data: a, time: at }]
+    })
 
     return [...posts, ...articles].sort((a, b) => a.time.getTime() - b.time.getTime())
   }

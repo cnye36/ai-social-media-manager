@@ -114,6 +114,7 @@ export function ArticleMediaPanel({
           postContent: contentContext,
           imagePrompt: useDraftPrompt && trimmedPrompt ? trimmedPrompt : undefined,
           refinementNote: refinement || undefined,
+          articleTitle,
           size: mode === 'cover' ? '1536x1024' : '1024x1024',
         }),
       })

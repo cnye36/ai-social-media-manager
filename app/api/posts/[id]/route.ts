@@ -54,15 +54,31 @@ export async function PATCH(
   if (ownership === 'forbidden') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const body = await request.json()
-  const { content, status, scheduled_for, media_items, content_variants } = body
+  const { content, status, scheduled_for, published_at, media_items, content_variants } = body
 
   const updates: Record<string, unknown> = {}
   if (content !== undefined) updates.content = content
-  if (status !== undefined) updates.status = status
-  if (scheduled_for !== undefined) updates.scheduled_for = scheduled_for
   if (media_items !== undefined) updates.media_items = media_items
   if (content_variants !== undefined) updates.content_variants = content_variants
-  if (status === 'published') updates.published_at = new Date().toISOString()
+
+  if (status !== undefined) {
+    updates.status = status
+    if (status === 'published') {
+      updates.published_at = published_at ?? new Date().toISOString()
+      updates.scheduled_for = null
+    } else if (status === 'draft' || status === 'archived') {
+      if (scheduled_for !== undefined) updates.scheduled_for = scheduled_for
+      else updates.scheduled_for = null
+    } else if (status === 'scheduled') {
+      if (scheduled_for !== undefined) updates.scheduled_for = scheduled_for
+    }
+  } else if (scheduled_for !== undefined) {
+    updates.scheduled_for = scheduled_for
+  }
+
+  if (status !== 'published' && published_at !== undefined) {
+    updates.published_at = published_at
+  }
 
   const { data, error } = await supabase
     .from('posts')

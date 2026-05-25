@@ -22,6 +22,7 @@ export async function POST(req: NextRequest) {
     imagePrompt,
     purpose,
     size,
+    articleTitle,
   } = body as {
     postContent?: string
     companyId: string
@@ -33,6 +34,7 @@ export async function POST(req: NextRequest) {
     imagePrompt?: string
     purpose?: 'cover' | 'inline' | 'social'
     size?: ImageSize
+    articleTitle?: string
   }
 
   if (!companyId) {
@@ -69,6 +71,7 @@ export async function POST(req: NextRequest) {
       imagePrompt: imagePrompt?.trim(),
       purpose,
       size,
+      articleTitle: articleTitle?.trim(),
     })
     return NextResponse.json(result)
   } catch (err) {

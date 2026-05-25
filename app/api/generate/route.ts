@@ -24,9 +24,10 @@ const CHANNEL_INSTRUCTIONS: Record<Channel, string> = {
 - First line must be: Title: <your title here>
 - Then a blank line
 - Then the post body (100–500 characters)
-- Tone: Genuine, community-first, zero marketing speak
-- End with a question or invitation to discuss
-- Write as a real person sharing something interesting, not a brand`,
+- Plain text only in the body — no markdown, bullets, or bold
+- Tone: Genuine, community-first, zero marketing speak — like someone typing fast, not a brand
+- Include 2–3 subtle natural typos or grammar slips (missing comma, doubled word, casual "its/it's" mix-up). Do not mention the typos
+- End with a question or invitation to discuss`,
 
   facebook: `You are a Facebook content specialist. Write an engaging Facebook post.
 - Tone: Friendly, approachable, story-driven

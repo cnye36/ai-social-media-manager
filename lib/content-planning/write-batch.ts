@@ -71,6 +71,7 @@ export async function writePlanSlots(
         topic: slot.topic,
         post_type: slot.post_type,
         pillar: slot.pillar,
+        planned_for: slot.scheduled_for,
         image_prompt: generated.imagePrompt,
       }
 
@@ -81,7 +82,7 @@ export async function writePlanSlots(
           channel: slot.channel,
           status: 'draft',
           content: generated.content,
-          scheduled_for: slot.scheduled_for,
+          scheduled_for: null,
           content_variants: generated.contentVariants ?? {},
           media_items: [],
           ai_generated: true,

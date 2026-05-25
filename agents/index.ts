@@ -7,7 +7,7 @@ import { buildRedditAgent } from './reddit-agent'
 import { buildFacebookAgent } from './facebook-agent'
 import type { Channel } from '@/types/database'
 import type { GenerateRequest, GeneratedPost, ThreadTweet } from '@/types/agents'
-import { formatRedditMarkdown, parseRedditPost } from '@/lib/reddit/parse'
+import { formatRedditMarkdown, parseRedditPost, type RedditPostContent } from '@/lib/reddit/parse'
 
 const agentBuilders: Record<Channel, (p: Parameters<typeof buildLinkedInAgent>[0]) => ReturnType<typeof buildLinkedInAgent>> = {
   linkedin: buildLinkedInAgent,
@@ -36,9 +36,24 @@ async function prepareAgent(request: GenerateRequest) {
     postLength,
     additionalContext,
     threadMode: request.threadMode,
+    includeDisclosure: request.includeDisclosure,
   }
 
   return { agent: agentBuilders[channel](agentParams), channel }
+}
+
+function applyRedditDisclosurePreference(
+  parsed: { content: string; contentVariants: Record<string, unknown> },
+  includeDisclosure: boolean | undefined,
+): { content: string; contentVariants: Record<string, unknown> } {
+  if (includeDisclosure) return parsed
+  const reddit = parsed.contentVariants.reddit as RedditPostContent | undefined
+  if (!reddit) return parsed
+  const post = { ...reddit, disclosure: null }
+  return {
+    content: formatRedditMarkdown(post),
+    contentVariants: { ...parsed.contentVariants, reddit: post },
+  }
 }
 
 function parseImagePrompt(text: string): { content: string; imagePrompt?: string } {
@@ -94,7 +109,8 @@ export async function generatePost(request: GenerateRequest): Promise<GeneratedP
 
   // Parse channel-specific formats
   if (channel === 'reddit') {
-    const { content, contentVariants } = parseRedditContent(rawOutput)
+    const parsed = parseRedditContent(rawOutput)
+    const { content, contentVariants } = applyRedditDisclosurePreference(parsed, request.includeDisclosure)
     const { imagePrompt } = parseImagePrompt(rawOutput)
     return { content, channel, imagePrompt, contentVariants }
   }

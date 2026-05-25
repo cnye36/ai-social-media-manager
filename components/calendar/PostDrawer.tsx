@@ -8,6 +8,14 @@ import { Button } from '@/components/ui/button'
 import { LinkedInIcon, XIcon, RedditIcon, FacebookIcon } from '@/components/ui/channel-icons'
 import { cn } from '@/lib/utils'
 import type { Post, Channel, PostStatus } from '@/types/database'
+import {
+  buildStatusDatetimePayload,
+  datetimeFieldLabel,
+  initialDatetimeLocal,
+  onDatetimeChange,
+  onStatusSelect,
+  syncDatetimeFieldsFromSaved,
+} from '@/lib/content-status'
 
 const CHANNEL_ICONS: Record<Channel, React.ReactNode> = {
   linkedin: <LinkedInIcon className="w-3.5 h-3.5" />,
@@ -29,7 +37,7 @@ export function PostDrawer({ post, onClose, onUpdate, onDelete }: PostDrawerProp
   const [content, setContent] = useState(post.content)
   const [status, setStatus] = useState<PostStatus>(post.status as PostStatus)
   const [scheduledFor, setScheduledFor] = useState(
-    post.scheduled_for ? format(new Date(post.scheduled_for), "yyyy-MM-dd'T'HH:mm") : ''
+    initialDatetimeLocal(post.status as PostStatus, post.scheduled_for, post.published_at)
   )
   const [copied, setCopied] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -41,12 +49,13 @@ export function PostDrawer({ post, onClose, onUpdate, onDelete }: PostDrawerProp
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         content,
-        status,
-        scheduled_for: scheduledFor ? new Date(scheduledFor).toISOString() : null,
+        ...buildStatusDatetimePayload(status, scheduledFor),
       }),
     })
     if (res.ok) {
-      const updated = await res.json()
+      const updated = await res.json() as Post
+      setStatus(updated.status as PostStatus)
+      setScheduledFor(syncDatetimeFieldsFromSaved(updated))
       onUpdate(updated)
     }
     setSaving(false)
@@ -115,7 +124,11 @@ export function PostDrawer({ post, onClose, onUpdate, onDelete }: PostDrawerProp
               {STATUSES.map(s => (
                 <button
                   key={s}
-                  onClick={() => setStatus(s)}
+                  onClick={() => {
+                    const next = onStatusSelect(s, scheduledFor)
+                    setStatus(next.status)
+                    setScheduledFor(next.datetime)
+                  }}
                   className={cn(
                     'flex-1 py-1.5 rounded-lg text-xs font-medium capitalize transition-colors',
                     status === s
@@ -133,18 +146,18 @@ export function PostDrawer({ post, onClose, onUpdate, onDelete }: PostDrawerProp
           <div className="space-y-1.5">
             <label className="text-xs text-zinc-500 uppercase tracking-wide flex items-center gap-1.5">
               <CalendarClock className="w-3.5 h-3.5" />
-              Schedule for
+              {datetimeFieldLabel(status)}
             </label>
             <input
               type="datetime-local"
               value={scheduledFor}
-              onChange={e => {
-                setScheduledFor(e.target.value)
-                if (e.target.value) setStatus('scheduled')
-              }}
+              onChange={e => setScheduledFor(onDatetimeChange(e.target.value))}
               className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-violet-500 [color-scheme:dark]"
             />
-            {scheduledFor && (
+            {status === 'published' && (
+              <p className="text-xs text-zinc-500">Pick when this was published (past dates OK).</p>
+            )}
+            {scheduledFor && status !== 'published' && (
               <button
                 onClick={() => { setScheduledFor(''); setStatus('draft') }}
                 className="text-xs text-zinc-500 hover:text-red-400 transition-colors"

@@ -947,6 +947,7 @@ function GenerateTab({
   const [contentGoal, setContentGoal] = useState<ContentGoal>('engagement')
   const [postLength, setPostLength] = useState<PostLength>('medium')
   const [additionalContext, setAdditionalContext] = useState('')
+  const [includeDisclosure, setIncludeDisclosure] = useState(false)
   const [loading, setLoading] = useState(false)
   const [formError, setFormError] = useState('')
 
@@ -990,6 +991,7 @@ function GenerateTab({
           postLength,
           additionalContext: context || undefined,
           stream: false,
+          includeDisclosure,
         }),
       })
 
@@ -1007,7 +1009,9 @@ function GenerateTab({
         setEditTitle(post.title)
         setEditBody(post.body)
         setEditSubreddit(post.subreddit)
-        setDisclosure(post.disclosure ?? null)
+        setDisclosure(
+          includeDisclosure ? (post.disclosure?.trim() || '') : null
+        )
         setGeneratedPost(post)
         setImagePrompt(prompt)
         setOutputTab('preview')
@@ -1166,6 +1170,23 @@ function GenerateTab({
               rows={2}
             />
           </div>
+
+          <label className="flex items-start gap-3 cursor-pointer group">
+            <input
+              type="checkbox"
+              checked={includeDisclosure}
+              onChange={e => setIncludeDisclosure(e.target.checked)}
+              className="mt-1 h-4 w-4 rounded border-zinc-600 bg-zinc-800 text-orange-600 focus:ring-orange-500/60 focus:ring-offset-zinc-900"
+            />
+            <span className="text-sm leading-snug">
+              <span className="text-zinc-200 group-hover:text-white transition-colors">
+                Include affiliation disclosure
+              </span>
+              <span className="block text-xs text-zinc-500 mt-0.5">
+                Adds a short line like &quot;I&apos;m the founder at [company]&quot; — off by default
+              </span>
+            </span>
+          </label>
 
           <Button
             type="submit"

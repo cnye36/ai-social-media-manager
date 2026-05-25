@@ -3,6 +3,9 @@ import OpenAI from 'openai'
 import { run } from '@openai/agents'
 import { createClient } from '@/lib/supabase/server'
 import { retrieve } from '@/lib/rag/retrieve'
+import { buildWritingDedupContext, fetchExistingArticles } from '@/lib/blog/existing-articles'
+import { formatBlogImagePrompt, ensureBlogImagePromptHasHook } from '@/lib/blog/image-hooks'
+import { stripImagePromptComments } from '@/lib/blog/image-prompts'
 import { buildBlogAgent } from '@/agents/blog-agent'
 import type { ArticleFormat } from '@/types/agents'
 
@@ -17,7 +20,9 @@ export interface GeneratedFrontmatter {
   categories: string[]
   tags: string[]
   featuredImageAlt: string
-  /** Image generation prompt for the blog cover (same detail level as IMAGE_PROMPT comments). */
+  /** Short curiosity hook rendered as on-image text (not the article title). */
+  coverImageHook: string
+  /** Full image generation prompt (visual + hook overlay). */
   coverImagePrompt: string
 }
 
@@ -64,7 +69,7 @@ export async function POST(request: Request) {
   if (!company) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   // Fetch all supporting context in parallel
-  const [{ data: brand }, { data: linkIndex }, chunks] = await Promise.all([
+  const [{ data: brand }, { data: linkIndex }, existingArticles, chunks] = await Promise.all([
     supabase.from('brand_profiles').select('*').eq('company_id', companyId).maybeSingle(),
     supabase
       .from('article_link_index')
@@ -72,8 +77,11 @@ export async function POST(request: Request) {
       .eq('company_id', companyId)
       .order('updated_at', { ascending: false })
       .limit(20),
+    fetchExistingArticles(supabase, companyId, 50),
     retrieve(companyId, title, 6, 0.3).catch(() => [] as Awaited<ReturnType<typeof retrieve>>),
   ])
+
+  const { titlesContext, similarBodiesContext } = buildWritingDedupContext(existingArticles, title)
 
   const knowledgeContext = chunks.length
     ? 'Relevant company knowledge:\n' +
@@ -90,6 +98,8 @@ export async function POST(request: Request) {
   const formatLabel = { blog_post: 'blog post', listicle: 'listicle', deep_dive: 'deep dive' }[articleFormat]
 
   const outlinePrompt = `Create a detailed outline for this ${formatLabel}: "${title}"${additionalContext ? `\nContext: ${additionalContext}` : ''}
+
+${titlesContext ? `${titlesContext}\n\nThe outline must take a clearly different angle from any similar existing articles listed above.\n` : ''}
 
 Return a JSON object:
 {
@@ -138,10 +148,12 @@ Return a JSON object:
       articleFormat,
       internalLinksContext,
       knowledgeContext,
+      existingArticlesContext: titlesContext || undefined,
+      similarArticlesBodiesContext: similarBodiesContext || undefined,
     })
 
     const agentResult = await run(agent, writePrompt)
-    const articleBody = agentResult.finalOutput?.trim() ?? ''
+    const articleBody = stripImagePromptComments(agentResult.finalOutput?.trim() ?? '')
 
     if (!articleBody) {
       return NextResponse.json({ error: 'Agent returned empty article' }, { status: 500 })
@@ -170,7 +182,8 @@ Return JSON with ALL fields:
   "categories": ["Proper Case Category", "Another Category"],
   "tags": ["Proper Case Tag", "Another Tag", "Tag Three", "Tag Four", "Tag Five"],
   "featuredImageAlt": "Accessibility alt text for the cover image (concise, 1 sentence)",
-  "coverImagePrompt": "Detailed AI image generation prompt for the blog cover/hero — style, subject, mood, lighting, composition, brand-appropriate palette (2-3 sentences)"
+  "coverImageHook": "4-10 word curiosity hook for on-image text — draws the eye, ties to the article, MUST NOT be the article title or a generic phrase",
+  "coverImageVisual": "Visual scene only (no text): editorial hero — subject, style, mood, lighting, composition; palette must look excellent on both light and dark blog themes (brand colors optional, 2-3 sentences)"
 }`,
         },
       ],
@@ -179,7 +192,20 @@ Return JSON with ALL fields:
       temperature: 0.4,
     })
 
-    const rawFm = JSON.parse(frontmatterRes.choices[0]?.message?.content ?? '{}') as Partial<GeneratedFrontmatter>
+    const rawFm = JSON.parse(frontmatterRes.choices[0]?.message?.content ?? '{}') as Partial<
+      GeneratedFrontmatter & { coverImageVisual?: string }
+    >
+
+    const coverVisual =
+      rawFm.coverImageVisual?.trim() ||
+      'Editorial wide hero photograph or illustration with professional lighting and clear focal subject'
+    const coverHook =
+      rawFm.coverImageHook?.trim() ||
+      rawFm.metaDescription?.slice(0, 60).trim() ||
+      'Read this before you ship'
+    const coverImagePrompt = rawFm.coverImageHook
+      ? formatBlogImagePrompt(coverVisual, coverHook)
+      : ensureBlogImagePromptHasHook(coverVisual, { articleTitle: title })
 
     const frontmatter: GeneratedFrontmatter = {
       metaTitle: rawFm.metaTitle ?? title.slice(0, 60),
@@ -188,7 +214,8 @@ Return JSON with ALL fields:
       categories: rawFm.categories ?? [],
       tags: rawFm.tags ?? [],
       featuredImageAlt: rawFm.featuredImageAlt ?? `Featured image for article: ${title}`,
-      coverImagePrompt: rawFm.coverImagePrompt ?? rawFm.featuredImageAlt ?? `Editorial cover image for: ${title}`,
+      coverImageHook: coverHook,
+      coverImagePrompt,
     }
 
     // Apply site default author if provided
