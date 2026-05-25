@@ -1,4 +1,5 @@
 import { Agent, webSearchTool } from '@openai/agents'
+import { BLOG_CITATION_RULES } from '@/lib/blog/citation-rules'
 import { buildRagSearchTool } from './tools/rag-search'
 import type { BrandProfile } from '@/types/database'
 import type { ArticleFormat } from '@/types/agents'
@@ -11,7 +12,7 @@ const FORMAT_INSTRUCTIONS: Record<ArticleFormat, string> = {
 - Each section: 200–350 words with concrete examples, actionable takeaways
 - Sprinkle 3–5 bullet or numbered lists throughout for scannability
 - Strong conclusion (150–200 words) with a single focused CTA
-- Cite 3–5 authoritative external sources inline using markdown links`,
+- Cite 3–5 authoritative external sources as inline markdown links in the prose`,
 
   listicle: `FORMAT: Listicle (1,500–2,000 words)
 - Title must follow "X [Things/Ways/Tips/Strategies/Mistakes/Tools] to [Outcome]" pattern
@@ -40,7 +41,7 @@ STRUCTURAL VARIANCE RULES (critical for listicles):
 - Data-driven: include stats, research citations, case studies (5–8 external citations)
 - "Key Takeaways" summary before conclusion
 - Conclusion with strong CTA
-- Optional "Further Reading" section at the end`,
+- Optional "Further reading" (2–3 extra links only) at the very end — every stat/claim in the body still needs inline links`,
 }
 
 export function buildBlogAgent(params: {
@@ -93,6 +94,8 @@ RESEARCH REQUIREMENTS (do this before writing):
 5. Prioritize primary research (company studies, survey data) over opinion pieces
 
 ${formatInstructions}
+
+${BLOG_CITATION_RULES}
 
 UNIVERSAL WRITING RULES:
 - Write like a knowledgeable human, not an AI — vary sentence length, use contractions, avoid hollow phrases ("leverage", "delve into", "in today's fast-paced world")
@@ -152,6 +155,7 @@ BEFORE RETURNING THE ARTICLE:
 - □ Are there 3+ consecutive sections with identical structure?
 - □ Does the intro use any of the banned opening patterns?
 - □ Is the same source cited more than once?
+- □ Are any links piled up at the end of a paragraph instead of inline after the claim?
 - □ Does the conclusion only summarize — or does it add something?
 - □ Is there at least one specific number, outcome, or named example per H2?
 

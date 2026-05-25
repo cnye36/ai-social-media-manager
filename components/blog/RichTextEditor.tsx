@@ -249,12 +249,15 @@ interface RichTextEditorProps {
   onChange?: (markdown: string) => void
   onInsertImageClick?: () => void
   className?: string
+  /** Preview mode: read-only with clickable links */
+  readOnly?: boolean
 }
 
 export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(
-  function RichTextEditor({ initialMarkdown = '', placeholder = 'Start writing…', onChange, onInsertImageClick, className }, ref) {
+  function RichTextEditor({ initialMarkdown = '', placeholder = 'Start writing…', onChange, onInsertImageClick, className, readOnly = false }, ref) {
     const editor = useEditor({
       immediatelyRender: true,
+      editable: !readOnly,
       extensions: [
         StarterKit.configure({
           codeBlock: false, // replaced by CodeBlockLowlight
@@ -262,7 +265,15 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
           underline: false,
         }),
         Underline,
-        Link.configure({ openOnClick: false, autolink: true }),
+        Link.configure({
+          openOnClick: false,
+          autolink: true,
+          HTMLAttributes: {
+            class: 'blog-editor-link',
+            rel: 'noopener noreferrer',
+            target: '_blank',
+          },
+        }),
         Placeholder.configure({ placeholder }),
         CodeBlockLowlight.configure({ lowlight }),
         Image.configure({ inline: false, allowBase64: false }),
@@ -277,7 +288,21 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
       content: '',
       editorProps: {
         attributes: {
-          class: 'prose prose-invert max-w-none focus:outline-none min-h-[60vh] px-6 py-4',
+          class: 'prose prose-invert max-w-none focus:outline-none min-h-[60vh] px-6 py-4 blog-editor-content',
+        },
+        handleDOMEvents: {
+          click: (_view, event) => {
+            const target = event.target as HTMLElement
+            const anchor = target.closest('a[href]')
+            if (!anchor) return false
+            const href = anchor.getAttribute('href')
+            if (!href || href.startsWith('#')) return false
+            const selection = window.getSelection()
+            if (selection && selection.toString().length > 0) return false
+            event.preventDefault()
+            window.open(href, '_blank', 'noopener,noreferrer')
+            return true
+          },
         },
       },
       onUpdate: ({ editor }) => {
@@ -285,6 +310,11 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
         onChange?.((editor.storage as any).markdown.getMarkdown())
       },
     })
+
+    useEffect(() => {
+      if (!editor) return
+      editor.setEditable(!readOnly)
+    }, [editor, readOnly])
 
     // Load initial markdown once editor is ready
     useEffect(() => {
@@ -327,7 +357,17 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
 
     return (
       <div className={cn('rounded-xl border border-zinc-800 bg-zinc-900/30 overflow-hidden', className)}>
-        <Toolbar editor={editor} onInsertImageClick={onInsertImageClick} />
+        {!readOnly && <Toolbar editor={editor} onInsertImageClick={onInsertImageClick} />}
+        {readOnly && (
+          <p className="px-4 py-2 text-[10px] text-zinc-500 border-b border-zinc-800 bg-zinc-900/60">
+            Preview — click any link to open and verify it in a new tab
+          </p>
+        )}
+        {!readOnly && (
+          <p className="px-4 py-1.5 text-[10px] text-zinc-600 border-b border-zinc-800/80">
+            Links are underlined in violet — click to open and verify (select text first if you want to edit the link)
+          </p>
+        )}
         <EditorContent editor={editor} />
       </div>
     )

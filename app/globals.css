@@ -37,3 +37,17 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Blog editor: visible, clickable links */
+.blog-editor-content a.blog-editor-link,
+.blog-editor-content .blog-editor-link {
+  color: #a78bfa;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.blog-editor-content a.blog-editor-link:hover,
+.blog-editor-content .blog-editor-link:hover {
+  color: #c4b5fd;
+}

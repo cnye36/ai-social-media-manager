@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
 import OpenAI from 'openai'
+import { BLOG_CITATION_RULES } from '@/lib/blog/citation-rules'
+import { relocateTrailingCitationLinks } from '@/lib/blog/inline-citations'
 import { createClient } from '@/lib/supabase/server'
 
 export const maxDuration = 60
@@ -55,7 +57,9 @@ Rules:
 - Preserve all existing internal markdown links unless instructed to change them
 - Keep the same overall structure unless instructed otherwise
 - Match the brand voice
-- Do NOT add image prompts or <!-- IMAGE_PROMPT: ... --> comments — images are managed outside the article body`,
+- Do NOT add image prompts or <!-- IMAGE_PROMPT: ... --> comments — images are managed outside the article body
+
+${BLOG_CITATION_RULES}`,
         },
         {
           role: 'user',
@@ -66,7 +70,9 @@ Rules:
       temperature: 0.6,
     })
 
-    const edited = completion.choices[0]?.message?.content ?? currentBody
+    const edited = relocateTrailingCitationLinks(
+      completion.choices[0]?.message?.content ?? currentBody,
+    )
     return NextResponse.json({ body: edited })
   } catch (err) {
     console.error('Article edit error:', err)

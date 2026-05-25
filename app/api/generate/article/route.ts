@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/server'
 import { retrieve } from '@/lib/rag/retrieve'
 import { buildWritingDedupContext, fetchExistingArticles } from '@/lib/blog/existing-articles'
 import { formatBlogImagePrompt, ensureBlogImagePromptHasHook } from '@/lib/blog/image-hooks'
+import { relocateTrailingCitationLinks } from '@/lib/blog/inline-citations'
 import { stripImagePromptComments } from '@/lib/blog/image-prompts'
 import { buildBlogAgent } from '@/agents/blog-agent'
 import type { ArticleFormat } from '@/types/agents'
@@ -153,7 +154,9 @@ Return a JSON object:
     })
 
     const agentResult = await run(agent, writePrompt)
-    const articleBody = stripImagePromptComments(agentResult.finalOutput?.trim() ?? '')
+    const articleBody = relocateTrailingCitationLinks(
+      stripImagePromptComments(agentResult.finalOutput?.trim() ?? ''),
+    )
 
     if (!articleBody) {
       return NextResponse.json({ error: 'Agent returned empty article' }, { status: 500 })

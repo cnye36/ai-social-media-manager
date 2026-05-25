@@ -104,6 +104,7 @@ export function ArticleEditorClient({
   const [articleFormat, setArticleFormat] = useState<ArticleFormat>(
     (searchParams.get('format') as ArticleFormat | null) ?? 'blog_post'
   )
+  const [editorViewMode, setEditorViewMode] = useState<'edit' | 'preview'>('edit')
 
   const selectedSite = sites.find(s => s.id === selectedSiteId)
   const slugPreview = selectedSite
@@ -443,11 +444,29 @@ export function ArticleEditorClient({
             className="w-full bg-transparent text-3xl font-bold text-white placeholder:text-zinc-700 border-none outline-none focus:ring-0"
           />
 
+          <div className="flex items-center justify-end gap-1">
+            {(['edit', 'preview'] as const).map(mode => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => setEditorViewMode(mode)}
+                className={cn(
+                  'px-3 py-1 rounded-lg text-xs font-medium capitalize transition-colors',
+                  editorViewMode === mode
+                    ? 'bg-violet-600 text-white'
+                    : 'bg-zinc-800 text-zinc-400 hover:text-white',
+                )}
+              >
+                {mode}
+              </button>
+            ))}
+          </div>
+
           <div className="relative">
             {generating && (
               <div className="absolute inset-0 z-10 rounded-xl border border-zinc-800 bg-zinc-950/80 flex items-center gap-3 justify-center text-zinc-500">
                 <Loader2 className="w-5 h-5 animate-spin" />
-                <span className="text-sm">AI is writing your article with internal links…</span>
+                <span className="text-sm">AI is writing your article with inline links…</span>
               </div>
             )}
             <RichTextEditor
@@ -456,6 +475,7 @@ export function ArticleEditorClient({
               placeholder="Start writing, or click 'AI Write' to generate a complete article…"
               onChange={handleEditorChange}
               onInsertImageClick={openInlineImagePanel}
+              readOnly={editorViewMode === 'preview'}
             />
           </div>
 
