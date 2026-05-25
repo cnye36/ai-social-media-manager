@@ -142,6 +142,7 @@ function buildPrompt(params: {
   lines.push(`Rules for ideas:`)
   lines.push(`- All 4 ideas must have compliance "safe" — use "caution" only if you cannot produce 4 safe ideas; prefer replacing risky angles`)
   lines.push(`- Never suggest workflow walkthroughs, product demos, or "here's what we built" posts unless the playbook explicitly allows it`)
+  lines.push(`- Never suggest ordered field matching ("email first, then phone"), if/then create-or-update logic, or step-by-step dedupe pipelines — r/automation automod blocks these even in discussion posts`)
   lines.push(`- Prefer questions, lessons learned, failures, and debates over announcements`)
   lines.push(`- Title must be specific and compelling, not generic filler`)
   lines.push(`- Absolutely zero marketing language`)

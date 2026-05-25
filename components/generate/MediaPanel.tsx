@@ -6,6 +6,7 @@ import { format } from 'date-fns'
 import { cn } from '@/lib/utils'
 import { HoverDownloadImage } from '@/components/media/HoverDownloadImage'
 import { MediaDetailModal } from '@/components/media/MediaDetailModal'
+import { AltTextBox } from '@/components/media/AltTextBox'
 import { ImagePromptBox } from '@/components/media/ImagePromptBox'
 import type { ModalMediaItem } from '@/components/media/MediaDetailModal'
 import type { MediaResult } from '@/types/media'
@@ -14,6 +15,7 @@ interface LibraryItem {
   id: string
   url: string
   prompt: string | null
+  alt_text: string | null
   type: 'image' | 'infographic'
   svg: string | null
   created_at: string
@@ -167,6 +169,7 @@ export function MediaPanel({ postContent, companyId, channel, postId, brandColor
       url: item.url,
       storagePath: item.storage_path ?? item.storagePath ?? '',
       promptUsed: item.prompt ?? '',
+      altText: item.alt_text ?? item.prompt?.slice(0, 125) ?? 'Generated image',
     })
   }
 
@@ -250,7 +253,7 @@ export function MediaPanel({ postContent, companyId, channel, postId, brandColor
             {current && (
               <HoverDownloadImage
                 src={current.result.url}
-                alt="Generated image"
+                alt={current.result.altText}
                 className="w-full object-contain max-h-[480px]"
                 wrapperClassName="w-full"
                 buttonClassName={history.length > 1 ? 'top-2 left-2 right-auto' : undefined}
@@ -266,6 +269,10 @@ export function MediaPanel({ postContent, companyId, channel, postId, brandColor
           )}
 
           <div className="p-4 space-y-3 border-t border-zinc-800">
+            {current?.result.altText && (
+              <AltTextBox value={current.result.altText} />
+            )}
+
             {current?.result.promptUsed && (
               <ImagePromptBox
                 label="Prompt used for this image"
@@ -382,7 +389,7 @@ export function MediaPanel({ postContent, companyId, channel, postId, brandColor
                   <div key={item.id} className="group relative aspect-square bg-zinc-900 rounded-lg overflow-hidden border border-zinc-800 hover:border-violet-500/50 transition-colors">
                     <HoverDownloadImage
                       src={item.url}
-                      alt={item.prompt ?? ''}
+                      alt={item.alt_text ?? item.prompt ?? ''}
                       className="w-full h-full object-cover"
                       wrapperClassName="w-full h-full"
                       downloadFilename={`media-${item.id}.png`}
@@ -399,10 +406,11 @@ export function MediaPanel({ postContent, companyId, channel, postId, brandColor
                       </button>
                       <button
                         type="button"
-                        onClick={() => setExpandedItem({
+                        onClick={() =>                         setExpandedItem({
                           id: item.id,
                           url: item.url,
                           prompt: item.prompt,
+                          alt_text: item.alt_text,
                           type: 'image',
                           svg: null,
                           storage_path: item.storage_path ?? item.storagePath,

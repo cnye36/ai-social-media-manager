@@ -14,6 +14,7 @@ import { RichTextEditor, type RichTextEditorHandle } from './RichTextEditor'
 import { ArticleMediaPanel } from './ArticleMediaPanel'
 import { SocialFromArticle } from './SocialFromArticle'
 import { HoverDownloadImage } from '@/components/media/HoverDownloadImage'
+import { AltTextBox } from '@/components/media/AltTextBox'
 import { ImagePromptBox } from '@/components/media/ImagePromptBox'
 import { stripImagePromptComments } from '@/lib/blog/image-prompts'
 import type { MediaResult } from '@/types/media'
@@ -273,6 +274,7 @@ export function ArticleEditorClient({
   async function handleCoverImage(result: MediaResult) {
     setFeaturedImageUrl(result.url)
     setFeaturedImagePrompt(result.promptUsed)
+    setFeaturedImageAlt(result.altText)
     await fetch(`/api/articles/${initialArticle.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -284,8 +286,7 @@ export function ArticleEditorClient({
   }
 
   function handleInlineImage(result: MediaResult) {
-    const alt = featuredImageAlt || result.promptUsed.slice(0, 120)
-    editorRef.current?.insertImage(result.url, alt)
+    editorRef.current?.insertImage(result.url, result.altText)
     setShowInlineMedia(false)
   }
 
@@ -638,13 +639,20 @@ export function ArticleEditorClient({
                     }}
                     hint="Suggested on AI write, or edit before generating. Saved with the article."
                   />
-                  <textarea
-                    value={featuredImageAlt}
-                    onChange={e => setFeaturedImageAlt(e.target.value)}
-                    placeholder="Accessibility alt text for the cover image"
-                    rows={2}
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-xs text-zinc-300 leading-relaxed resize-none focus:outline-none focus:ring-1 focus:ring-violet-500/60"
-                  />
+                  {featuredImageAlt ? (
+                    <AltTextBox
+                      value={featuredImageAlt}
+                      label="Cover alt text"
+                    />
+                  ) : (
+                    <textarea
+                      value={featuredImageAlt}
+                      onChange={e => setFeaturedImageAlt(e.target.value)}
+                      placeholder="Accessibility alt text for the cover image"
+                      rows={2}
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-xs text-zinc-300 leading-relaxed resize-none focus:outline-none focus:ring-1 focus:ring-violet-500/60"
+                    />
+                  )}
                   <ArticleMediaPanel
                     companyId={companyId}
                     articleId={initialArticle.id}

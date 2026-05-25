@@ -5,7 +5,8 @@ import {
   BLOG_IMAGE_THEME_RULES,
   normalizeBlogImagePrompt,
 } from '@/lib/blog/image-hooks'
-import { generateImage, normalizeImageSize, type ImageSize } from '@/lib/media/gpt-image'
+import { generateImageAltText } from '@/lib/media/alt-text'
+import { generateImage, normalizeImageSize, updateMediaLibraryAlt, type ImageSize } from '@/lib/media/gpt-image'
 import type { MediaResult } from '@/types/media'
 
 const GenerateImageParams = z.object({
@@ -80,13 +81,15 @@ type AgentRunResult = {
   newItems: Array<{ type: string; output?: unknown }>
 }
 
-function parseMediaResult(result: AgentRunResult): MediaResult {
-  const tryParse = (raw: string): MediaResult | null => {
+function parseMediaResult(result: AgentRunResult): Omit<MediaResult, 'altText'> {
+  const tryParse = (raw: string): Omit<MediaResult, 'altText'> | null => {
     try {
       const parsed = JSON.parse(raw) as MediaResult
       if (parsed?.url && parsed?.storagePath && parsed?.type === 'image') {
         return {
-          ...parsed,
+          type: 'image',
+          url: parsed.url,
+          storagePath: parsed.storagePath,
           promptUsed: parsed.promptUsed ?? '',
         }
       }
@@ -142,6 +145,24 @@ function defaultSize(purpose?: MediaPurpose): ImageSize {
   return '1536x1024'
 }
 
+async function attachAltText(
+  result: Omit<MediaResult, 'altText'>,
+  context: {
+    postContent: string
+    channel?: string
+    purpose?: MediaPurpose
+  },
+): Promise<MediaResult> {
+  const altText = await generateImageAltText({
+    promptUsed: result.promptUsed,
+    postContent: context.postContent,
+    channel: context.channel,
+    purpose: context.purpose,
+  })
+  void updateMediaLibraryAlt(result.storagePath, altText)
+  return { ...result, altText }
+}
+
 export async function generateMedia(params: GenerateMediaParams): Promise<MediaResult> {
   const {
     postContent,
@@ -165,18 +186,21 @@ export async function generateMedia(params: GenerateMediaParams): Promise<MediaR
     const prompt = isBlog
       ? normalizeBlogImagePrompt(imagePrompt.trim(), { articleTitle })
       : imagePrompt.trim()
-    const result = await generateImage({
+    const image = await generateImage({
       prompt,
       companyId,
       size: apiSize,
       ...linkIds,
     })
-    return {
-      type: 'image',
-      url: result.url,
-      storagePath: result.storagePath,
-      promptUsed: result.promptUsed,
-    }
+    return attachAltText(
+      {
+        type: 'image',
+        url: image.url,
+        storagePath: image.storagePath,
+        promptUsed: image.promptUsed,
+      },
+      { postContent: postContent.trim(), channel, purpose },
+    )
   }
 
   const colorHint =
@@ -219,5 +243,6 @@ Call generate_image with a prompt that best matches the post — including infog
 
   const agent = buildMediaAgent(companyId, linkIds, isBlog ? 'blog' : 'social')
   const result = await run(agent, prompt)
-  return parseMediaResult(result)
+  const image = parseMediaResult(result)
+  return attachAltText(image, { postContent: postContent.trim(), channel, purpose })
 }

@@ -22,7 +22,7 @@ export async function GET(req: Request) {
   const { data, error } = await supabase
     .from('media_library')
     .select(`
-      id, company_id, storage_path, url, prompt, type, svg, post_id, created_at,
+      id, company_id, storage_path, url, prompt, alt_text, type, svg, post_id, created_at,
       posts:post_id ( id, channel, content )
     `)
     .eq('company_id', companyId)

@@ -1,4 +1,5 @@
 import OpenAI from 'openai'
+import { appendSubredditOverlay, getSubredditOverlay } from '@/lib/reddit/subreddit-overlays'
 import {
   fetchSubredditAbout,
   fetchSubredditRules,
@@ -42,7 +43,13 @@ export async function generatePostingGuidance(
     `Be specific to r/${sub} — not generic Reddit advice.`,
     `Call out patterns that trigger "submission not allowed" or mod removal (e.g. workflow showcases, links, surveys, low effort, wrong flair).`,
     `If rules ban self-promo, say how to share experience without sounding like an ad.`,
+    `Important: many subs (especially r/automation) block procedural "how I built it" language — ordered field matching, "if match then update else create", step-by-step pipelines — even without any product mention. Call this out explicitly.`,
   ]
+
+  const overlay = getSubredditOverlay(sub)
+  if (overlay) {
+    lines.push('', '## Known automod patterns for this sub (must include in playbook)', overlay.writerBlock)
+  }
 
   if (rulesText) {
     lines.push('', '## Official rules', rulesText)
@@ -64,7 +71,8 @@ export async function generatePostingGuidance(
     temperature: 0.4,
   })
 
-  return response.choices[0]?.message?.content?.trim() ?? ''
+  const generated = response.choices[0]?.message?.content?.trim() ?? ''
+  return appendSubredditOverlay(generated, sub)
 }
 
 /** Block injected into generation prompts. */
@@ -81,8 +89,12 @@ export function formatSubredditContextForPrompt(params: {
     `If the post would likely be removed or get "submission not allowed", change the angle until it fits.`,
   ]
 
-  if (params.postingGuidance?.trim()) {
-    parts.push('', 'SUBREDDIT PLAYBOOK (follow every section):', params.postingGuidance.trim())
+  const guidanceWithOverlay = appendSubredditOverlay(
+    params.postingGuidance?.trim() ?? '',
+    sub
+  )
+  if (guidanceWithOverlay) {
+    parts.push('', 'SUBREDDIT PLAYBOOK (follow every section):', guidanceWithOverlay)
   }
   if (params.rulesText?.trim()) {
     parts.push('', 'OFFICIAL RULES (must comply):', params.rulesText.trim())

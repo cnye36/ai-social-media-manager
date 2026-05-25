@@ -6,7 +6,9 @@ import { Bold, Italic, List, Copy, Check, Trash2, CalendarClock, Image as ImageI
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { AltTextBox } from '@/components/media/AltTextBox'
 import { MediaPanel } from '@/components/generate/MediaPanel'
+import { mediaItemFromResult } from '@/types/media'
 import { ChannelPreview } from '@/components/posts/ChannelPreview'
 import { cn } from '@/lib/utils'
 import type { Post, Channel, PostStatus } from '@/types/database'
@@ -208,9 +210,11 @@ export function PostEditorModal({
   if (!post) return null
 
   const channel = post.channel as Channel
-  const existingMediaUrl = post.media_items?.[0]?.url
+  const activeMediaItems = pendingMediaItems ?? post.media_items
+  const existingMediaUrl = activeMediaItems?.[0]?.url
   const previewMediaUrl = pendingMediaUrl ?? existingMediaUrl
-  const hasMedia = !!(pendingMediaItems ?? post.media_items).length
+  const previewMediaAlt = activeMediaItems?.[0]?.alt_text
+  const hasMedia = !!activeMediaItems.length
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -262,8 +266,12 @@ export function PostEditorModal({
               {/* Live preview */}
               <div>
                 <p className="text-[10px] text-zinc-600 uppercase tracking-widest mb-2">Preview</p>
-                <ChannelPreview channel={channel} content={content} mediaUrl={previewMediaUrl} />
+                <ChannelPreview channel={channel} content={content} mediaUrl={previewMediaUrl} mediaAlt={previewMediaAlt} />
               </div>
+
+              {previewMediaAlt && (
+                <AltTextBox value={previewMediaAlt} label="Image alt text" />
+              )}
 
               {/* Editor */}
               <div className="space-y-2">
@@ -347,11 +355,7 @@ export function PostEditorModal({
                     : undefined
                 }
                 onAccept={async r => {
-                  const newItems: Post['media_items'] = [{
-                    type: 'image',
-                    url: r.url,
-                    storage_path: r.storagePath,
-                  }]
+                  const newItems: Post['media_items'] = [mediaItemFromResult(r)]
                   setPendingMediaUrl(r.url)
                   setPendingMediaItems(newItems)
                   // Switch to Post tab immediately so the user sees the media attached

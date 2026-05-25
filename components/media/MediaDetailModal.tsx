@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { Badge } from '@/components/ui/badge'
+import { AltTextBox } from '@/components/media/AltTextBox'
 import { HoverDownloadImage } from '@/components/media/HoverDownloadImage'
 import { downloadMediaFile } from '@/lib/media/download'
 import type { Channel } from '@/types/database'
@@ -15,6 +16,7 @@ export interface ModalMediaItem {
   id: string
   url: string
   prompt: string | null
+  alt_text?: string | null
   type: 'image' | 'infographic'
   svg: string | null
   storage_path?: string
@@ -143,7 +145,7 @@ export function MediaDetailModal({ item, companyId, onClose }: MediaDetailModalP
           <div className="flex-1 flex items-center justify-center bg-zinc-900 overflow-auto p-6">
             <HoverDownloadImage
               src={currentUrl}
-              alt={item.prompt ?? 'Generated image'}
+              alt={item.alt_text ?? item.prompt ?? 'Generated image'}
               className="max-w-full max-h-full object-contain rounded-xl shadow-xl"
               wrapperClassName="max-w-full max-h-full flex items-center justify-center"
               downloadFilename={`media-${item.id}.png`}
@@ -264,6 +266,13 @@ export function MediaDetailModal({ item, companyId, onClose }: MediaDetailModalP
             </div>
 
             <div className="p-4 space-y-4 text-xs">
+              {(item.alt_text ?? item.prompt) && (
+                <AltTextBox
+                  value={item.alt_text ?? item.prompt?.slice(0, 125) ?? ''}
+                  label="Alt text"
+                />
+              )}
+
               {item.prompt && (
                 <div>
                   <p className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider mb-1.5">Original Prompt</p>

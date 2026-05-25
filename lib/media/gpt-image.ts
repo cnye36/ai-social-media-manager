@@ -76,3 +76,13 @@ export async function generateImage(params: {
 
   return { url: publicUrl, storagePath: filename, promptUsed: prompt }
 }
+
+/** Backfill alt text on the library row created during generateImage. */
+export async function updateMediaLibraryAlt(storagePath: string, altText: string): Promise<void> {
+  const supabase = createAdminClient()
+  const { error } = await supabase
+    .from('media_library')
+    .update({ alt_text: altText.slice(0, 500) })
+    .eq('storage_path', storagePath)
+  if (error) console.warn('[media-library] alt_text update failed:', error.message)
+}

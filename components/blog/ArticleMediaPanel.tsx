@@ -6,6 +6,7 @@ import { format } from 'date-fns'
 import { cn } from '@/lib/utils'
 import { HoverDownloadImage } from '@/components/media/HoverDownloadImage'
 import { MediaDetailModal } from '@/components/media/MediaDetailModal'
+import { AltTextBox } from '@/components/media/AltTextBox'
 import { ImagePromptBox } from '@/components/media/ImagePromptBox'
 import type { ModalMediaItem } from '@/components/media/MediaDetailModal'
 import type { MediaResult } from '@/types/media'
@@ -14,6 +15,7 @@ interface LibraryItem {
   id: string
   url: string
   prompt: string | null
+  alt_text: string | null
   type: 'image' | 'infographic'
   svg: string | null
   created_at: string
@@ -152,6 +154,7 @@ export function ArticleMediaPanel({
       url: item.url,
       storagePath: item.storage_path ?? '',
       promptUsed: item.prompt ?? '',
+      altText: item.alt_text ?? item.prompt?.slice(0, 125) ?? 'Generated image',
     })
   }
 
@@ -233,7 +236,7 @@ export function ArticleMediaPanel({
               {current && (
                 <HoverDownloadImage
                   src={current.result.url}
-                  alt={current.result.promptUsed}
+                  alt={current.result.altText}
                   className="w-full object-contain max-h-[320px]"
                   wrapperClassName="w-full"
                   downloadFilename={`${articleTitle.slice(0, 40)}-${mode}.png`}
@@ -249,6 +252,10 @@ export function ArticleMediaPanel({
             )}
 
             <div className="p-4 space-y-3 border-t border-zinc-800">
+              {current?.result.altText && (
+                <AltTextBox value={current.result.altText} />
+              )}
+
               {current?.result.promptUsed && (
                 <ImagePromptBox
                   label="Prompt used for this image"
@@ -338,7 +345,7 @@ export function ArticleMediaPanel({
                     <div className="w-20 h-20 shrink-0 rounded overflow-hidden bg-zinc-800">
                       <HoverDownloadImage
                         src={item.url}
-                        alt={item.prompt ?? ''}
+                        alt={item.alt_text ?? item.prompt ?? ''}
                         className="w-full h-full object-cover"
                         wrapperClassName="w-full h-full"
                         downloadFilename={`media-${item.id}.png`}

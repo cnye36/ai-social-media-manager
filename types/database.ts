@@ -55,6 +55,8 @@ export interface MediaItem {
   url: string
   storage_path?: string
   svg?: string
+  /** Accessibility alt text for images */
+  alt_text?: string
 }
 
 export interface Post {
@@ -125,6 +127,7 @@ export interface MediaLibraryItem {
   storage_path: string
   url: string
   prompt: string | null
+  alt_text: string | null
   type: 'image' | 'infographic'
   svg: string | null
   post_id: string | null

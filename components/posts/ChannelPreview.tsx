@@ -8,13 +8,14 @@ interface ChannelPreviewProps {
   channel: Channel
   content: string
   mediaUrl?: string
+  mediaAlt?: string
 }
 
 function cleanText(content: string) {
   return content.split('\n--\nIMAGE_PROMPT:')[0].trim()
 }
 
-function MediaBlock({ url, channel }: { url: string; channel: Channel }) {
+function MediaBlock({ url, channel, alt }: { url: string; channel: Channel; alt?: string }) {
   const aspectClass: Record<Channel, string> = {
     linkedin: 'aspect-[1.91/1]',
     x: 'aspect-video',
@@ -24,7 +25,7 @@ function MediaBlock({ url, channel }: { url: string; channel: Channel }) {
   return (
     <HoverDownloadImage
       src={url}
-      alt="Post media"
+      alt={alt?.trim() || 'Post media'}
       className="w-full h-full object-cover"
       wrapperClassName={cn('w-full block overflow-hidden', aspectClass[channel])}
     />
@@ -33,7 +34,7 @@ function MediaBlock({ url, channel }: { url: string; channel: Channel }) {
 
 // ─── LinkedIn ────────────────────────────────────────────────────────────────
 
-function LinkedInPreview({ content: raw, mediaUrl }: { content: string; mediaUrl?: string }) {
+function LinkedInPreview({ content: raw, mediaUrl, mediaAlt }: { content: string; mediaUrl?: string; mediaAlt?: string }) {
   const text = cleanText(raw)
   const preview = text.slice(0, 280)
   const truncated = text.length > 280
@@ -60,7 +61,7 @@ function LinkedInPreview({ content: raw, mediaUrl }: { content: string; mediaUrl
           {truncated && <span className="text-blue-400 ml-0.5">…see more</span>}
         </p>
       </div>
-      {mediaUrl && <MediaBlock url={mediaUrl} channel="linkedin" />}
+      {mediaUrl && <MediaBlock url={mediaUrl} channel="linkedin" alt={mediaAlt} />}
       <div className="px-3 py-2 flex gap-4 border-t border-zinc-800/60 mt-1">
         {['👍 Like', '💬 Comment', '↗ Repost', '✉ Send'].map(a => (
           <span key={a} className="text-[10px] text-zinc-500">{a}</span>
@@ -72,7 +73,7 @@ function LinkedInPreview({ content: raw, mediaUrl }: { content: string; mediaUrl
 
 // ─── X / Twitter ─────────────────────────────────────────────────────────────
 
-function XPreview({ content: raw, mediaUrl }: { content: string; mediaUrl?: string }) {
+function XPreview({ content: raw, mediaUrl, mediaAlt }: { content: string; mediaUrl?: string; mediaAlt?: string }) {
   const text = cleanText(raw)
 
   return (
@@ -89,7 +90,7 @@ function XPreview({ content: raw, mediaUrl }: { content: string; mediaUrl?: stri
           <p className="text-[12px] text-zinc-100 leading-relaxed whitespace-pre-wrap mt-1">{text}</p>
           {mediaUrl && (
             <div className="mt-2 rounded-xl overflow-hidden border border-zinc-800">
-              <MediaBlock url={mediaUrl} channel="x" />
+              <MediaBlock url={mediaUrl} channel="x" alt={mediaAlt} />
             </div>
           )}
           <div className="flex items-center justify-between mt-2 pt-1">
@@ -113,7 +114,7 @@ function XPreview({ content: raw, mediaUrl }: { content: string; mediaUrl?: stri
 
 // ─── Facebook ────────────────────────────────────────────────────────────────
 
-function FacebookPreview({ content: raw, mediaUrl }: { content: string; mediaUrl?: string }) {
+function FacebookPreview({ content: raw, mediaUrl, mediaAlt }: { content: string; mediaUrl?: string; mediaAlt?: string }) {
   const text = cleanText(raw)
   const preview = text.slice(0, 300)
   const truncated = text.length > 300
@@ -135,7 +136,7 @@ function FacebookPreview({ content: raw, mediaUrl }: { content: string; mediaUrl
           {truncated && <span className="text-blue-400 ml-0.5">See more</span>}
         </p>
       </div>
-      {mediaUrl && <MediaBlock url={mediaUrl} channel="facebook" />}
+      {mediaUrl && <MediaBlock url={mediaUrl} channel="facebook" alt={mediaAlt} />}
       <div className="px-3 py-2 border-t border-zinc-800/60 flex gap-3 mt-1">
         {['👍 Like', '💬 Comment', '↗ Share'].map(a => (
           <span key={a} className="text-[10px] text-zinc-500 font-medium">{a}</span>
@@ -147,7 +148,7 @@ function FacebookPreview({ content: raw, mediaUrl }: { content: string; mediaUrl
 
 // ─── Reddit ──────────────────────────────────────────────────────────────────
 
-function RedditPreview({ content: raw, mediaUrl }: { content: string; mediaUrl?: string }) {
+function RedditPreview({ content: raw, mediaUrl, mediaAlt }: { content: string; mediaUrl?: string; mediaAlt?: string }) {
   const text = cleanText(raw)
   const lines = text.split('\n')
   const title = lines[0] || 'Post title'
@@ -170,7 +171,7 @@ function RedditPreview({ content: raw, mediaUrl }: { content: string; mediaUrl?:
           <p className="text-[12px] font-semibold text-white leading-snug mb-1.5">{title}</p>
           {mediaUrl && (
             <div className="rounded overflow-hidden mb-1.5 border border-zinc-800">
-              <MediaBlock url={mediaUrl} channel="reddit" />
+              <MediaBlock url={mediaUrl} channel="reddit" alt={mediaAlt} />
             </div>
           )}
           {body && (
@@ -189,9 +190,9 @@ function RedditPreview({ content: raw, mediaUrl }: { content: string; mediaUrl?:
 
 // ─── Dispatcher ──────────────────────────────────────────────────────────────
 
-export function ChannelPreview({ channel, content, mediaUrl }: ChannelPreviewProps) {
-  if (channel === 'linkedin') return <LinkedInPreview content={content} mediaUrl={mediaUrl} />
-  if (channel === 'x')        return <XPreview content={content} mediaUrl={mediaUrl} />
-  if (channel === 'facebook') return <FacebookPreview content={content} mediaUrl={mediaUrl} />
-  return <RedditPreview content={content} mediaUrl={mediaUrl} />
+export function ChannelPreview({ channel, content, mediaUrl, mediaAlt }: ChannelPreviewProps) {
+  if (channel === 'linkedin') return <LinkedInPreview content={content} mediaUrl={mediaUrl} mediaAlt={mediaAlt} />
+  if (channel === 'x')        return <XPreview content={content} mediaUrl={mediaUrl} mediaAlt={mediaAlt} />
+  if (channel === 'facebook') return <FacebookPreview content={content} mediaUrl={mediaUrl} mediaAlt={mediaAlt} />
+  return <RedditPreview content={content} mediaUrl={mediaUrl} mediaAlt={mediaAlt} />
 }

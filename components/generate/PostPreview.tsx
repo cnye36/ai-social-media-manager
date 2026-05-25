@@ -10,7 +10,10 @@ import { MediaPanel } from './MediaPanel'
 import { ChannelPreview } from '@/components/posts/ChannelPreview'
 import { cn } from '@/lib/utils'
 import { HoverDownloadImage } from '@/components/media/HoverDownloadImage'
+import { AltTextBox } from '@/components/media/AltTextBox'
+import { mediaItemFromResult } from '@/types/media'
 import type { Channel } from '@/types/database'
+import type { MediaResult } from '@/types/media'
 
 const BUFFER_CHANNELS: Channel[] = ['linkedin', 'x', 'facebook']
 
@@ -41,11 +44,7 @@ const CHANNEL_META: Record<Channel, { label: string; icon: React.ReactNode; acce
   },
 }
 
-interface AcceptedMedia {
-  type: 'image'
-  url: string
-  storagePath: string
-}
+type AcceptedMedia = MediaResult
 
 interface PostPreviewProps {
   channel: Channel | null
@@ -121,7 +120,7 @@ export function PostPreview({
 
   function buildMediaItems() {
     if (!acceptedMedia) return []
-    return [{ type: 'image', url: acceptedMedia.url, storage_path: acceptedMedia.storagePath }]
+    return [mediaItemFromResult(acceptedMedia)]
   }
 
   async function handleSave() {
@@ -193,7 +192,7 @@ export function PostPreview({
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          media_items: [{ type: 'image', url: media.url, storage_path: media.storagePath }],
+          media_items: [mediaItemFromResult(media)],
         }),
       })
     }
@@ -317,6 +316,7 @@ export function PostPreview({
               channel={channel}
               content={cleanContent}
               mediaUrl={acceptedMedia?.url}
+              mediaAlt={acceptedMedia?.altText}
             />
           ) : (
             <>
@@ -368,11 +368,12 @@ export function PostPreview({
               </div>
               <HoverDownloadImage
                 src={acceptedMedia.url}
-                alt="Attached image"
+                alt={acceptedMedia.altText}
                 className="w-full object-contain max-h-48"
                 wrapperClassName="w-full"
               />
             </div>
+            <AltTextBox value={acceptedMedia.altText} className="mt-2" />
           </div>
         )}
 

@@ -20,6 +20,7 @@ interface LibraryItem {
   id: string
   url: string
   prompt: string | null
+  alt_text: string | null
   type: 'image' | 'infographic'
   svg: string | null
   post_id: string | null
@@ -109,7 +110,7 @@ export function MediaLibraryClient({ companyId }: { companyId: string }) {
                   <div className="relative aspect-video bg-zinc-950 flex items-center justify-center overflow-hidden">
                     <HoverDownloadImage
                       src={item.url}
-                      alt={item.prompt ?? 'Generated image'}
+                      alt={item.alt_text ?? item.prompt ?? 'Generated image'}
                       className="w-full h-full object-cover"
                       wrapperClassName="w-full h-full"
                       downloadFilename={`media-${item.id}.png`}

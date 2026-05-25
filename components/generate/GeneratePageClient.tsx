@@ -12,7 +12,7 @@ import { cn } from '@/lib/utils'
 import type { Channel } from '@/types/database'
 import type { GeneratedPost, ThreadTweet } from '@/types/agents'
 
-import type { MediaResult } from '@/types/media'
+import { mediaItemFromResult, type MediaResult } from '@/types/media'
 
 interface GeneratePageClientProps {
   companyId: string
@@ -339,9 +339,7 @@ function MultiPostPreviewer({ posts, batchErrors, companyId, brandColors, onRese
           ai_generated: true,
           generation_params: { imagePrompt: activePost.imagePrompt },
           content_variants: activePost.contentVariants ?? {},
-          media_items: mediaToUse
-            ? [{ type: 'image', url: mediaToUse.url, storage_path: mediaToUse.storagePath }]
-            : [],
+          media_items: mediaToUse ? [mediaItemFromResult(mediaToUse)] : [],
         }),
       })
       if (res.ok) {

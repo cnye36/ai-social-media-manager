@@ -1,6 +1,7 @@
 import { Agent } from '@openai/agents'
 import { buildRagSearchTool } from './tools/rag-search'
 import { buildBaseSystemPrompt } from './base-agent'
+import { getSubredditOverlay } from '@/lib/reddit/subreddit-overlays'
 import type { BrandProfile } from '@/types/database'
 import type { RetrievedChunk } from '@/lib/rag/retrieve'
 import type { ContentGoal, PostLength } from '@/types/agents'
@@ -10,6 +11,17 @@ function buildChannelRules(
   companyName: string,
   targetSubreddit?: string,
 ): string {
+  const overlay = targetSubreddit ? getSubredditOverlay(targetSubreddit) : null
+  const overlayRules = overlay
+    ? `
+TARGET SUBREDDIT AUTOMOD (r/${overlay.subreddit} — mandatory):
+${overlay.writerBlock}
+Never include ordered field-matching recipes, if/then create-or-update logic, or step-by-step pipeline prose in the body. Share the problem and ask questions; keep your exact process out of the post.
+`.trim()
+    : `
+PROCEDURAL LANGUAGE: On many subs (especially r/automation), bodies that read like implementation docs get "submission not allowed" even without promotion. Do not write: "email first, then phone", "if match update else create", "check fields in order", or "what's worked best for me" followed by your pipeline. State lessons in one vague sentence max; ask the community how they solve it.
+`.trim()
+
   const disclosureRules = includeDisclosure
     ? `- AFFILIATION DISCLOSURE (required for this post): Set "disclosure" to a blunt one-liner like "I'm the founder at ${companyName}" (pick an accurate role). Do NOT put disclosure text in the body.`
     : `- NO DISCLOSURE for this post: Set "disclosure" to null. Do not add a Disclosure line in the body. Do not volunteer that you work at the company unless it is essential to the story itself (and even then, keep it casual, not a formal disclosure).`
@@ -47,6 +59,8 @@ WHAT WORKS: Sharing what you learned (with specifics), asking for honest feedbac
 WHAT TO AVOID: "Check out our product!", vague claims, anything that reads like an ad, engagement bait, posting the same content to multiple subreddits simultaneously, workflow demos that read like sales pitches, listing product features unprompted.
 
 SUBREDDIT PLAYBOOK: If a SUBREDDIT PLAYBOOK section appears in additional context, treat it as mandatory. Match the formats and tone that perform well there. Avoid every pattern listed under "What to avoid" and "Ban and removal risks". If the post could trigger "submission not allowed", rewrite until it would pass as a normal community member post.
+
+${overlayRules}
 
 TECH CONTEXT: If the COMPANY INTEL section lists a preferred tech stack, use that stack for any code examples, framework mentions, or build advice (e.g. TypeScript + React over Python or Vue unless the topic demands otherwise). Sound like someone who actually ships with that stack.
 `.trim()

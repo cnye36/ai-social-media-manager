@@ -1,11 +1,11 @@
 'use client'
 
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import {
   Sparkles, Loader2, Bold, Italic, List, ArrowUp, MessageSquare,
   Share2, Bookmark, MoreHorizontal, Check, CalendarClock, RefreshCw,
   Eye, Pencil, X, Plus, Trash2, ToggleLeft, ToggleRight, ExternalLink,
-  Copy, ChevronDown, ChevronUp, Radio,
+  Copy, ChevronDown, ChevronUp, Radio, AlertTriangle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label'
 import { format, formatDistanceToNow } from 'date-fns'
 import { cn } from '@/lib/utils'
 import { formatRedditMarkdown, parseRedditPost, type RedditPostContent } from '@/lib/reddit/parse'
+import { lintRedditSubmission } from '@/lib/reddit/submission-lint'
 import type { ContentGoal, GeneratedPost, PostLength } from '@/types/agents'
 import type { Post } from '@/types/database'
 
@@ -994,6 +995,11 @@ function GenerateTab({
 
   const bodyRef = useRef<HTMLTextAreaElement>(null)
 
+  const submissionLint = useMemo(
+    () => lintRedditSubmission(editBody, editSubreddit || subredditHint),
+    [editBody, editSubreddit, subredditHint]
+  )
+
   useEffect(() => {
     if (!initialDraft) return
     const reddit = redditFromPost(initialDraft)
@@ -1377,8 +1383,42 @@ function GenerateTab({
                       value={editBody}
                       onChange={e => setEditBody(e.target.value)}
                       rows={10}
-                      className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2.5 text-sm text-zinc-200 leading-relaxed resize-none focus:outline-none focus:ring-1 focus:ring-orange-500/60"
+                      className={cn(
+                        'w-full bg-zinc-800 border rounded-lg px-3 py-2.5 text-sm text-zinc-200 leading-relaxed resize-none focus:outline-none focus:ring-1',
+                        submissionLint.some(i => i.severity === 'block')
+                          ? 'border-red-500/60 focus:ring-red-500/50'
+                          : 'border-zinc-700 focus:ring-orange-500/60'
+                      )}
                     />
+                    {submissionLint.length > 0 && (
+                      <div className="space-y-2">
+                        {submissionLint.map(issue => (
+                          <div
+                            key={issue.id}
+                            className={cn(
+                              'rounded-lg px-3 py-2.5 text-xs leading-relaxed border',
+                              issue.severity === 'block'
+                                ? 'bg-red-950/40 border-red-800/60 text-red-200'
+                                : 'bg-amber-950/30 border-amber-800/50 text-amber-200'
+                            )}
+                          >
+                            <p className="flex items-start gap-1.5 font-medium">
+                              <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                              {issue.message}
+                            </p>
+                            {issue.excerpt && (
+                              <p className="mt-1.5 text-[11px] opacity-80 font-mono">{issue.excerpt}</p>
+                            )}
+                            <p className="mt-1.5 text-[11px] opacity-90">{issue.suggestion}</p>
+                          </div>
+                        ))}
+                        {(editSubreddit || subredditHint).replace(/^r\//, '').toLowerCase() === 'automation' && (
+                          <p className="text-[11px] text-zinc-500">
+                            r/automation often rejects procedural how-to language (field order, if/then create rules) even in genuine discussion posts.
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   {disclosure !== null && (

@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { LinkedInIcon, XIcon, RedditIcon, FacebookIcon } from '@/components/ui/channel-icons'
 import { cn } from '@/lib/utils'
+import { isXThreadPost, xThreadTweetCount } from '@/lib/posts/x-format'
 import type { Post, Channel, PostStatus } from '@/types/database'
 
 const CHANNEL_ICONS: Record<Channel, React.ReactNode> = {
@@ -29,6 +30,21 @@ const STATUS_LABELS: Record<PostStatus, string> = {
   scheduled: 'Scheduled',
   published: 'Published',
   archived: 'Archived',
+}
+
+function XFormatLabel({ post }: { post: Post }) {
+  const thread = isXThreadPost(post)
+  const count = xThreadTweetCount(post)
+  return (
+    <span
+      className={cn(
+        'text-[10px] font-medium px-1.5 py-0.5 rounded',
+        thread ? 'text-violet-400 bg-violet-950/40' : 'text-zinc-500 bg-zinc-800/60',
+      )}
+    >
+      {thread ? `Thread${count != null ? ` · ${count}` : ''}` : 'Single'}
+    </span>
+  )
 }
 
 interface PostsTableProps {
@@ -143,12 +159,15 @@ export function PostsTable({ posts: initialPosts, companyId }: PostsTableProps) 
         <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden divide-y divide-zinc-800">
           {filtered.map(post => (
             <div key={post.id} className="px-5 py-4 flex items-start gap-4 hover:bg-zinc-800/30 transition-colors">
-              {/* Channel icon */}
-              <div className="flex-shrink-0 mt-0.5">
+              {/* Channel + X format */}
+              <div className="flex-shrink-0 mt-0.5 flex flex-col gap-1 items-start">
                 <Badge variant={post.channel as Channel} className="gap-1.5">
                   {CHANNEL_ICONS[post.channel as Channel]}
                   {post.channel}
                 </Badge>
+                {post.channel === 'x' && (
+                  <XFormatLabel post={post} />
+                )}
               </div>
 
               {/* Content — click to edit */}
