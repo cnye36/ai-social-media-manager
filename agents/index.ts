@@ -8,6 +8,7 @@ import { buildFacebookAgent } from './facebook-agent'
 import type { Channel } from '@/types/database'
 import type { GenerateRequest, GeneratedPost, ThreadTweet } from '@/types/agents'
 import { formatRedditMarkdown, parseRedditPost, type RedditPostContent } from '@/lib/reddit/parse'
+import { buildSubredditPromptBlock, loadSubredditConfig } from '@/lib/reddit/subreddit-config'
 
 const agentBuilders: Record<Channel, (p: Parameters<typeof buildLinkedInAgent>[0]) => ReturnType<typeof buildLinkedInAgent>> = {
   linkedin: buildLinkedInAgent,
@@ -17,14 +18,24 @@ const agentBuilders: Record<Channel, (p: Parameters<typeof buildLinkedInAgent>[0
 }
 
 async function prepareAgent(request: GenerateRequest) {
-  const { companyId, channel, topic, contentGoal, postLength, additionalContext } = request
+  const { companyId, channel, topic, contentGoal, postLength, additionalContext, subreddit } = request
   const supabase = await createClient()
 
-  const [companyResult, brandResult, knowledgeChunks] = await Promise.all([
+  const [companyResult, brandResult, knowledgeChunks, subredditConfig] = await Promise.all([
     supabase.from('companies').select('name').eq('id', companyId).single(),
     supabase.from('brand_profiles').select('*').eq('company_id', companyId).single(),
     retrieve(companyId, topic, 5, 0.35),
+    channel === 'reddit' && subreddit
+      ? loadSubredditConfig(supabase, companyId, subreddit)
+      : Promise.resolve(null),
   ])
+
+  const subredditContext =
+    channel === 'reddit' && subreddit
+      ? buildSubredditPromptBlock(subredditConfig, subreddit)
+      : null
+
+  const mergedContext = [additionalContext?.trim(), subredditContext].filter(Boolean).join('\n\n')
 
   const agentParams = {
     companyId,
@@ -34,9 +45,10 @@ async function prepareAgent(request: GenerateRequest) {
     topic,
     contentGoal,
     postLength,
-    additionalContext,
+    additionalContext: mergedContext || undefined,
     threadMode: request.threadMode,
     includeDisclosure: request.includeDisclosure,
+    targetSubreddit: subreddit?.replace(/^r\//, ''),
   }
 
   return { agent: agentBuilders[channel](agentParams), channel }

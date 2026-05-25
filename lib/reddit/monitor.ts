@@ -180,7 +180,7 @@ export async function draftReply(
     supabase.from('brand_profiles').select('*').eq('company_id', companyId).maybeSingle(),
     supabase.from('companies').select('name').eq('id', companyId).single(),
     supabase.from('reddit_subreddit_configs')
-      .select('rules_text, notes, reply_policy')
+      .select('rules_text, notes, posting_guidance, reply_policy')
       .eq('company_id', companyId)
       .eq('subreddit', '')  // filled below after opp loads
       .maybeSingle(),
@@ -190,7 +190,7 @@ export async function draftReply(
 
   const { data: subConfig } = await supabase
     .from('reddit_subreddit_configs')
-    .select('rules_text, notes, reply_policy')
+    .select('rules_text, notes, posting_guidance, reply_policy')
     .eq('company_id', companyId)
     .eq('subreddit', opp.subreddit)
     .maybeSingle()
@@ -208,6 +208,7 @@ export async function draftReply(
     brandProfile?.tone ? `Tone: ${brandProfile.tone}` : '',
     stackLine ?? '',
     subConfig?.rules_text ? `Subreddit rules:\n${subConfig.rules_text}` : '',
+    subConfig?.posting_guidance ? `Subreddit playbook:\n${subConfig.posting_guidance}` : '',
     subConfig?.notes ? `Notes on this subreddit:\n${subConfig.notes}` : '',
     '',
     'Write a reply that:',

@@ -19,6 +19,8 @@ export interface GenerateRequest {
   threadMode?: boolean
   /** Reddit only: when true, agent fills the disclosure field; when false, omit entirely */
   includeDisclosure?: boolean
+  /** Reddit only: target subreddit (loads rules + posting guidance from config) */
+  subreddit?: string
 }
 
 export interface GeneratedPost {

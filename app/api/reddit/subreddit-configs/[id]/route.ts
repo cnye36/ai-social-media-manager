@@ -8,7 +8,7 @@ export async function PATCH(
   const { id } = await params
   const body = await req.json() as Record<string, unknown>
 
-  const allowed = ['rules_text', 'notes', 'posting_policy', 'reply_policy']
+  const allowed = ['rules_text', 'notes', 'posting_policy', 'reply_policy', 'posting_guidance']
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() }
   for (const k of allowed) {
     if (k in body) patch[k] = body[k]

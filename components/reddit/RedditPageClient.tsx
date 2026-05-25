@@ -12,12 +12,13 @@ import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { format, formatDistanceToNow } from 'date-fns'
 import { cn } from '@/lib/utils'
-import { parseRedditPost, type RedditPostContent } from '@/lib/reddit/parse'
+import { formatRedditMarkdown, parseRedditPost, type RedditPostContent } from '@/lib/reddit/parse'
 import type { ContentGoal, GeneratedPost, PostLength } from '@/types/agents'
+import type { Post } from '@/types/database'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Tab = 'generate' | 'ideas' | 'opportunities' | 'monitors'
+type Tab = 'generate' | 'ideas' | 'opportunities' | 'monitors' | 'saved'
 
 interface RedditOpportunity {
   id: string
@@ -50,6 +51,8 @@ interface SubredditConfig {
   subreddit: string
   rules_text: string | null
   notes: string | null
+  posting_guidance: string | null
+  posting_guidance_updated_at: string | null
   updated_at: string
 }
 
@@ -58,6 +61,8 @@ interface RedditIdea {
   angle: string
   type: 'discussion' | 'story' | 'question' | 'resource' | 'ama'
   why_it_works: string
+  compliance?: 'safe' | 'caution'
+  compliance_note?: string
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -899,6 +904,25 @@ type RedditPost = RedditPostContent & { subreddit: string }
 type SaveState = 'idle' | 'saving' | 'draft' | 'scheduled'
 type OutputTab = 'edit' | 'preview'
 
+function redditFromPost(post: Post): RedditPost | null {
+  const variants = post.content_variants?.reddit as RedditPostContent | undefined
+  if (variants?.title && variants?.body) {
+    return {
+      title: variants.title,
+      body: variants.body,
+      subreddit: variants.subreddit?.replace(/^r\//, '') ?? '',
+      disclosure: variants.disclosure ?? null,
+    }
+  }
+  const parsed = parseRedditPost(post.content)
+  if (!parsed.post) return null
+  return {
+    ...parsed.post,
+    subreddit: parsed.post.subreddit?.replace(/^r\//, '') ?? '',
+    disclosure: parsed.post.disclosure ?? null,
+  }
+}
+
 function resolveRedditFromResult(
   result: GeneratedPost,
   subredditFallback: string
@@ -937,10 +961,14 @@ function GenerateTab({
   companyId,
   initialTopic = '',
   initialSubreddit = '',
+  initialDraft = null,
+  onDraftSaved,
 }: {
   companyId: string
   initialTopic?: string
   initialSubreddit?: string
+  initialDraft?: Post | null
+  onDraftSaved?: () => void
 }) {
   const [topic, setTopic] = useState(initialTopic)
   const [subredditHint, setSubredditHint] = useState(initialSubreddit)
@@ -962,8 +990,29 @@ function GenerateTab({
   const [saveState, setSaveState] = useState<SaveState>('idle')
   const [showSchedule, setShowSchedule] = useState(false)
   const [scheduledFor, setScheduledFor] = useState('')
+  const [savedPostId, setSavedPostId] = useState<string | null>(initialDraft?.id ?? null)
 
   const bodyRef = useRef<HTMLTextAreaElement>(null)
+
+  useEffect(() => {
+    if (!initialDraft) return
+    const reddit = redditFromPost(initialDraft)
+    if (!reddit) return
+    setSavedPostId(initialDraft.id)
+    setEditTitle(reddit.title)
+    setEditBody(reddit.body)
+    setEditSubreddit(reddit.subreddit)
+    setDisclosure(reddit.disclosure ?? null)
+    setGeneratedPost(reddit)
+    setTopic(initialTopic || reddit.title)
+    setSubredditHint(initialSubreddit || reddit.subreddit)
+    setImagePrompt(
+      (initialDraft.generation_params?.imagePrompt as string | undefined) ?? undefined
+    )
+    setSaveState('idle')
+    setShowSchedule(false)
+    setOutputTab('edit')
+  }, [initialDraft, initialTopic, initialSubreddit])
 
   async function handleGenerate(e: React.FormEvent) {
     e.preventDefault()
@@ -992,6 +1041,7 @@ function GenerateTab({
           additionalContext: context || undefined,
           stream: false,
           includeDisclosure,
+          subreddit: (editSubreddit || subredditHint).trim().replace(/^r\//, '') || undefined,
         }),
       })
 
@@ -1026,28 +1076,52 @@ function GenerateTab({
   }
 
   async function savePost(status: 'draft' | 'scheduled', scheduledAt?: string) {
+    if (!editTitle.trim() || !editBody.trim()) return
     setSaveState('saving')
-    const content = `**${editTitle}**\n\n${editBody}${disclosure ? `\n\n*Disclosure: ${disclosure}*` : ''}`
+    const content = formatRedditMarkdown({
+      title: editTitle.trim(),
+      body: editBody.trim(),
+      subreddit: editSubreddit,
+      disclosure,
+    })
+    const payload = {
+      content,
+      status,
+      ...(scheduledAt ? { scheduled_for: scheduledAt } : {}),
+      generation_params: { imagePrompt },
+      content_variants: {
+        reddit: {
+          title: editTitle.trim(),
+          body: editBody.trim(),
+          subreddit: editSubreddit,
+          disclosure,
+        },
+      },
+      media_items: [] as [],
+    }
     try {
-      const res = await fetch('/api/posts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          company_id: companyId,
-          channel: 'reddit',
-          content,
-          status,
-          ...(scheduledAt ? { scheduled_for: scheduledAt } : {}),
-          ai_generated: true,
-          generation_params: { imagePrompt },
-          content_variants: { reddit: { title: editTitle, body: editBody, subreddit: editSubreddit, disclosure } },
-          media_items: [],
-        }),
-      })
+      const res = savedPostId
+        ? await fetch(`/api/posts/${savedPostId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          })
+        : await fetch('/api/posts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              company_id: companyId,
+              channel: 'reddit',
+              ...payload,
+            }),
+          })
       if (res.ok) {
+        const saved = await res.json() as Post
+        setSavedPostId(saved.id)
         setSaveState(status === 'draft' ? 'draft' : 'scheduled')
         setShowSchedule(false)
         setScheduledFor('')
+        if (status === 'draft') onDraftSaved?.()
       } else {
         setSaveState('idle')
       }
@@ -1061,6 +1135,7 @@ function GenerateTab({
     setEditTitle(''); setEditBody(''); setEditSubreddit(''); setDisclosure(null)
     setSaveState('idle'); setShowSchedule(false); setScheduledFor('')
     setImagePrompt(undefined)
+    setSavedPostId(null)
     setOutputTab('edit')
   }
 
@@ -1347,7 +1422,7 @@ function GenerateTab({
               {saveState === 'draft' ? (
                 <div className="flex items-center gap-3 pt-2 border-t border-zinc-800">
                   <span className="flex items-center gap-1.5 text-sm text-green-400">
-                    <Check className="w-4 h-4" /> Saved as draft
+                    <Check className="w-4 h-4" /> Saved for later
                   </span>
                   <button onClick={() => setSaveState('idle')} className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors">
                     Edit again
@@ -1395,7 +1470,7 @@ function GenerateTab({
               ) : (
                 <div className="flex items-center gap-2 pt-2 border-t border-zinc-800">
                   <Button size="sm" onClick={() => savePost('draft')} className="bg-orange-600 hover:bg-orange-500">
-                    <Bookmark className="w-3.5 h-3.5" /> Approve as draft
+                    <Bookmark className="w-3.5 h-3.5" /> {savedPostId ? 'Update saved post' : 'Save for later'}
                   </Button>
                   <Button size="sm" variant="outline" onClick={() => setShowSchedule(true)}>
                     <CalendarClock className="w-3.5 h-3.5" /> Schedule
@@ -1449,6 +1524,10 @@ function IdeasTab({
   const [editingRules, setEditingRules] = useState<string | null>(null)
   const [editRulesText, setEditRulesText] = useState('')
   const [savingRules, setSavingRules] = useState(false)
+  const [editingGuidance, setEditingGuidance] = useState<string | null>(null)
+  const [editGuidanceText, setEditGuidanceText] = useState('')
+  const [savingGuidance, setSavingGuidance] = useState(false)
+  const [refreshingGuidance, setRefreshingGuidance] = useState<string | null>(null)
 
   // ── Ideas state ──
   const [selectedSub, setSelectedSub] = useState('')
@@ -1519,6 +1598,33 @@ function IdeasTab({
     setSavingRules(false)
   }
 
+  async function saveGuidance(id: string) {
+    setSavingGuidance(true)
+    const res = await fetch(`/api/reddit/subreddit-configs/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ posting_guidance: editGuidanceText }),
+    })
+    if (res.ok) {
+      const updated = await res.json() as SubredditConfig
+      setConfigs(prev => prev.map(c => c.id === id ? updated : c))
+      setEditingGuidance(null)
+    }
+    setSavingGuidance(false)
+  }
+
+  async function refreshGuidance(id: string) {
+    setRefreshingGuidance(id)
+    const res = await fetch(`/api/reddit/subreddit-configs/${id}/refresh-guidance`, { method: 'POST' })
+    if (res.ok) {
+      const updated = await res.json() as SubredditConfig
+      setConfigs(prev => prev.map(c => c.id === id ? updated : c))
+    }
+    setRefreshingGuidance(null)
+  }
+
+  const selectedConfig = configs.find(c => c.subreddit === selectedSub)
+
   async function generateIdeas(e: React.FormEvent) {
     e.preventDefault()
     if (!selectedSub) return
@@ -1547,7 +1653,9 @@ function IdeasTab({
         <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
           <div className="px-5 py-4 border-b border-zinc-800">
             <h2 className="text-sm font-semibold text-white">Your target subreddits</h2>
-            <p className="text-xs text-zinc-500 mt-0.5">Rules are auto-fetched from Reddit. You can edit them anytime.</p>
+            <p className="text-xs text-zinc-500 mt-0.5">
+              Rules and posting guidance are auto-generated per sub. Ideas and posts follow both.
+            </p>
           </div>
 
           {configsLoading ? (
@@ -1569,8 +1677,12 @@ function IdeasTab({
                     >
                       <span className="text-sm font-semibold text-orange-400">r/{cfg.subreddit}</span>
                       {cfg.rules_text
-                        ? <span className="text-[10px] text-green-500 bg-green-500/10 border border-green-500/20 rounded px-1.5 py-0.5">Rules loaded</span>
+                        ? <span className="text-[10px] text-green-500 bg-green-500/10 border border-green-500/20 rounded px-1.5 py-0.5">Rules</span>
                         : <span className="text-[10px] text-zinc-600 bg-zinc-800 rounded px-1.5 py-0.5">No rules</span>
+                      }
+                      {cfg.posting_guidance
+                        ? <span className="text-[10px] text-violet-400 bg-violet-500/10 border border-violet-500/20 rounded px-1.5 py-0.5">Guidance</span>
+                        : <span className="text-[10px] text-amber-500/80 bg-amber-500/10 border border-amber-500/20 rounded px-1.5 py-0.5">No guidance</span>
                       }
                       {expandedConfig === cfg.id
                         ? <ChevronUp className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
@@ -1631,6 +1743,70 @@ function IdeasTab({
                           )}
                         </div>
                       )}
+
+                      <div className="space-y-1.5 pt-2 border-t border-zinc-800">
+                        <div className="flex items-center justify-between gap-2">
+                          <label className="text-[10px] text-zinc-600 uppercase tracking-widest">Posting guidance</label>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => refreshGuidance(cfg.id)}
+                              disabled={refreshingGuidance === cfg.id}
+                              className="flex items-center gap-1 text-[11px] text-zinc-500 hover:text-orange-300 transition-colors disabled:opacity-50"
+                            >
+                              {refreshingGuidance === cfg.id
+                                ? <Loader2 className="w-3 h-3 animate-spin" />
+                                : <RefreshCw className="w-3 h-3" />}
+                              Regenerate
+                            </button>
+                            {editingGuidance !== cfg.id && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingGuidance(cfg.id)
+                                  setEditGuidanceText(cfg.posting_guidance ?? '')
+                                }}
+                                className="flex items-center gap-1 text-[11px] text-zinc-500 hover:text-white transition-colors"
+                              >
+                                <Pencil className="w-3 h-3" /> Edit
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        <p className="text-[11px] text-zinc-600">What works, what to avoid, and ban risks for r/{cfg.subreddit}</p>
+                        {editingGuidance === cfg.id ? (
+                          <div className="space-y-2">
+                            <textarea
+                              value={editGuidanceText}
+                              onChange={e => setEditGuidanceText(e.target.value)}
+                              rows={10}
+                              placeholder={'## What performs well\n...'}
+                              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-zinc-300 leading-relaxed resize-y focus:outline-none focus:ring-1 focus:ring-orange-500"
+                            />
+                            <div className="flex gap-2">
+                              <Button
+                                size="sm"
+                                onClick={() => saveGuidance(cfg.id)}
+                                disabled={savingGuidance}
+                                className="bg-orange-600 hover:bg-orange-500 text-xs"
+                              >
+                                {savingGuidance ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Save
+                              </Button>
+                              <Button size="sm" variant="ghost" onClick={() => setEditingGuidance(null)} className="text-xs">
+                                Cancel
+                              </Button>
+                            </div>
+                          </div>
+                        ) : cfg.posting_guidance ? (
+                          <p className="text-xs text-zinc-400 leading-relaxed whitespace-pre-wrap line-clamp-8 bg-violet-500/5 border border-violet-500/10 rounded-lg p-2.5">
+                            {cfg.posting_guidance}
+                          </p>
+                        ) : (
+                          <p className="text-xs text-amber-500/80 italic">
+                            No guidance yet. Click Regenerate to analyze rules and hot posts (recommended before generating ideas).
+                          </p>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1754,6 +1930,11 @@ function IdeasTab({
             {genError && (
               <p className="text-sm text-red-400 bg-red-900/20 border border-red-800 rounded-lg px-3 py-2">{genError}</p>
             )}
+            {selectedSub && !selectedConfig?.posting_guidance && (
+              <p className="text-xs text-amber-500/90 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+                r/{selectedSub} has no posting guidance yet. Expand it on the left and click Regenerate so ideas match what the sub allows.
+              </p>
+            )}
           </form>
         </div>
 
@@ -1787,6 +1968,18 @@ function IdeasTab({
                   </p>
                 </div>
 
+                {idea.compliance === 'caution' && (
+                  <p className="text-[11px] text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-2.5 py-1.5">
+                    Higher removal risk — review sub guidance before posting.
+                  </p>
+                )}
+                {idea.compliance_note && (
+                  <p className="text-[11px] text-zinc-500 leading-relaxed flex items-start gap-1.5">
+                    <Check className="w-3 h-3 text-green-500 shrink-0 mt-0.5" />
+                    <span>{idea.compliance_note}</span>
+                  </p>
+                )}
+
                 <Button
                   size="sm"
                   onClick={() => onUseIdea(idea.title, selectedSub)}
@@ -1813,6 +2006,137 @@ function IdeasTab({
   )
 }
 
+// ─── Saved posts tab ──────────────────────────────────────────────────────────
+
+function SavedPostsTab({
+  companyId,
+  refreshKey,
+  onContinueEditing,
+}: {
+  companyId: string
+  refreshKey: number
+  onContinueEditing: (post: Post) => void
+}) {
+  const [posts, setPosts] = useState<Post[]>([])
+  const [loading, setLoading] = useState(true)
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+
+  useEffect(() => {
+    const controller = new AbortController()
+    setLoading(true)
+    fetch(
+      `/api/posts?companyId=${companyId}&channel=reddit&status=draft`,
+      { signal: controller.signal }
+    )
+      .then(r => r.json())
+      .then(d => setPosts(Array.isArray(d) ? d : []))
+      .catch(e => {
+        if ((e as Error).name !== 'AbortError') setPosts([])
+      })
+      .finally(() => setLoading(false))
+    return () => controller.abort()
+  }, [companyId, refreshKey])
+
+  async function handleDelete(post: Post) {
+    if (!confirm('Delete this saved post? This cannot be undone.')) return
+    const res = await fetch(`/api/posts/${post.id}`, { method: 'DELETE' })
+    if (res.ok) setPosts(prev => prev.filter(p => p.id !== post.id))
+  }
+
+  return (
+    <div className="max-w-3xl">
+      <p className="text-sm text-zinc-500 mb-5">
+        Reddit posts you saved for later — no schedule required. Open one to keep editing, or schedule when you are ready.
+      </p>
+
+      {loading ? (
+        <div className="space-y-3">
+          {[1, 2, 3].map(i => (
+            <div key={i} className="h-24 rounded-xl bg-zinc-800/50 animate-pulse" />
+          ))}
+        </div>
+      ) : posts.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-20 border border-dashed border-zinc-800 rounded-xl text-center">
+          <Bookmark className="w-10 h-10 text-zinc-700 mb-3" />
+          <p className="text-sm text-zinc-400 font-medium">No saved posts yet</p>
+          <p className="text-xs text-zinc-600 mt-1 max-w-sm">
+            Generate a post and use <span className="text-orange-400">Save for later</span> to keep a draft here without scheduling.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {posts.map(post => {
+            const reddit = redditFromPost(post)
+            const title = reddit?.title ?? post.content.slice(0, 80)
+            const sub = reddit?.subreddit
+            const expanded = expandedId === post.id
+
+            return (
+              <div
+                key={post.id}
+                className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden hover:border-zinc-700 transition-colors"
+              >
+                <div className="px-5 py-4 flex items-start gap-4">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                      {sub && (
+                        <span className="text-[11px] font-medium text-orange-400/90">r/{sub}</span>
+                      )}
+                      <span className="text-[11px] text-zinc-600">
+                        Saved {formatDistanceToNow(new Date(post.updated_at ?? post.created_at), { addSuffix: true })}
+                      </span>
+                    </div>
+                    <p className="text-sm font-semibold text-white leading-snug line-clamp-2">{title}</p>
+                    {reddit?.body && (
+                      <p className="text-xs text-zinc-500 mt-1.5 line-clamp-2 leading-relaxed">{reddit.body}</p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <Button
+                      size="sm"
+                      onClick={() => onContinueEditing(post)}
+                      className="bg-orange-600 hover:bg-orange-500"
+                    >
+                      <Pencil className="w-3.5 h-3.5" /> Edit
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setExpandedId(expanded ? null : post.id)}
+                      title={expanded ? 'Collapse' : 'Preview'}
+                    >
+                      {expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => handleDelete(post)}
+                      className="text-red-400 hover:text-red-300"
+                      title="Delete"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                </div>
+                {expanded && reddit && (
+                  <div className="px-5 pb-4 border-t border-zinc-800 pt-4">
+                    <RedditPreview
+                      title={reddit.title}
+                      body={reddit.body}
+                      subreddit={reddit.subreddit}
+                      disclosure={reddit.disclosure}
+                    />
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Main page client ─────────────────────────────────────────────────────────
 
 interface RedditPageClientProps {
@@ -1825,10 +2149,22 @@ export function RedditPageClient({ companyId }: RedditPageClientProps) {
   const [generateKey, setGenerateKey] = useState(0)
   const [prefillTopic, setPrefillTopic] = useState('')
   const [prefillSubreddit, setPrefillSubreddit] = useState('')
+  const [draftToEdit, setDraftToEdit] = useState<Post | null>(null)
+  const [savedRefreshKey, setSavedRefreshKey] = useState(0)
 
   function handleUseIdea(topic: string, subreddit: string) {
+    setDraftToEdit(null)
     setPrefillTopic(topic)
     setPrefillSubreddit(subreddit)
+    setGenerateKey(k => k + 1)
+    setTab('generate')
+  }
+
+  function handleOpenDraft(post: Post) {
+    const reddit = redditFromPost(post)
+    setDraftToEdit(post)
+    setPrefillTopic(reddit?.title ?? '')
+    setPrefillSubreddit(reddit?.subreddit ?? '')
     setGenerateKey(k => k + 1)
     setTab('generate')
   }
@@ -1836,6 +2172,7 @@ export function RedditPageClient({ companyId }: RedditPageClientProps) {
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: 'ideas', label: 'Ideas', icon: <Sparkles className="w-3.5 h-3.5" /> },
     { id: 'generate', label: 'Generate', icon: <MessageSquare className="w-3.5 h-3.5" /> },
+    { id: 'saved', label: 'Saved', icon: <Bookmark className="w-3.5 h-3.5" /> },
     { id: 'opportunities', label: 'Opportunities', icon: <Radio className="w-3.5 h-3.5" /> },
     { id: 'monitors', label: 'Monitors', icon: <Eye className="w-3.5 h-3.5" /> },
   ]
@@ -1881,10 +2218,19 @@ export function RedditPageClient({ companyId }: RedditPageClientProps) {
         )}
         {tab === 'generate' && (
           <GenerateTab
-            key={generateKey}
+            key={`${generateKey}-${draftToEdit?.id ?? 'new'}`}
             companyId={companyId}
             initialTopic={prefillTopic}
             initialSubreddit={prefillSubreddit}
+            initialDraft={draftToEdit}
+            onDraftSaved={() => setSavedRefreshKey(k => k + 1)}
+          />
+        )}
+        {tab === 'saved' && (
+          <SavedPostsTab
+            companyId={companyId}
+            refreshKey={savedRefreshKey}
+            onContinueEditing={handleOpenDraft}
           />
         )}
         {tab === 'opportunities' && <OpportunitiesTab companyId={companyId} />}

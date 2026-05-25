@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { generatePostingGuidance } from '@/lib/reddit/posting-guidance'
+import { fetchSubredditRules } from '@/lib/reddit/subreddit-meta'
+
+export const maxDuration = 60
 
 export async function GET(req: NextRequest) {
   const companyId = req.nextUrl.searchParams.get('companyId')
@@ -22,6 +26,7 @@ export async function POST(req: NextRequest) {
     subreddit: string
     notes?: string
     fetch_rules?: boolean
+    generate_guidance?: boolean
   }
 
   if (!body.company_id || !body.subreddit) {
@@ -30,10 +35,26 @@ export async function POST(req: NextRequest) {
 
   const cleanSub = body.subreddit.trim().replace(/^r\//, '').toLowerCase()
   const fetchRules = body.fetch_rules !== false
+  const generateGuidance = body.generate_guidance !== false
 
   let rules_text: string | null = null
   if (fetchRules) {
     rules_text = await fetchSubredditRules(cleanSub)
+  }
+
+  let posting_guidance: string | null = null
+  let posting_guidance_updated_at: string | null = null
+  if (generateGuidance) {
+    try {
+      posting_guidance = await generatePostingGuidance({
+        subreddit: cleanSub,
+        rulesText: rules_text,
+        notes: body.notes ?? null,
+      })
+      if (posting_guidance) posting_guidance_updated_at = new Date().toISOString()
+    } catch {
+      // Config still created; user can refresh guidance later
+    }
   }
 
   const supabase = await createClient()
@@ -44,6 +65,8 @@ export async function POST(req: NextRequest) {
       subreddit: cleanSub,
       rules_text,
       notes: body.notes ?? null,
+      posting_guidance,
+      posting_guidance_updated_at,
     })
     .select()
     .single()
@@ -55,25 +78,4 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
   return NextResponse.json(data, { status: 201 })
-}
-
-async function fetchSubredditRules(sub: string): Promise<string | null> {
-  try {
-    const res = await fetch(`https://www.reddit.com/r/${sub}/about/rules.json`, {
-      headers: { 'User-Agent': 'social-media-manager-bot/1.0' },
-      signal: AbortSignal.timeout(6000),
-    })
-    if (!res.ok) return null
-    const data = await res.json() as {
-      rules?: Array<{ short_name: string; description: string; kind: string }>
-    }
-    if (!data.rules?.length) return null
-    return data.rules
-      .map((r, i) =>
-        `${i + 1}. **${r.short_name}**${r.description ? ': ' + r.description.replace(/\n+/g, ' ').trim().slice(0, 300) : ''}`
-      )
-      .join('\n')
-  } catch {
-    return null
-  }
 }
