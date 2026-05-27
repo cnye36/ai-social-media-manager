@@ -5,6 +5,7 @@ import {
   BLOG_IMAGE_THEME_RULES,
   normalizeBlogImagePrompt,
 } from '@/lib/blog/image-hooks'
+import { BLOG_COVER_IMAGE_SIZE, BLOG_INLINE_IMAGE_SIZE } from '@/lib/blog/image-sizes'
 import { generateImageAltText } from '@/lib/media/alt-text'
 import { generateImage, normalizeImageSize, updateMediaLibraryAlt, type ImageSize } from '@/lib/media/gpt-image'
 import type { MediaResult } from '@/types/media'
@@ -14,10 +15,10 @@ const GenerateImageParams = z.object({
     'Detailed image generation prompt: visual scene plus exact on-image hook text to render. For blog: include large legible headline hook (4–10 words, not the article title) integrated with the composition. For infographics: describe layout, labels, and hook typography so text renders legibly.'
   ),
   size: z
-    .enum(['1024x1024', '1536x1024', '1024x1536'])
+    .enum(['1024x1024', '1536x1024', '1024x1536', '1792x1024', '1024x1792'])
     .default('1536x1024')
     .describe(
-      'Image dimensions. Use 1536x1024 for landscape (covers, most social), 1024x1536 for portrait, 1024x1024 for square inline visuals.'
+      'Image dimensions. Use 1792x1024 for blog cover heroes (16:9), 1536x1024 for social landscape, 1024x1536 for portrait, 1024x1024 for square inline visuals.'
     ),
 })
 
@@ -60,7 +61,7 @@ ${BLOG_IMAGE_TEXT_OVERLAY_RULES}
 PROMPT QUALITY:
 - Always call generate_image with a prompt that specifies BOTH the visual scene AND the exact hook text to render.
 - Invent a 4–10 word curiosity hook from the article content — never use the article title as the overlay.
-- Blog covers: cinematic, editorial, wide composition (1536x1024); place hook text in lower-third or opposite the focal subject.
+- Blog covers: cinematic 16:9 widescreen hero (${BLOG_COVER_IMAGE_SIZE}); keep important subjects and hook text inside the center safe zone; place hook text in lower-third or opposite the focal subject.
 - Inline section images: hook should name that section's insight or surprise; clear subject, professional blog aesthetic.
 - Infographics/diagrams: hook + diagram labels must both be legible; describe layout and typography.
 
@@ -141,7 +142,8 @@ export interface GenerateMediaParams {
 }
 
 function defaultSize(purpose?: MediaPurpose): ImageSize {
-  if (purpose === 'inline') return '1024x1024'
+  if (purpose === 'inline') return BLOG_INLINE_IMAGE_SIZE
+  if (purpose === 'cover') return BLOG_COVER_IMAGE_SIZE
   return '1536x1024'
 }
 

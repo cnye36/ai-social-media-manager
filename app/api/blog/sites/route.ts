@@ -1,6 +1,11 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { DEFAULT_FRONTMATTER_TEMPLATE } from '@/lib/blog/frontmatter'
+import { normalizeBlogBaseUrl } from '@/lib/blog/article-url'
+
+function formatStoredBlogBaseUrl(url: string): string {
+  return `${normalizeBlogBaseUrl(url)}/`
+}
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
@@ -46,7 +51,7 @@ export async function POST(request: Request) {
     .insert({
       company_id,
       name,
-      base_url,
+      base_url: formatStoredBlogBaseUrl(base_url),
       default_author: default_author ?? null,
       frontmatter_template: frontmatter_template ?? DEFAULT_FRONTMATTER_TEMPLATE,
     })

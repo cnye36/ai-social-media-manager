@@ -1,4 +1,5 @@
 import type { BrandProfile } from '@/types/database'
+import { NO_EM_DASH_INSTRUCTION } from '@/lib/content/no-em-dash'
 import { preferredStackGuidance } from '@/lib/content-planning/brand-context'
 import type { RetrievedChunk } from '@/lib/rag/retrieve'
 import type { ContentGoal, PostLength } from '@/types/agents'
@@ -86,6 +87,7 @@ CONTENT DIRECTION:
 ${additionalContext ? `- Additional context from the user: ${additionalContext}` : ''}
 
 WRITING RULES (non-negotiable):
+- ${NO_EM_DASH_INSTRUCTION}
 ${params.channelName === 'reddit'
     ? `- Write like a real person typed this in one sitting — uneven rhythm, contractions, fragments okay, no copywriter polish.
 - Follow the HUMAN IMPERFECTIONS rules in CHANNEL RULES (2–4 subtle mistakes across title + body). Do not use only one typo.`

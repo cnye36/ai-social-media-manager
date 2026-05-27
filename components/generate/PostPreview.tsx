@@ -2,7 +2,8 @@
 
 import { useState, useRef } from 'react'
 import { format } from 'date-fns'
-import { Copy, Check, Save, RefreshCw, Image as ImageIcon, Bold, Italic, List, Send, Eye, Pencil } from 'lucide-react'
+import { Copy, Check, RefreshCw, Image as ImageIcon, Bold, Italic, List, Send, Eye, Pencil, CalendarClock, CircleCheck } from 'lucide-react'
+import { buildStatusDatetimePayload } from '@/lib/content-status'
 import { LinkedInIcon, XIcon, RedditIcon, FacebookIcon } from '@/components/ui/channel-icons'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -45,6 +46,7 @@ const CHANNEL_META: Record<Channel, { label: string; icon: React.ReactNode; acce
 }
 
 type AcceptedMedia = MediaResult
+type SaveState = 'idle' | 'saving' | 'draft' | 'scheduled' | 'published'
 
 interface PostPreviewProps {
   channel: Channel | null
@@ -61,12 +63,12 @@ export function PostPreview({
   channel, content, imagePrompt, isStreaming, companyId, brandColors, onReset, generationParams,
 }: PostPreviewProps) {
   const [copied, setCopied] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState(false)
+  const [saveState, setSaveState] = useState<SaveState>('idle')
   const [saveError, setSaveError] = useState('')
   const [editedContent, setEditedContent] = useState<string | null>(null)
   const [savedPostId, setSavedPostId] = useState<string | null>(null)
-  const [showMedia, setShowMedia] = useState(false)
+  const [showSchedule, setShowSchedule] = useState(false)
+  const [scheduledFor, setScheduledFor] = useState('')
   const [acceptedMedia, setAcceptedMedia] = useState<AcceptedMedia | null>(null)
   const [bufferState, setBufferState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
   const [bufferError, setBufferError] = useState('')
@@ -123,44 +125,53 @@ export function PostPreview({
     return [mediaItemFromResult(acceptedMedia)]
   }
 
-  async function handleSave() {
+  async function savePost(status: 'draft' | 'scheduled' | 'published', scheduleDatetime?: string) {
     if (!channel || !cleanContent) return
-    setSaving(true)
+    setSaveState('saving')
     setSaveError('')
 
-    // If already saved once, PATCH the existing post instead of creating a duplicate
-    if (savedPostId) {
-      const res = await fetch(`/api/posts/${savedPostId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: cleanContent, media_items: buildMediaItems() }),
-      })
-      setSaving(false)
-      if (!res.ok) { setSaveError('Failed to update post'); return }
-      setSaved(true)
-      setTimeout(() => setSaved(false), 3000)
-      return
+    const statusPayload = buildStatusDatetimePayload(
+      status,
+      status === 'scheduled' ? (scheduleDatetime ?? '') : '',
+    )
+    const body = {
+      content: cleanContent,
+      media_items: buildMediaItems(),
+      generation_params: generationParams,
+      ...statusPayload,
     }
 
-    const res = await fetch('/api/posts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        company_id: companyId,
-        channel,
-        content: cleanContent,
-        status: 'draft',
-        generation_params: generationParams,
-        media_items: buildMediaItems(),
-      }),
-    })
+    try {
+      if (savedPostId) {
+        const res = await fetch(`/api/posts/${savedPostId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        })
+        if (!res.ok) throw new Error('Failed to update post')
+      } else {
+        const res = await fetch('/api/posts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            company_id: companyId,
+            channel,
+            ai_generated: true,
+            ...body,
+          }),
+        })
+        if (!res.ok) throw new Error('Failed to save post')
+        const created = await res.json() as { id: string }
+        setSavedPostId(created.id)
+      }
 
-    setSaving(false)
-    if (!res.ok) { setSaveError('Failed to save post'); return }
-    const created = await res.json() as { id: string }
-    setSavedPostId(created.id)
-    setSaved(true)
-    setTimeout(() => setSaved(false), 3000)
+      setSaveState(status === 'draft' ? 'draft' : status === 'scheduled' ? 'scheduled' : 'published')
+      setShowSchedule(false)
+      setScheduledFor('')
+    } catch {
+      setSaveError(savedPostId ? 'Failed to update post' : 'Failed to save post')
+      setSaveState('idle')
+    }
   }
 
   async function handleSendToBuffer() {
@@ -261,27 +272,11 @@ export function PostPreview({
                   <Eye className="w-3 h-3" /> Preview
                 </button>
               </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setShowMedia(v => !v)}
-                className={cn(showMedia || acceptedMedia
-                  ? 'text-violet-300 bg-violet-600/10 hover:bg-violet-600/20'
-                  : ''
-                )}
-              >
-                <ImageIcon className="w-3.5 h-3.5" />
-                {acceptedMedia ? 'Image ✓' : 'Add image'}
-              </Button>
               <Button variant="ghost" size="sm" onClick={handleCopy}>
                 {copied ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
                 {copied ? 'Copied!' : 'Copy'}
               </Button>
-              <Button size="sm" onClick={handleSave} disabled={saving}>
-                <Save className="w-3.5 h-3.5" />
-                {saving ? 'Saving...' : saved ? 'Saved!' : savedPostId ? 'Update draft' : 'Save draft'}
-              </Button>
-              {savedPostId && channel && BUFFER_CHANNELS.includes(channel) && (
+              {savedPostId && channel && BUFFER_CHANNELS.includes(channel) && saveState === 'draft' && (
                 <Button
                   variant="secondary"
                   size="sm"
@@ -377,13 +372,87 @@ export function PostPreview({
           </div>
         )}
 
-        {/* Image prompt hint — only when no media yet */}
-        {!isStreaming && imagePrompt && !acceptedMedia && (
-          <div className="px-5 pb-4 pt-0">
-            <div className="bg-zinc-800/50 border border-zinc-700 rounded-lg p-3">
-              <p className="text-xs text-zinc-500 font-medium mb-1 uppercase tracking-wide">Suggested image prompt</p>
-              <p className="text-xs text-zinc-400 leading-relaxed">{imagePrompt}</p>
-            </div>
+        {/* Save / schedule / publish */}
+        {postReady && (
+          <div className="px-5 pb-4 pt-0 space-y-3 border-t border-zinc-800/80">
+            {saveState === 'draft' ? (
+              <div className="flex items-center gap-3">
+                <span className="flex items-center gap-1.5 text-sm text-green-400">
+                  <Check className="w-4 h-4" /> Saved as draft
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSaveState('idle')}
+                  className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
+                >
+                  Edit again
+                </button>
+              </div>
+            ) : saveState === 'scheduled' ? (
+              <div className="flex items-center gap-3">
+                <span className="flex items-center gap-1.5 text-sm text-yellow-400">
+                  <CalendarClock className="w-4 h-4" /> Scheduled
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSaveState('idle')}
+                  className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
+                >
+                  Edit again
+                </button>
+              </div>
+            ) : saveState === 'published' ? (
+              <div className="flex items-center gap-3">
+                <span className="flex items-center gap-1.5 text-sm text-emerald-400">
+                  <CircleCheck className="w-4 h-4" /> Marked as published
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSaveState('idle')}
+                  className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
+                >
+                  Edit again
+                </button>
+              </div>
+            ) : saveState === 'saving' ? (
+              <p className="text-sm text-zinc-500">Saving…</p>
+            ) : showSchedule ? (
+              <div className="space-y-2">
+                <p className="text-xs text-zinc-500">Pick a publish time</p>
+                <input
+                  type="datetime-local"
+                  value={scheduledFor}
+                  onChange={e => setScheduledFor(e.target.value)}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-violet-500 [color-scheme:dark]"
+                />
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    onClick={() => savePost('scheduled', scheduledFor)}
+                    disabled={!scheduledFor}
+                  >
+                    Confirm schedule
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => { setShowSchedule(false); setScheduledFor('') }}>
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-center gap-2">
+                <Button size="sm" onClick={() => savePost('draft')}>
+                  Save as draft
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setShowSchedule(true)}>
+                  <CalendarClock className="w-3.5 h-3.5" />
+                  Schedule
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => savePost('published')}>
+                  <CircleCheck className="w-3.5 h-3.5" />
+                  Mark published
+                </Button>
+              </div>
+            )}
           </div>
         )}
 
@@ -402,8 +471,7 @@ export function PostPreview({
         )}
       </div>
 
-      {/* Media panel — shown below card when toggled */}
-      {postReady && showMedia && channel && (
+      {postReady && channel && (
         <MediaPanel
           postContent={cleanContent}
           companyId={companyId}

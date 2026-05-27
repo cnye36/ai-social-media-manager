@@ -1,6 +1,11 @@
-/** Landscape blog hero dimensions (matches common OpenAI 16:9 outputs). */
-export const FEATURED_IMAGE_WIDTH = 1792
-export const FEATURED_IMAGE_HEIGHT = 1024
+import {
+  BLOG_COVER_IMAGE_HEIGHT,
+  BLOG_COVER_IMAGE_WIDTH,
+} from '@/lib/blog/image-sizes'
+
+/** Landscape blog hero dimensions (16:9 — must match generated cover size). */
+export const FEATURED_IMAGE_WIDTH = BLOG_COVER_IMAGE_WIDTH
+export const FEATURED_IMAGE_HEIGHT = BLOG_COVER_IMAGE_HEIGHT
 
 export const DEFAULT_FRONTMATTER_TEMPLATE = `---
 title: "{{metaTitle}}"

@@ -1,10 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { ContentCalendar } from '@/components/calendar/ContentCalendar'
-import {
-  calendarSortKey,
-  filterArticlesForCalendar,
-  filterPostsForCalendar,
-} from '@/lib/calendar-items'
+import { calendarSortKey, filterPostsForCalendar } from '@/lib/calendar-items'
+import { calendarDisplayAt } from '@/lib/content-status'
 import { publishDueContent } from '@/lib/publishing/publish-due'
 import { startOfMonth, endOfMonth, subMonths, addMonths } from 'date-fns'
 
@@ -38,7 +35,8 @@ export default async function CalendarPage({ params }: Props) {
 
   const posts = filterPostsForCalendar(rawPosts ?? [], rangeStart, rangeEnd)
     .sort((a, b) => (calendarSortKey(a) ?? '').localeCompare(calendarSortKey(b) ?? ''))
-  const articles = filterArticlesForCalendar(rawArticles ?? [], rangeStart, rangeEnd)
+  const articles = (rawArticles ?? [])
+    .filter(a => calendarDisplayAt(a) !== null)
     .sort((a, b) => (calendarSortKey(a) ?? '').localeCompare(calendarSortKey(b) ?? ''))
 
   return (

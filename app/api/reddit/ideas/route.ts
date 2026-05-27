@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { NO_EM_DASH_INSTRUCTION, stripEmDashes } from '@/lib/content/no-em-dash'
 import { preferredStackGuidance } from '@/lib/content-planning/brand-context'
 import { formatSubredditContextForPrompt } from '@/lib/reddit/posting-guidance'
 import { fetchTrendingPostTitles } from '@/lib/reddit/subreddit-meta'
@@ -70,7 +71,9 @@ export async function POST(req: NextRequest) {
   let ideas: RedditIdea[] = []
   try {
     const parsed = JSON.parse(raw) as { ideas?: RedditIdea[] }
-    ideas = (parsed.ideas ?? []).filter(i => i.compliance !== 'caution' || i.title)
+    ideas = (parsed.ideas ?? [])
+      .filter(i => i.compliance !== 'caution' || i.title)
+      .map(i => ({ ...i, title: stripEmDashes(i.title) }))
   } catch {
     return NextResponse.json({ error: 'Failed to parse ideas' }, { status: 500 })
   }
@@ -147,7 +150,7 @@ function buildPrompt(params: {
   lines.push(`- Title must be specific and compelling, not generic filler`)
   lines.push(`- Absolutely zero marketing language`)
   lines.push(`- Each idea must use a different type`)
-  lines.push(`- Never use em dashes (—)`)
+  lines.push(`- ${NO_EM_DASH_INSTRUCTION}`)
   lines.push(`- No hashtags, no CTAs, no links in the title`)
   if (brand?.preferred_stack?.trim()) {
     lines.push(`- Technical examples should lean toward: ${brand.preferred_stack.trim()}`)

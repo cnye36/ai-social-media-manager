@@ -19,6 +19,8 @@ export function BlogSitesSettings({ companyId, initialSites }: BlogSitesSettings
   const [newUrl, setNewUrl] = useState('')
   const [newAuthor, setNewAuthor] = useState('')
   const [creating, setCreating] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [importResult, setImportResult] = useState<string | null>(null)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [editState, setEditState] = useState<Record<string, { template: string; author: string; baseUrl: string; saving: boolean; saved: boolean }>>({})
 
@@ -65,6 +67,34 @@ export function BlogSitesSettings({ companyId, initialSites }: BlogSitesSettings
     }
   }
 
+  async function handleImportLegacyCatalog() {
+    if (!confirm('Import ~40 published posts from your website catalog into the calendar and link index? Existing slugs will be updated.')) return
+    setImporting(true)
+    setImportResult(null)
+    try {
+      const res = await fetch('/api/blog/import-legacy-catalog', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ companyId }),
+      })
+      const data = await res.json() as {
+        error?: string
+        articlesCreated?: number
+        articlesUpdated?: number
+        linkIndexUpserts?: number
+        catalogEntries?: number
+      }
+      if (!res.ok) throw new Error(data.error ?? 'Import failed')
+      setImportResult(
+        `Imported ${data.catalogEntries ?? 0} posts (${data.articlesCreated ?? 0} new, ${data.articlesUpdated ?? 0} updated). Link index: ${data.linkIndexUpserts ?? 0}.`,
+      )
+    } catch (e) {
+      setImportResult((e as Error).message)
+    } finally {
+      setImporting(false)
+    }
+  }
+
   async function handleDelete(siteId: string) {
     if (!confirm('Remove this blog site? Existing articles linked to it will be unlinked.')) return
     await fetch(`/api/blog/sites/${siteId}`, { method: 'DELETE' })
@@ -73,6 +103,27 @@ export function BlogSitesSettings({ companyId, initialSites }: BlogSitesSettings
 
   return (
     <div className="space-y-4">
+      <div className="rounded-xl border border-zinc-700/80 bg-zinc-900/40 px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <p className="text-sm text-zinc-300">Website publish history</p>
+          <p className="text-xs text-zinc-500 mt-0.5">
+            Load past blog posts (title, date, summary) into the calendar and internal link index for the blog agent.
+          </p>
+          {importResult && <p className="text-xs text-emerald-400/90 mt-2">{importResult}</p>}
+        </div>
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          disabled={importing}
+          onClick={handleImportLegacyCatalog}
+          className="shrink-0 gap-1.5"
+        >
+          {importing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+          {importing ? 'Importing…' : 'Import catalog'}
+        </Button>
+      </div>
+
       {sites.length === 0 && !adding && (
         <div className="text-center py-8 text-zinc-500 text-sm">
           <p>No blog sites configured yet.</p>
@@ -189,7 +240,10 @@ export function BlogSitesSettings({ companyId, initialSites }: BlogSitesSettings
               placeholder="https://ai-automatedhq.com/blog/"
               className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-300 focus:outline-none focus:ring-1 focus:ring-violet-500/60"
             />
-            <p className="text-[10px] text-zinc-600">Article slugs will be appended: {newUrl || 'https://example.com/blog/'}your-slug</p>
+            <p className="text-[10px] text-zinc-600">
+              Use your blog root including <code className="text-zinc-500">/blog</code> (typo <code className="text-zinc-500">/bog</code> is auto-corrected).
+              Preview: {newUrl ? `${newUrl.replace(/\/$/, '')}/your-slug` : 'https://example.com/blog/your-slug'}
+            </p>
           </div>
           <div className="flex gap-2">
             <Button size="sm" onClick={handleCreate} disabled={creating || !newName.trim() || !newUrl.trim()} className="gap-1.5">

@@ -1,5 +1,10 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { normalizeBlogBaseUrl } from '@/lib/blog/article-url'
+
+function formatStoredBlogBaseUrl(url: string): string {
+  return `${normalizeBlogBaseUrl(url)}/`
+}
 
 export async function PATCH(
   request: Request,
@@ -15,7 +20,7 @@ export async function PATCH(
 
   const updates: Record<string, unknown> = {}
   if (name !== undefined) updates.name = name
-  if (base_url !== undefined) updates.base_url = base_url
+  if (base_url !== undefined) updates.base_url = formatStoredBlogBaseUrl(base_url)
   if (default_author !== undefined) updates.default_author = default_author
   if (frontmatter_template !== undefined) updates.frontmatter_template = frontmatter_template
 

@@ -1,8 +1,24 @@
 import { Agent, webSearchTool } from '@openai/agents'
 import { BLOG_CITATION_RULES } from '@/lib/blog/citation-rules'
+import { NO_EM_DASH_INSTRUCTION } from '@/lib/content/no-em-dash'
 import { buildRagSearchTool } from './tools/rag-search'
 import type { BrandProfile } from '@/types/database'
 import type { ArticleFormat } from '@/types/agents'
+
+function formatPromptDate(date: Date): string {
+  return date.toLocaleDateString('en-US', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  })
+}
+
+function recentSourceCutoff(date: Date, monthsAgo = 18): string {
+  const cutoff = new Date(date)
+  cutoff.setMonth(cutoff.getMonth() - monthsAgo)
+  return formatPromptDate(cutoff)
+}
 
 const FORMAT_INSTRUCTIONS: Record<ArticleFormat, string> = {
   blog_post: `FORMAT: Standard Long-Form Blog Post (1,500–2,000 words)
@@ -73,21 +89,31 @@ export function buildBlogAgent(params: {
 - Phrases to avoid: ${brand.avoid_phrases?.join(', ') || 'None'}` : 'BRAND VOICE: Professional, clear, authoritative.'
 
   const formatInstructions = FORMAT_INSTRUCTIONS[articleFormat]
+  const now = new Date()
+  const currentDate = formatPromptDate(now)
+  const currentYear = now.getFullYear()
+  const recentCutoff = recentSourceCutoff(now)
 
   const systemPrompt = `You are an expert blog writer and SEO specialist for ${companyName}. You write world-class, high-ranking blog content that educates, engages, and converts readers.
+
+CURRENT DATE: ${currentDate}
+Treat this as today when judging whether sources, stats, and trends are current. Prefer ${currentYear} data; use web search queries that include "${currentYear}" or "latest" when looking for statistics and market trends.
 
 ${brandSection}
 
 ${knowledgeContext ? `COMPANY KNOWLEDGE (treat as ground truth):\n${knowledgeContext}\n` : ''}
 
-${internalLinksContext ? `INTERNAL LINKS (weave 2–4 of the most relevant ones into the article body as markdown links — use natural anchor text, never "click here"):\n${internalLinksContext}\n` : ''}
+${internalLinksContext ? `INTERNAL LINKS (weave 2–4 of the most relevant ones into the article body as markdown links — use natural anchor text, never "click here"):
+- Copy each URL exactly as listed (including the /blog/ path segment). Never link to the site root or omit /blog/.
+- Example canonical pattern: https://ai-automatedhq.com/blog/your-slug — not https://ai-automatedhq.com/your-slug
+${internalLinksContext}\n` : ''}
 
 ${existingArticlesContext ? `${existingArticlesContext}\n` : ''}
 ${similarArticlesBodiesContext ? `${similarArticlesBodiesContext}\n\nWhen similar articles exist above: do not reuse their opening hooks, section order, examples, stats, or conclusions. Take a meaningfully different angle.\n` : ''}
 
 RESEARCH REQUIREMENTS (do this before writing):
-1. Search for 2–3 RECENT sources (within 18 months) with specific data points — 
-   percentages, dollar figures, time savings, adoption rates
+1. Search for 2–3 RECENT sources (published on or after ${recentCutoff}) with specific data points —
+   percentages, dollar figures, time savings, adoption rates. Skip outdated roundups from ${currentYear - 2} or earlier unless no newer primary data exists — and if you must use older data, label the year explicitly
 2. Search for ONE contrarian or "what actually goes wrong" perspective on this topic
 3. Never cite the same source twice in one article
 4. If a stat doesn't have a specific number attached, don't use it
@@ -98,6 +124,7 @@ ${formatInstructions}
 ${BLOG_CITATION_RULES}
 
 UNIVERSAL WRITING RULES:
+- ${NO_EM_DASH_INSTRUCTION}
 - Write like a knowledgeable human, not an AI — vary sentence length, use contractions, avoid hollow phrases ("leverage", "delve into", "in today's fast-paced world")
 - Never start a section by just restating the heading
 - Every paragraph must earn its place — cut anything that doesn't add value

@@ -1,11 +1,12 @@
 'use client'
 
 import { useState } from 'react'
-import { Lightbulb, Loader2, ChevronDown, ChevronUp, ArrowRight, RotateCcw } from 'lucide-react'
+import { Lightbulb, Loader2, ChevronDown, ChevronUp, ArrowRight, RotateCcw, GitBranch } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import type { ContentGoal } from '@/types/agents'
 import type { Channel } from '@/types/database'
+import { ideaWantsThread } from '@/lib/generate/x-thread'
 import type { PostIdea } from '@/app/api/generate/ideas/route'
 
 const ANGLE_STYLES: Record<ContentGoal, string> = {
@@ -150,6 +151,12 @@ export function IdeaSpark({ companyId, selectedChannels, onGenerate, disabled }:
                       <span className={cn('text-[10px] font-medium px-1.5 py-0.5 rounded border capitalize shrink-0', ANGLE_STYLES[idea.angle])}>
                         {idea.angle}
                       </span>
+                      {ideaWantsThread(idea) && (
+                        <span className="text-[10px] font-medium px-1.5 py-0.5 rounded border shrink-0 flex items-center gap-0.5 border-sky-500/30 bg-sky-500/10 text-sky-300">
+                          <GitBranch className="w-2.5 h-2.5" />
+                          {selectedChannels.includes('x') ? 'X thread' : 'Thread (needs X)'}
+                        </span>
+                      )}
                     </div>
                     <p className="text-xs text-zinc-500 leading-relaxed">{idea.description}</p>
                     <div className="flex items-center gap-1.5 flex-wrap">

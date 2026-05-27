@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { createClient } from '@/lib/supabase/server'
 import { retrieve } from '@/lib/rag/retrieve'
-import { buildIdeasDedupContext, fetchExistingArticles } from '@/lib/blog/existing-articles'
+import { fetchBlogAgentContext } from '@/lib/blog/agent-context'
 import type { ContentGoal } from '@/types/agents'
 import type { ArticleFormat } from '@/types/agents'
 
@@ -41,25 +41,30 @@ export async function POST(request: Request) {
 
   const { data: company } = await supabase
     .from('companies')
-    .select('name')
+    .select('name, website_url')
     .eq('id', companyId)
     .eq('owner_id', user.id)
     .single()
   if (!company) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
-  const [{ data: brand }, existingArticles, chunks] = await Promise.all([
+  const [{ data: brand }, agentContext, chunks] = await Promise.all([
     supabase
       .from('brand_profiles')
       .select('tone, target_audience, keywords, voice_notes, company_description, products_services')
       .eq('company_id', companyId)
       .maybeSingle(),
-    fetchExistingArticles(supabase, companyId, 50),
+    fetchBlogAgentContext(supabase, companyId, company),
     retrieve(companyId, 'expertise how-to guides insights tutorials thought leadership value', 10, 0.3).catch(
       () => [] as Awaited<ReturnType<typeof retrieve>>
     ),
   ])
 
-  const existingArticlesContext = buildIdeasDedupContext(existingArticles)
+  const existingArticlesContext = [
+    agentContext.ideasContext,
+    agentContext.legacyPublishedContext,
+  ]
+    .filter(Boolean)
+    .join('\n\n')
 
   const brandContext = [
     brand?.company_description && `About: ${brand.company_description}`,

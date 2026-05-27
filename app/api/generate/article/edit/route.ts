@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { BLOG_CITATION_RULES } from '@/lib/blog/citation-rules'
+import { NO_EM_DASH_RULE, stripEmDashes } from '@/lib/content/no-em-dash'
 import { relocateTrailingCitationLinks } from '@/lib/blog/inline-citations'
 import { createClient } from '@/lib/supabase/server'
 
@@ -58,6 +59,7 @@ Rules:
 - Keep the same overall structure unless instructed otherwise
 - Match the brand voice
 - Do NOT add image prompts or <!-- IMAGE_PROMPT: ... --> comments — images are managed outside the article body
+${NO_EM_DASH_RULE}
 
 ${BLOG_CITATION_RULES}`,
         },
@@ -70,8 +72,8 @@ ${BLOG_CITATION_RULES}`,
       temperature: 0.6,
     })
 
-    const edited = relocateTrailingCitationLinks(
-      completion.choices[0]?.message?.content ?? currentBody,
+    const edited = stripEmDashes(
+      relocateTrailingCitationLinks(completion.choices[0]?.message?.content ?? currentBody),
     )
     return NextResponse.json({ body: edited })
   } catch (err) {

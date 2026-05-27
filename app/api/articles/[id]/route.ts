@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { buildArticlePublicUrl } from '@/lib/blog/article-url'
 
 async function verifyOwnership(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -109,7 +110,7 @@ export async function PATCH(
       : null
 
     const fullUrl = siteBaseUrl
-      ? siteBaseUrl.replace(/\/$/, '') + '/' + data.slug
+      ? buildArticlePublicUrl(siteBaseUrl, data.slug)
       : data.slug
 
     await supabase

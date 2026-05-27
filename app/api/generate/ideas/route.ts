@@ -12,6 +12,8 @@ export interface PostIdea {
   description: string
   angle: ContentGoal
   suggestedChannels: Channel[]
+  /** When "x" is in suggestedChannels: single tweet vs multi-tweet thread */
+  xFormat?: 'post' | 'thread'
 }
 
 export async function POST(req: Request) {
@@ -60,6 +62,9 @@ Generate exactly ${count} diverse, specific post ideas for ${company.name}. Requ
 - Make titles punchy and specific enough that the user immediately knows what to write
 - Descriptions should explain the angle/hook and why it will resonate with the audience
 - Suggest 1-2 channels that fit best for each idea
+- For each idea that includes "x" in suggestedChannels, set xFormat:
+  - "thread" when the idea naturally spans 3–7 tweets (step-by-step guides, numbered lessons, breakdowns, myth-busting series, before/after stories)
+  - "post" for a single hot take, announcement, or one-liner hook
 
 Return a JSON object with this exact shape:
 {
@@ -68,7 +73,8 @@ Return a JSON object with this exact shape:
       "title": "Short punchy title (max 8 words)",
       "description": "1-2 sentences on what the post covers and why it works",
       "angle": "education" | "engagement" | "promotion" | "awareness",
-      "suggestedChannels": ["linkedin" | "x" | "facebook"]
+      "suggestedChannels": ["linkedin" | "x" | "facebook"],
+      "xFormat": "post" | "thread"
     }
   ]
 }`

@@ -5,17 +5,48 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
 const IMAGE_MODEL = process.env.OPENAI_IMAGE_MODEL ?? 'gpt-image-2'
 
-/** Sizes supported by GPT Image models (gpt-image-1/2), not DALL-E 3. */
-export type ImageSize = '1024x1024' | '1536x1024' | '1024x1536'
+/** Common preset sizes for GPT Image models. */
+export type ImageSize =
+  | '1024x1024'
+  | '1536x1024'
+  | '1024x1536'
+  | '1792x1024'
+  | '1024x1792'
 
-const LEGACY_DALLE3_SIZES: Record<string, ImageSize> = {
-  '1792x1024': '1536x1024',
-  '1024x1792': '1024x1536',
+const PRESET_SIZES = new Set<string>([
+  '1024x1024',
+  '1536x1024',
+  '1024x1536',
+  '1792x1024',
+  '1024x1792',
+])
+
+function parseWxH(size: string): { w: number; h: number } | null {
+  const m = /^(\d+)x(\d+)$/.exec(size.trim())
+  if (!m) return null
+  const w = Number(m[1])
+  const h = Number(m[2])
+  if (!Number.isFinite(w) || !Number.isFinite(h)) return null
+  return { w, h }
 }
 
-export function normalizeImageSize(size?: string): ImageSize {
-  if (size === '1024x1024' || size === '1536x1024' || size === '1024x1536') return size
-  if (size && size in LEGACY_DALLE3_SIZES) return LEGACY_DALLE3_SIZES[size]
+/** gpt-image-2 accepts any WxH that satisfies OpenAI size constraints. */
+export function isValidGptImage2Size(w: number, h: number): boolean {
+  const long = Math.max(w, h)
+  const short = Math.min(w, h)
+  if (long > 3840) return false
+  if (w % 16 !== 0 || h % 16 !== 0) return false
+  if (long / short > 3) return false
+  const pixels = w * h
+  return pixels >= 655_360 && pixels <= 8_294_400
+}
+
+export function normalizeImageSize(size?: string): string {
+  if (size) {
+    if (PRESET_SIZES.has(size)) return size
+    const parsed = parseWxH(size)
+    if (parsed && isValidGptImage2Size(parsed.w, parsed.h)) return size
+  }
   return '1536x1024'
 }
 
@@ -28,7 +59,7 @@ export interface GeneratedImage {
 export async function generateImage(params: {
   prompt: string
   companyId: string
-  size?: ImageSize
+  size?: string
   postId?: string
   articleId?: string
 }): Promise<GeneratedImage> {
@@ -39,7 +70,7 @@ export async function generateImage(params: {
     model: IMAGE_MODEL,
     prompt,
     n: 1,
-    size: apiSize,
+    size: apiSize as ImageSize,
     quality: 'medium'
   })
 

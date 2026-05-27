@@ -10,6 +10,7 @@ import { AltTextBox } from '@/components/media/AltTextBox'
 import { ImagePromptBox } from '@/components/media/ImagePromptBox'
 import type { ModalMediaItem } from '@/components/media/MediaDetailModal'
 import type { MediaResult } from '@/types/media'
+import { BLOG_COVER_IMAGE_SIZE, BLOG_INLINE_IMAGE_SIZE } from '@/lib/blog/image-sizes'
 
 interface LibraryItem {
   id: string
@@ -117,7 +118,7 @@ export function ArticleMediaPanel({
           imagePrompt: useDraftPrompt && trimmedPrompt ? trimmedPrompt : undefined,
           refinementNote: refinement || undefined,
           articleTitle,
-          size: mode === 'cover' ? '1536x1024' : '1024x1024',
+          size: mode === 'cover' ? BLOG_COVER_IMAGE_SIZE : BLOG_INLINE_IMAGE_SIZE,
         }),
       })
 

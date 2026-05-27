@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { cn } from '@/lib/utils'
 import { IdeaSpark } from './IdeaSpark'
+import { resolveXThreadMode } from '@/lib/generate/x-thread'
 import type { Channel } from '@/types/database'
 import type { ContentGoal, GeneratedPost, PostLength } from '@/types/agents'
 import type { PostIdea } from '@/app/api/generate/ideas/route'
@@ -77,16 +78,47 @@ export function GenerateForm({
     sessionStorage.setItem(channelsStorageKey(companyId), JSON.stringify(selectedChannels))
   }, [companyId, selectedChannels])
 
-  const isXOnly = selectedChannels.length === 1 && selectedChannels[0] === 'x'
+  const hasX = selectedChannels.includes('x')
 
   function toggleChannel(channel: Channel) {
     setSelectedChannels(prev => {
       const next = prev.includes(channel)
         ? prev.filter(c => c !== channel)
         : [...prev, channel]
-      if (!next.includes('x') || next.length > 1) setThreadMode(false)
+      if (!next.includes('x')) setThreadMode(false)
       return next
     })
+  }
+
+  async function fetchChannelPost(
+    channel: Channel,
+    opts: {
+      topic: string
+      contentGoal: ContentGoal
+      postLength: PostLength
+      additionalContext?: string
+      xThread: boolean
+    },
+  ): Promise<GeneratedPost> {
+    const res = await fetch('/api/generate/content', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        companyId,
+        channel,
+        topic: opts.topic.trim(),
+        contentGoal: opts.contentGoal,
+        postLength: opts.postLength,
+        additionalContext: opts.additionalContext,
+        stream: false,
+        threadMode: channel === 'x' && opts.xThread,
+      }),
+    })
+    if (!res.ok) {
+      const d = await res.json() as { error?: string }
+      throw new Error(d.error ?? `${channel} generation failed`)
+    }
+    return res.json() as Promise<GeneratedPost>
   }
 
   async function doGenerate(params: {
@@ -95,41 +127,41 @@ export function GenerateForm({
     postLength: PostLength
     channels: Channel[]
     additionalContext?: string
-    useThread?: boolean
+    useXThread?: boolean
   }) {
-    const { topic: t, contentGoal: goal, postLength: length, channels, additionalContext: ctx, useThread = false } = params
+    const { topic: t, contentGoal: goal, postLength: length, channels, additionalContext: ctx, useXThread = false } = params
     if (!t.trim() || channels.length === 0) return
 
-    // Sync form fields (channel toggles are user-controlled only)
     setTopic(t)
     setContentGoal(goal)
     if (ctx !== undefined) setAdditionalContext(ctx)
     setLoading(true)
 
-    const isXOnlyMode = channels.length === 1 && channels[0] === 'x'
+    const xThread = useXThread
 
-    // Thread mode: always non-streaming
-    if (isXOnlyMode && useThread) {
+    // X threads (and any multi-channel run) use non-streaming batch delivery
+    if (xThread || channels.length > 1) {
       try {
-        const res = await fetch('/api/generate/content', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            companyId, channel: 'x',
-            topic: t.trim(),
-            contentGoal: goal, postLength: length,
-            additionalContext: ctx?.trim() || undefined,
-            stream: false,
-            threadMode: true,
-          }),
-        })
-        if (!res.ok) {
-          const d = await res.json() as { error?: string }
-          onBatchGenerated?.([], [d.error ?? 'Thread generation failed'])
-        } else {
-          const post = await res.json() as GeneratedPost
-          onBatchGenerated?.([post], [])
-        }
+        const results = await Promise.allSettled(
+          channels.map(channel =>
+            fetchChannelPost(channel, {
+              topic: t,
+              contentGoal: goal,
+              postLength: length,
+              additionalContext: ctx?.trim() || undefined,
+              xThread,
+            }),
+          ),
+        )
+
+        const posts = results
+          .filter((r): r is PromiseFulfilledResult<GeneratedPost> => r.status === 'fulfilled')
+          .map(r => r.value)
+        const errors = results
+          .filter((r): r is PromiseRejectedResult => r.status === 'rejected')
+          .map(r => (r.reason as Error)?.message ?? 'Unknown error')
+
+        onBatchGenerated?.(posts, errors)
       } catch {
         onBatchGenerated?.([], ['Network error — please try again'])
       } finally {
@@ -138,82 +170,43 @@ export function GenerateForm({
       return
     }
 
-    // Single channel: streaming
-    if (channels.length === 1) {
-      const channel = channels[0]
-      onStream(channel)
-      try {
-        const res = await fetch('/api/generate/content', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            companyId, channel,
-            topic: t.trim(),
-            contentGoal: goal, postLength: length,
-            additionalContext: ctx?.trim() || undefined,
-            stream: true,
-          }),
-        })
-        if (!res.ok) {
-          const data = await res.json() as { error?: string }
-          onError(data.error ?? 'Generation failed')
-          return
-        }
-        const reader = res.body!.getReader()
-        const decoder = new TextDecoder()
-        let fullText = ''
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) break
-          const chunk = decoder.decode(value, { stream: true })
-          fullText += chunk
-          onChunk(chunk)
-        }
-        const marker = '\n--\nIMAGE_PROMPT:'
-        const idx = fullText.indexOf(marker)
-        onDone(idx !== -1 ? fullText.slice(idx + marker.length).trim() : undefined)
-      } catch {
-        onError('Network error — please try again')
-      } finally {
-        setLoading(false)
-      }
-      return
-    }
-
-    // Multi-channel: parallel batch
+    // Single channel, single tweet: streaming preview
+    const channel = channels[0]
+    onStream(channel)
     try {
-      const results = await Promise.allSettled(
-        channels.map(channel =>
-          fetch('/api/generate/content', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              companyId, channel,
-              topic: t.trim(),
-              contentGoal: goal, postLength: length,
-              additionalContext: ctx?.trim() || undefined,
-              stream: false,
-            }),
-          }).then(async res => {
-            if (!res.ok) {
-              const d = await res.json() as { error?: string }
-              throw new Error(d.error ?? `${channel} generation failed`)
-            }
-            return res.json() as Promise<GeneratedPost>
-          })
-        )
-      )
-
-      const posts = results
-        .filter((r): r is PromiseFulfilledResult<GeneratedPost> => r.status === 'fulfilled')
-        .map(r => r.value)
-      const errors = results
-        .filter((r): r is PromiseRejectedResult => r.status === 'rejected')
-        .map(r => (r.reason as Error)?.message ?? 'Unknown error')
-
-      onBatchGenerated?.(posts, errors)
+      const res = await fetch('/api/generate/content', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          companyId,
+          channel,
+          topic: t.trim(),
+          contentGoal: goal,
+          postLength: length,
+          additionalContext: ctx?.trim() || undefined,
+          stream: true,
+        }),
+      })
+      if (!res.ok) {
+        const data = await res.json() as { error?: string }
+        onError(data.error ?? 'Generation failed')
+        return
+      }
+      const reader = res.body!.getReader()
+      const decoder = new TextDecoder()
+      let fullText = ''
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        const chunk = decoder.decode(value, { stream: true })
+        fullText += chunk
+        onChunk(chunk)
+      }
+      const marker = '\n--\nIMAGE_PROMPT:'
+      const idx = fullText.indexOf(marker)
+      onDone(idx !== -1 ? fullText.slice(idx + marker.length).trim() : undefined)
     } catch {
-      onBatchGenerated?.([], ['Network error — please try again'])
+      onError('Network error — please try again')
     } finally {
       setLoading(false)
     }
@@ -227,7 +220,7 @@ export function GenerateForm({
       postLength,
       channels: selectedChannels,
       additionalContext: additionalContext.trim() || undefined,
-      useThread: isXOnly && threadMode,
+      useXThread: resolveXThreadMode(selectedChannels, threadMode),
     })
   }
 
@@ -236,6 +229,9 @@ export function GenerateForm({
       onError('Select at least one channel before generating from an idea')
       return
     }
+    const useXThread = resolveXThreadMode(selectedChannels, threadMode, idea)
+    if (useXThread) setThreadMode(true)
+
     setTopic(idea.title)
     setContentGoal(idea.angle)
     setAdditionalContext(idea.description)
@@ -245,6 +241,7 @@ export function GenerateForm({
       postLength: 'medium',
       channels: selectedChannels,
       additionalContext: idea.description,
+      useXThread,
     })
   }
 
@@ -284,20 +281,27 @@ export function GenerateForm({
         {selectedChannels.length === 0 && (
           <p className="text-xs text-red-400">Select at least one channel</p>
         )}
-        {isXOnly && (
-          <button
-            type="button"
-            onClick={() => setThreadMode(v => !v)}
-            className={cn(
-              'flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-all w-fit',
-              threadMode
-                ? 'border-sky-500 bg-sky-500/10 text-sky-300'
-                : 'border-zinc-700 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300'
-            )}
-          >
-            <GitBranch className="w-3.5 h-3.5" />
-            Thread
-          </button>
+        {hasX && (
+          <div className="space-y-1">
+            <button
+              type="button"
+              onClick={() => setThreadMode(v => !v)}
+              className={cn(
+                'flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-all w-fit',
+                threadMode
+                  ? 'border-sky-500 bg-sky-500/10 text-sky-300'
+                  : 'border-zinc-700 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300',
+              )}
+            >
+              <GitBranch className="w-3.5 h-3.5" />
+              X thread
+            </button>
+            <p className="text-xs text-zinc-600">
+              {isMulti
+                ? 'Generates a thread for X plus posts for your other channels.'
+                : 'Multi-tweet thread instead of a single post.'}
+            </p>
+          </div>
         )}
       </div>
 
@@ -383,12 +387,24 @@ export function GenerateForm({
         {loading ? (
           <>
             <Loader2 className="w-4 h-4 animate-spin" />
-            {isMulti ? `Generating ${selectedChannels.length} posts…` : 'Writing…'}
+            {isMulti
+              ? threadMode && hasX
+                ? `Generating ${selectedChannels.length} (X thread)…`
+                : `Generating ${selectedChannels.length} posts…`
+              : threadMode && hasX
+                ? 'Writing thread…'
+                : 'Writing…'}
           </>
         ) : (
           <>
             <Sparkles className="w-4 h-4" />
-            {isMulti ? `Generate for ${selectedChannels.length} channels` : 'Generate post'}
+            {isMulti
+              ? threadMode && hasX
+                ? `Generate for ${selectedChannels.length} (X thread)`
+                : `Generate for ${selectedChannels.length} channels`
+              : threadMode && hasX
+                ? 'Generate thread'
+                : 'Generate post'}
           </>
         )}
       </Button>

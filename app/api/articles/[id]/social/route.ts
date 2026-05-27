@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { createClient } from '@/lib/supabase/server'
 import { retrieve } from '@/lib/rag/retrieve'
+import { NO_EM_DASH_RULE, stripEmDashes } from '@/lib/content/no-em-dash'
 import type { Channel } from '@/types/database'
 
 export const maxDuration = 60
@@ -84,7 +85,9 @@ export async function POST(
 
   const results = await Promise.allSettled(
     channels.map(async (channel) => {
-      const systemPrompt = [CHANNEL_INSTRUCTIONS[channel], brandContext, knowledgeContext].filter(Boolean).join('\n\n')
+      const systemPrompt = [CHANNEL_INSTRUCTIONS[channel], brandContext, knowledgeContext, NO_EM_DASH_RULE]
+        .filter(Boolean)
+        .join('\n\n')
       const completion = await openai.chat.completions.create({
         model: 'gpt-5.4-mini',
         messages: [
@@ -94,7 +97,10 @@ export async function POST(
         max_completion_tokens: 600,
         temperature: 0.75,
       })
-      return { channel, content: completion.choices[0].message.content ?? '' }
+      return {
+        channel,
+        content: stripEmDashes(completion.choices[0].message.content ?? ''),
+      }
     })
   )
 

@@ -37,7 +37,7 @@ export async function POST(request: Request) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await request.json()
-  const { company_id, channel, content, status, scheduled_for, media_items, generation_params, content_variants } = body
+  const { company_id, channel, content, status, scheduled_for, published_at, media_items, generation_params, content_variants } = body
 
   if (!company_id || !channel || !content) {
     return NextResponse.json({ error: 'company_id, channel, and content required' }, { status: 400 })
@@ -46,18 +46,25 @@ export async function POST(request: Request) {
   const { data: company } = await supabase.from('companies').select('id').eq('id', company_id).single()
   if (!company) return NextResponse.json({ error: 'Company not found' }, { status: 404 })
 
+  const resolvedStatus = status ?? 'draft'
+  const insertRow: Record<string, unknown> = {
+    company_id,
+    channel,
+    content,
+    status: resolvedStatus,
+    scheduled_for: scheduled_for ?? null,
+    media_items: media_items ?? [],
+    generation_params: generation_params ?? {},
+    content_variants: content_variants ?? {},
+  }
+  if (resolvedStatus === 'published') {
+    insertRow.published_at = published_at ?? new Date().toISOString()
+    insertRow.scheduled_for = null
+  }
+
   const { data, error } = await supabase
     .from('posts')
-    .insert({
-      company_id,
-      channel,
-      content,
-      status: status ?? 'draft',
-      scheduled_for: scheduled_for ?? null,
-      media_items: media_items ?? [],
-      generation_params: generation_params ?? {},
-      content_variants: content_variants ?? {},
-    })
+    .insert(insertRow)
     .select()
     .single()
 

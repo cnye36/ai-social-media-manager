@@ -7,6 +7,7 @@ import { buildRedditAgent } from './reddit-agent'
 import { buildFacebookAgent } from './facebook-agent'
 import type { Channel } from '@/types/database'
 import type { GenerateRequest, GeneratedPost, ThreadTweet } from '@/types/agents'
+import { stripEmDashes } from '@/lib/content/no-em-dash'
 import { formatRedditMarkdown, parseRedditPost, type RedditPostContent } from '@/lib/reddit/parse'
 import { buildSubredditPromptBlock, loadSubredditConfig } from '@/lib/reddit/subreddit-config'
 
@@ -71,19 +72,45 @@ function applyRedditDisclosurePreference(
 function parseImagePrompt(text: string): { content: string; imagePrompt?: string } {
   const marker = '\n--\nIMAGE_PROMPT:'
   const idx = text.indexOf(marker)
-  if (idx === -1) return { content: text.trim() }
+  if (idx === -1) return { content: stripEmDashes(text.trim()) }
   return {
-    content: text.slice(0, idx).trim(),
+    content: stripEmDashes(text.slice(0, idx).trim()),
     imagePrompt: text.slice(idx + marker.length).trim(),
   }
+}
+
+function sanitizeContentVariants(variants: Record<string, unknown>): Record<string, unknown> {
+  const out = { ...variants }
+  if (typeof out.imagePrompt === 'string') out.imagePrompt = stripEmDashes(out.imagePrompt)
+  if (Array.isArray(out.thread)) {
+    out.thread = (out.thread as { text: string; imagePrompt?: string }[]).map(t => ({
+      ...t,
+      text: stripEmDashes(t.text),
+      ...(t.imagePrompt ? { imagePrompt: stripEmDashes(t.imagePrompt) } : {}),
+    }))
+  }
+  const reddit = out.reddit as RedditPostContent | undefined
+  if (reddit) {
+    out.reddit = {
+      ...reddit,
+      title: stripEmDashes(reddit.title),
+      body: stripEmDashes(reddit.body),
+    }
+  }
+  return out
 }
 
 function parseRedditContent(raw: string): { content: string; contentVariants: Record<string, unknown> } {
   const { post, imagePrompt } = parseRedditPost(raw)
   if (post) {
+    const sanitized = {
+      ...post,
+      title: stripEmDashes(post.title),
+      body: stripEmDashes(post.body),
+    }
     return {
-      content: formatRedditMarkdown(post),
-      contentVariants: { reddit: post, ...(imagePrompt ? { imagePrompt } : {}) },
+      content: formatRedditMarkdown(sanitized),
+      contentVariants: { reddit: sanitized, ...(imagePrompt ? { imagePrompt } : {}) },
     }
   }
   const { content } = parseImagePrompt(raw)
@@ -96,9 +123,10 @@ function parseXContent(raw: string): { content: string; contentVariants: Record<
     const parsed = JSON.parse(withoutImage)
     if (parsed.thread && Array.isArray(parsed.thread)) {
       // Normalize: accept both string[] (legacy) and ThreadTweet[] (thread mode)
-      const thread: ThreadTweet[] = parsed.thread.map((t: string | ThreadTweet) =>
-        typeof t === 'string' ? { text: t } : t
-      )
+      const thread: ThreadTweet[] = parsed.thread.map((t: string | ThreadTweet) => {
+        const tweet = typeof t === 'string' ? { text: t } : t
+        return { ...tweet, text: stripEmDashes(tweet.text) }
+      })
       const content = thread.map(t => t.text).join('\n\n---\n\n')
       return {
         content,
@@ -116,7 +144,8 @@ export async function generatePost(request: GenerateRequest): Promise<GeneratedP
   const { topic } = request
   const { agent, channel } = await prepareAgent(request)
 
-  const result = await run(agent, `Write a ${channel} post about: ${topic}`)
+  const format = channel === 'x' && request.threadMode ? 'thread' : 'post'
+  const result = await run(agent, `Write a ${channel} ${format} about: ${topic}`)
   const rawOutput = result.finalOutput ?? ''
 
   // Parse channel-specific formats
@@ -124,13 +153,23 @@ export async function generatePost(request: GenerateRequest): Promise<GeneratedP
     const parsed = parseRedditContent(rawOutput)
     const { content, contentVariants } = applyRedditDisclosurePreference(parsed, request.includeDisclosure)
     const { imagePrompt } = parseImagePrompt(rawOutput)
-    return { content, channel, imagePrompt, contentVariants }
+    return {
+      content,
+      channel,
+      imagePrompt,
+      contentVariants: sanitizeContentVariants(contentVariants),
+    }
   }
 
   if (channel === 'x') {
     const { content, contentVariants } = parseXContent(rawOutput)
     const imagePrompt = (contentVariants.imagePrompt as string | undefined)
-    return { content, channel, imagePrompt, contentVariants }
+    return {
+      content,
+      channel,
+      imagePrompt,
+      contentVariants: sanitizeContentVariants(contentVariants),
+    }
   }
 
   // LinkedIn and Facebook — plain text with image prompt suffix

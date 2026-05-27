@@ -17,6 +17,7 @@ import { HoverDownloadImage } from '@/components/media/HoverDownloadImage'
 import { AltTextBox } from '@/components/media/AltTextBox'
 import { ImagePromptBox } from '@/components/media/ImagePromptBox'
 import { stripImagePromptComments } from '@/lib/blog/image-prompts'
+import { buildArticlePublicUrl } from '@/lib/blog/article-url'
 import type { MediaResult } from '@/types/media'
 import { cn } from '@/lib/utils'
 import type { Article, ArticleStatus, BlogSite } from '@/types/database'
@@ -108,7 +109,7 @@ export function ArticleEditorClient({
 
   const selectedSite = sites.find(s => s.id === selectedSiteId)
   const slugPreview = selectedSite
-    ? selectedSite.base_url.replace(/\/$/, '') + '/' + (slug || 'your-slug')
+    ? buildArticlePublicUrl(selectedSite.base_url, slug || 'your-slug')
     : slug
 
   // Auto-generate on first load if requested

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { createClient } from '@/lib/supabase/server'
 import { retrieve } from '@/lib/rag/retrieve'
+import { NO_EM_DASH_RULE, stripEmDashes } from '@/lib/content/no-em-dash'
 import type { Channel } from '@/types/database'
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
@@ -92,6 +93,7 @@ export async function POST(request: Request) {
         brandContext,
         overrideContext,
         knowledgeContext,
+        NO_EM_DASH_RULE,
       ]
         .filter(Boolean)
         .join('\n\n')
@@ -106,7 +108,7 @@ export async function POST(request: Request) {
         temperature: 0.7,
       })
 
-      const content = completion.choices[0].message.content ?? ''
+      const content = stripEmDashes(completion.choices[0].message.content ?? '')
 
       const { data: post, error } = await supabase
         .from('posts')

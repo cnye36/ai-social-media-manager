@@ -42,6 +42,7 @@ THREAD RULES:
 - Tweet 1 is the hook: make it standalone-compelling, irresistible on its own
 - Each subsequent tweet must earn its place — cut anything that could be merged with another
 - Last tweet: strong close or CTA
+- Never use em dashes (—) in any tweet text. Use a comma, period, or rewrite instead.
 - Every "text" field MUST be under 280 characters
 - Only add "imagePrompt" where a visual genuinely amplifies the point (data visualization, diagram, before/after, etc.) — not every tweet needs one
 - imagePrompt should describe what kind of image would work best, not just "an image"

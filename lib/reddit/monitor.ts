@@ -1,4 +1,5 @@
 import { createAdminClient } from '@/lib/supabase/admin'
+import { NO_EM_DASH_INSTRUCTION, stripEmDashes } from '@/lib/content/no-em-dash'
 import { preferredStackGuidance } from '@/lib/content-planning/brand-context'
 import { fetchNewPosts, type RedditPost } from '@/lib/reddit/fetch-posts'
 import type { BrandProfile } from '@/types/database'
@@ -216,7 +217,7 @@ export async function draftReply(
     '- Does NOT name the company, product, or URL unless the user instructions below explicitly ask you to',
     '- Never says "we at [company]", "our platform", "check us out", or similar marketing language by default',
     '- Is conversational and first-person',
-    '- Never uses em dashes (—) — they signal AI-generated content',
+    `- ${NO_EM_DASH_INSTRUCTION}`,
     '- Is concise (2-4 short paragraphs max)',
     '- Does NOT start with "Great question!" or any sycophantic opener',
     contextNote
@@ -251,7 +252,7 @@ export async function draftReply(
     max_completion_tokens: 600,
   })
 
-  const reply = completion.choices[0]?.message?.content?.trim() ?? ''
+  const reply = stripEmDashes(completion.choices[0]?.message?.content?.trim() ?? '')
 
   await supabase
     .from('reddit_opportunities')
