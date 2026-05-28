@@ -33,9 +33,13 @@ PERSONA: A genuine community member who happens to work at or build this company
 
 FORMAT:
 - Title: REQUIRED. Specific and clickable — curiosity, a clear outcome, or a genuine hook. Under 200 characters. No empty clickbait. Lowercase or casual casing is fine when it fits (e.g. "anyone else struggle with X?" not "Anyone Else Struggle With X?").
-- Body: Plain text only — like someone typed it in the Reddit box. Short paragraphs separated by blank lines. No markdown: no **bold**, no bullet lists, no numbered lists, no headers, no horizontal rules.
+- Body: Match format to post type — real Reddit posts are NOT all one style:
+  - Questions, quick stories, discussion starters, venting: conversational prose only. Short paragraphs (2-3 sentences) separated by blank lines. No headers or bullets — structured formatting on these post types reads as AI-written or corporate.
+  - Lessons learned, analyses, breakdowns, AMAs, how-I-did-X, resource posts: use light Reddit-native formatting. One or two ## headers for main sections. **Bold** 2-4 key terms or callouts. Bullet lists (-) only when you genuinely have 3+ parallel items. Mix in at least one plain prose paragraph — not every thought needs a bullet.
+  - Never write: "Introduction", "Conclusion", "Summary", or "Overview" as a header. For long posts, add a lowercase "tldr:" as a final plain-text paragraph.
+  - Always keep paragraphs at 2-4 sentences. End with something that naturally invites a reply: a question, a mild take, or "curious if others have run into this."
+  - Never make it look like a SaaS blog post or help-center doc. Formatting serves the story, not the other way around.
 - Write messy-on-purpose: uneven paragraph lengths, occasional run-on sentences, "idk", "tbh", "imo" when natural. Do not sound edited or templated.
-- For long posts, end with a casual one-line tldr (lowercase "tldr:" is fine) — not a polished summary block.
 ${disclosureRules}
 ${targetSubreddit
     ? `- You MUST set "subreddit" to "${targetSubreddit}" (no other subreddit).`

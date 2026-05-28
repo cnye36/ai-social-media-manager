@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { BlogIdeaSpark } from './BlogIdeaSpark'
 import { cn } from '@/lib/utils'
+import { sortArticlesNewestFirst } from '@/lib/blog/article-sort'
 import type { Article, ArticleStatus } from '@/types/database'
 import type { ArticleFormat } from '@/types/agents'
 import type { BlogIdea } from '@/app/api/blog/ideas/route'
@@ -32,9 +33,11 @@ export function BlogListClient({ articles: initialArticles, companyId }: BlogLis
   const [creating, setCreating] = useState(false)
   const [articleFormat, setArticleFormat] = useState<ArticleFormat>('blog_post')
 
-  const filtered = statusFilter === 'all'
-    ? articles
-    : articles.filter(a => a.status === statusFilter)
+  const filtered = sortArticlesNewestFirst(
+    statusFilter === 'all'
+      ? articles
+      : articles.filter(a => a.status === statusFilter),
+  )
 
   async function createArticle(title = '') {
     setCreating(true)

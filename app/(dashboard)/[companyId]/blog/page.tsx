@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { BlogListClient } from '@/components/blog/BlogListClient'
+import { sortArticlesNewestFirst } from '@/lib/blog/article-sort'
 import { publishDueContent } from '@/lib/publishing/publish-due'
 
 interface Props {
@@ -12,11 +13,12 @@ export default async function BlogPage({ params }: Props) {
 
   await publishDueContent(supabase, { companyId }).catch(() => {})
 
-  const { data: articles } = await supabase
+  const { data: rawArticles } = await supabase
     .from('articles')
     .select('*')
     .eq('company_id', companyId)
-    .order('created_at', { ascending: false })
+
+  const articles = sortArticlesNewestFirst(rawArticles ?? [])
 
   return (
     <div className="p-8 max-w-5xl mx-auto">
@@ -27,7 +29,7 @@ export default async function BlogPage({ params }: Props) {
         </p>
       </div>
 
-      <BlogListClient articles={articles ?? []} companyId={companyId} />
+      <BlogListClient articles={articles} companyId={companyId} />
     </div>
   )
 }

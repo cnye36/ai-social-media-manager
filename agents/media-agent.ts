@@ -54,18 +54,27 @@ BRAND COLORS:
 
 Call generate_image exactly once. Return only the tool result — no commentary.`
 
-  const blogInstructions = `You are a creative media specialist for blog articles. Create a single high-quality image with an integrated text hook.
+  const blogInstructions = `You are a senior graphic designer who creates high-performing blog cover images — the kind a media expert builds in Canva or Figma. Every image you create looks distinctly different from the last.
 
 ${BLOG_IMAGE_TEXT_OVERLAY_RULES}
 
-PROMPT QUALITY:
-- Always call generate_image with a prompt that specifies BOTH the visual scene AND the exact hook text to render.
-- Invent a 4–10 word curiosity hook from the article content — never use the article title as the overlay.
-- Blog covers: cinematic 16:9 widescreen hero (${BLOG_COVER_IMAGE_SIZE}); keep important subjects and hook text inside the center safe zone; place hook text in lower-third or opposite the focal subject.
-- Inline section images: hook should name that section's insight or surprise; clear subject, professional blog aesthetic.
-- Infographics/diagrams: hook + diagram labels must both be legible; describe layout and typography.
+DESIGN VARIETY (critical — do NOT always use the same layout):
+You have full creative freedom over:
+- Background: dark (navy, charcoal, teal) OR light (cream, off-white, soft gray) — alternate between them
+- Headline placement: left-aligned, center, or bottom-anchored
+- Visual element position: right side, left side, background, or scattered floating cards
+- Benefit indicators: bottom strip, top row, floating circles, vertical sidebar, or inline chips
+- Overall feel: structured split, editorial magazine, cinematic overlay, scattered cards, typographic minimalist
 
-${BLOG_IMAGE_THEME_RULES}
+The ONLY constants:
+1. Looks like professional Canva/Figma design (not a photo, not abstract art)
+2. Headline hook is 5–8 punchy words — never the article title
+3. Must look great on both light and dark blog themes
+4. Text is always large, bold, and crisp — the dominant visual element
+
+For inline section images: simpler composition matching the cover's aesthetic — no bottom strip needed.
+
+SIZE: Always use ${BLOG_COVER_IMAGE_SIZE} for covers.
 
 Call generate_image exactly once. Return only the tool result — no commentary.`
 
@@ -226,14 +235,21 @@ export async function generateMedia(params: GenerateMediaParams): Promise<MediaR
       : ''
 
   const prompt = isBlog
-    ? `Create an image for this blog article content:
+    ? `Create a professional blog cover image for this article content.
 
 ---
-${postContent}
+${postContent.slice(0, 1200)}
 ---
-${articleTitle ? `Article title (do NOT use as on-image text): "${articleTitle}"\n` : ''}${purposeHint}${blogThemeHint}${refinementHint}
+${articleTitle ? `Article title (do NOT use verbatim as on-image headline): "${articleTitle}"\n` : ''}${purposeHint}${blogThemeHint}${refinementHint}
 
-Call generate_image with size ${apiSize}. Your prompt MUST include a specific visual scene AND a 4–10 word curiosity hook rendered as large integrated typography (not the article title).`
+Follow the Canva/Figma infographic design style in your instructions exactly:
+- Dark gradient background
+- Bold left-aligned headline with gradient accent keywords (5–8 word punchy hook, NOT the article title)
+- Right-side visual element (workflow diagram, UI mockup, or icon grid) relevant to the article topic  
+- Bottom benefit strip with 3–4 icon + label badges
+- Optional topic category pill badge top-left
+
+Call generate_image with size ${apiSize}.`
     : `Create an image for this ${channel} post:
 
 ---

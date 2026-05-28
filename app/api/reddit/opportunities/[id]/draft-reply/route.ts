@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { draftReply } from '@/lib/reddit/monitor'
+import { draftReplyVariants } from '@/lib/reddit/monitor'
 
 interface Params { params: Promise<{ id: string }> }
 
@@ -24,8 +24,8 @@ export async function POST(req: NextRequest, { params }: Params) {
   if (!company) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   try {
-    const draft = await draftReply(id, companyId, additionalContext)
-    return NextResponse.json({ draft_reply: draft })
+    const variants = await draftReplyVariants(id, companyId, additionalContext)
+    return NextResponse.json({ draft_replies: variants })
   } catch (err) {
     console.error('Draft reply error:', err)
     return NextResponse.json({ error: 'Failed to draft reply' }, { status: 500 })

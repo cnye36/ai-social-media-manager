@@ -4,7 +4,8 @@ import { run } from '@openai/agents'
 import { createClient } from '@/lib/supabase/server'
 import { retrieve } from '@/lib/rag/retrieve'
 import { fetchBlogAgentContext } from '@/lib/blog/agent-context'
-import { formatBlogImagePrompt, ensureBlogImagePromptHasHook } from '@/lib/blog/image-hooks'
+import { formatBlogImagePrompt } from '@/lib/blog/image-hooks'
+import { buildCoverImageVisualPrompt } from '@/lib/blog/cover-image-prompt'
 import { relocateTrailingCitationLinks } from '@/lib/blog/inline-citations'
 import { stripImagePromptComments } from '@/lib/blog/image-prompts'
 import { NO_EM_DASH_INSTRUCTION, stripEmDashes } from '@/lib/content/no-em-dash'
@@ -183,8 +184,11 @@ Return JSON with ALL fields:
   "categories": ["Proper Case Category", "Another Category"],
   "tags": ["Proper Case Tag", "Another Tag", "Tag Three", "Tag Four", "Tag Five"],
   "featuredImageAlt": "Accessibility alt text for the cover image (concise, 1 sentence)",
-  "coverImageHook": "4-10 word curiosity hook for on-image text — draws the eye, ties to the article, MUST NOT be the article title or a generic phrase",
-  "coverImageVisual": "Visual scene only (no text): 16:9 widescreen blog hero — subject, style, mood, lighting, composition with horizontal safe margins; palette must look excellent on both light and dark blog themes (brand colors optional, 2-3 sentences)"
+  "coverImageHook": "5-8 word punchy benefit or insight for the on-image headline — draws the eye, sounds like a human expert wrote it, MUST NOT be the article title or generic (good: 'Automate More Without Adding Headcount', bad: 'AI for Your Business')",
+  "coverImageRightVisual": "Describe ONLY the right-side visual element (≈45% of the image) — choose one: (a) a dark-mode UI screenshot showing [specific screen relevant to topic], (b) a workflow diagram with [N] labeled steps/boxes connected by arrows, (c) a 2x2 icon feature grid with tiles labeled [label1], [label2], [label3], [label4], or (d) 2-3 stat cards showing specific relevant metrics. Be specific about content labels.",
+  "coverImageBenefits": ["2-3 word benefit 1", "2-3 word benefit 2", "2-3 word benefit 3", "2-3 word benefit 4"],
+  "coverImageTopicBadge": "2-4 word topic category for the pill badge (e.g. 'AI AUTOMATION', 'SMALL BUSINESS', 'VOICE AI')",
+  "coverImageAccentColor": "One of: cyan, purple, amber, emerald, blue — pick the color that best matches the article topic"
 }`,
         },
       ],
@@ -194,20 +198,37 @@ Return JSON with ALL fields:
     })
 
     const rawFm = JSON.parse(frontmatterRes.choices[0]?.message?.content ?? '{}') as Partial<
-      GeneratedFrontmatter & { coverImageVisual?: string }
+      GeneratedFrontmatter & {
+        coverImageRightVisual?: string
+        coverImageBenefits?: string[]
+        coverImageTopicBadge?: string
+        coverImageAccentColor?: string
+      }
     >
 
-    const coverVisual =
-      rawFm.coverImageVisual?.trim() ||
-      '16:9 widescreen editorial hero photograph or illustration with professional lighting, horizontal composition, and clear focal subject'
     const coverHook = stripEmDashes(
       rawFm.coverImageHook?.trim() ||
         rawFm.metaDescription?.slice(0, 60).trim() ||
-        'Read this before you ship',
+        'Automate More Without Adding Headcount',
     )
-    const coverImagePrompt = rawFm.coverImageHook
-      ? formatBlogImagePrompt(coverVisual, coverHook)
-      : ensureBlogImagePromptHasHook(coverVisual, { articleTitle: title })
+
+    const accentColor = rawFm.coverImageAccentColor?.trim() || 'cyan'
+    const topicBadge = rawFm.coverImageTopicBadge?.trim() || ''
+    const rightVisual = rawFm.coverImageRightVisual?.trim() || ''
+    const benefits: string[] = Array.isArray(rawFm.coverImageBenefits)
+      ? rawFm.coverImageBenefits.slice(0, 4).filter(Boolean)
+      : []
+
+    const coverVisual = buildCoverImageVisualPrompt({
+      hook: coverHook,
+      rightVisual,
+      benefits,
+      topicBadge,
+      accentColor,
+      seed: title,
+    })
+
+    const coverImagePrompt = formatBlogImagePrompt(coverVisual, coverHook)
 
     const frontmatter: GeneratedFrontmatter = {
       metaTitle: stripEmDashes(rawFm.metaTitle ?? title.slice(0, 60)),

@@ -169,22 +169,20 @@ export async function runMonitors(companyId?: string): Promise<{
   }
 }
 
-export async function draftReply(
-  opportunityId: string,
-  companyId: string,
-  additionalContext?: string,
-): Promise<string> {
+export interface ReplyVariant {
+  approach: 'direct' | 'constraint' | 'experience' | 'contrarian'
+  label: string
+  text: string
+}
+
+/** Shared helper that loads opportunity + subreddit config for drafting. */
+async function loadReplyContext(opportunityId: string, companyId: string) {
   const supabase = createAdminClient()
 
-  const [{ data: opp }, { data: brand }, { data: company }, { data: config }] = await Promise.all([
+  const [{ data: opp }, { data: brand }, { data: company }] = await Promise.all([
     supabase.from('reddit_opportunities').select('*').eq('id', opportunityId).single(),
     supabase.from('brand_profiles').select('*').eq('company_id', companyId).maybeSingle(),
     supabase.from('companies').select('name').eq('id', companyId).single(),
-    supabase.from('reddit_subreddit_configs')
-      .select('rules_text, notes, posting_guidance, reply_policy')
-      .eq('company_id', companyId)
-      .eq('subreddit', '')  // filled below after opp loads
-      .maybeSingle(),
   ])
 
   if (!opp) throw new Error('Opportunity not found')
@@ -196,17 +194,122 @@ export async function draftReply(
     .eq('subreddit', opp.subreddit)
     .maybeSingle()
 
-  const companyName = company?.name ?? 'our company'
-  const brandProfile = brand as BrandProfile | null
-  const stackLine = preferredStackGuidance(brandProfile)
+  return {
+    supabase,
+    opp,
+    brand: brand as BrandProfile | null,
+    companyName: company?.name ?? 'our company',
+    subConfig,
+  }
+}
 
+export async function draftReplyVariants(
+  opportunityId: string,
+  companyId: string,
+  additionalContext?: string,
+): Promise<ReplyVariant[]> {
+  const { supabase, opp, brand, companyName, subConfig } = await loadReplyContext(opportunityId, companyId)
+  const stackLine = preferredStackGuidance(brand)
+  const contextNote = additionalContext?.trim()
+
+  const contextLines: string[] = [
+    `You are a genuine Reddit user participating in r/${opp.subreddit}.`,
+    `You may work at ${companyName}, but you are replying as a helpful community member first.`,
+    brand?.voice_notes ? `Voice (subtle): ${brand.voice_notes}` : '',
+    brand?.tone ? `Tone: ${brand.tone}` : '',
+    stackLine ?? '',
+    subConfig?.rules_text ? `Subreddit rules:\n${subConfig.rules_text}` : '',
+    subConfig?.posting_guidance ? `Subreddit playbook:\n${subConfig.posting_guidance}` : '',
+    subConfig?.notes ? `Notes on this subreddit:\n${subConfig.notes}` : '',
+  ].filter(Boolean)
+
+  const systemPrompt = [
+    ...contextLines,
+    '',
+    'Generate 4 distinctly different replies to the post below. Each must take a different approach in length, structure, and angle.',
+    '',
+    'APPROACH DEFINITIONS:',
+    '- direct: Short (1-3 sentences max). Lead immediately with the answer or the most useful thing you can say. One honest caveat if needed. No filler. Peer tone, not customer service.',
+    '- constraint: Start with "it depends" and name the exact dependency that changes the advice. Give conditional guidance. End with a clarifying question that would actually change your recommendation.',
+    '- experience: Lead with bounded personal experience — be specific ("In SaaS with sub-100 customers...", "Last time I dealt with X..."). Include one concrete detail (a metric, a timeline, a failure). Add a caveat for when the advice breaks down.',
+    '- contrarian: Take the unexpected angle — challenge the premise, give a negative recommendation ("I wouldn\'t do X until..."), or reframe the problem entirely. Can be short or long. Must have one honest caveat.',
+    '',
+    'ALL replies must:',
+    '- Be conversational and first-person',
+    '- NOT start with "Great question!" or any sycophantic opener',
+    '- NOT name any company, product URL, or use marketing language',
+    '- Have meaningfully different lengths and structures from each other',
+    '- Feel like they come from different kinds of practitioners, not the same voice',
+    `- ${NO_EM_DASH_INSTRUCTION}`,
+    contextNote ? `- Also follow these user instructions: ${contextNote}` : '',
+    '',
+    'Return JSON only:',
+    `{
+  "replies": [
+    { "approach": "direct", "label": "Direct & specific", "text": "..." },
+    { "approach": "constraint", "label": "Constraint-first", "text": "..." },
+    { "approach": "experience", "label": "Lived experience", "text": "..." },
+    { "approach": "contrarian", "label": "Unexpected angle", "text": "..." }
+  ]
+}`,
+  ].filter(Boolean).join('\n')
+
+  const userPrompt = [
+    `Post title: ${opp.title}`,
+    `Post body:\n${opp.selftext || '(no body text)'}`,
+    '',
+    'Write 4 reply variants (JSON only):',
+  ].join('\n')
+
+  const { OpenAI } = await import('openai')
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+
+  const completion = await openai.chat.completions.create({
+    model: 'gpt-5.4-mini',
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
+    ],
+    response_format: { type: 'json_object' },
+    temperature: 0.85,
+    max_completion_tokens: 1200,
+  })
+
+  const raw = completion.choices[0]?.message?.content ?? '{}'
+  let variants: ReplyVariant[] = []
+  try {
+    const parsed = JSON.parse(raw) as { replies?: ReplyVariant[] }
+    variants = (parsed.replies ?? []).map(v => ({
+      ...v,
+      text: stripEmDashes(v.text ?? ''),
+    }))
+  } catch {
+    throw new Error('Failed to parse reply variants')
+  }
+
+  // Mark as drafted without writing a specific reply yet
+  await supabase
+    .from('reddit_opportunities')
+    .update({ status: 'drafted' })
+    .eq('id', opportunityId)
+
+  return variants
+}
+
+export async function draftReply(
+  opportunityId: string,
+  companyId: string,
+  additionalContext?: string,
+): Promise<string> {
+  const { supabase, opp, brand, companyName, subConfig } = await loadReplyContext(opportunityId, companyId)
+  const stackLine = preferredStackGuidance(brand)
   const contextNote = additionalContext?.trim()
 
   const systemPrompt = [
     `You are a genuine Reddit user participating in r/${opp.subreddit}.`,
     `You may work at ${companyName}, but you are replying as a helpful community member first.`,
-    brandProfile?.voice_notes ? `Voice (subtle): ${brandProfile.voice_notes}` : '',
-    brandProfile?.tone ? `Tone: ${brandProfile.tone}` : '',
+    brand?.voice_notes ? `Voice (subtle): ${brand.voice_notes}` : '',
+    brand?.tone ? `Tone: ${brand.tone}` : '',
     stackLine ?? '',
     subConfig?.rules_text ? `Subreddit rules:\n${subConfig.rules_text}` : '',
     subConfig?.posting_guidance ? `Subreddit playbook:\n${subConfig.posting_guidance}` : '',

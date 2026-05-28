@@ -1,23 +1,41 @@
-/** Shared rules for blog cover/inline images — always include an integrated text hook. */
+/** Shared rules for blog cover/inline images. */
 
 export const BLOG_IMAGE_HOOK_MAX_WORDS = 10
 
-export const BLOG_IMAGE_THEME_RULES = `THEME COMPATIBILITY (required):
-- The image must look excellent on both light and dark blog themes — do not rely on brand colors unless they naturally fit the scene.
-- Use balanced palettes: editorial neutrals, natural tones, or mid-saturation accents; avoid huge pure-white or pure-black areas that clip in one theme.
-- Hook typography needs a subtle plate, shadow, or scrim so text stays readable against varied page backgrounds.
-- Brand colors are optional accents only — never force a purple/violet brand palette when another palette serves the concept better.`
+export const BLOG_IMAGE_THEME_RULES = `THEME COMPATIBILITY:
+- The image must look excellent on BOTH light and dark blog page backgrounds
+- If using a dark background: the image is self-contained and provides its own visual frame
+- If using a light/white background: include a 2px border and subtle drop-shadow on the image edge so it has a clear boundary on dark-themed pages
+- Never rely on the page color to "complete" the image — it must be self-contained`
 
-export const BLOG_IMAGE_TEXT_OVERLAY_RULES = `MANDATORY TEXT OVERLAY (blog images):
-- The image MUST include large, legible, professionally designed headline text baked into the composition — not a tiny caption or plain title bar.
-- Text must be a short curiosity hook (4–10 words) that draws the eye and ties to the article — NEVER paste the article title verbatim.
-- Typography must work with the visual: strong contrast, safe margins, complementary palette, subtle shadow/backdrop/plate so text stays readable.
-- Place text where it balances the layout (often lower-third or opposite the main subject), not covering the focal point.
+export const BLOG_IMAGE_TEXT_OVERLAY_RULES = `BLOG COVER IMAGE STANDARDS — professional Canva/Figma designer quality:
 
-${BLOG_IMAGE_THEME_RULES}`
+STYLE: Structured graphic design — NOT a photograph, NOT abstract art. Looks like it was built by an experienced media creator.
+
+BACKGROUND OPTIONS (any of these work):
+- Dark: navy gradient, dark teal, deep charcoal — self-contained on any page
+- Light: off-white, soft gray, warm cream — add 2px border + drop shadow for dark-theme compatibility
+- NO pure black, NO pure white
+
+HEADLINE (always the dominant element):
+- Font: heavy bold sans-serif, 56–72px — the biggest text element in the composition
+- On dark bg: white text with 1–2 gradient-colored keywords
+- On light bg: near-black text with 1–2 vibrant-colored keywords
+- Hook content: 5–8 punchy words (benefit, insight, or surprising claim) — NEVER the article title
+
+VISUAL ELEMENTS (vary the placement and type per image):
+- Diagrams, workflow charts, UI mockups, icon grids, stat cards, infographic panels
+- Can appear on the right, left, center background, or scattered
+- Use glows, borders, or frosted-glass effects to add polish
+
+BENEFIT INDICATORS (vary placement):
+- Can be a bottom strip, a top row, floating circles, a vertical sidebar list, or inline badges
+- Each: icon + 2–3 word label
+
+QUALITY BAR: Every image must look like it could be published on a professional tech or marketing blog today.`
 
 /**
- * Full prompt for image generation: visual scene + exact hook text to render.
+ * Full prompt for image generation: layout spec + exact hook text to render.
  */
 export function formatBlogImagePrompt(visualDescription: string, hookText: string): string {
   const visual = visualDescription.trim()
@@ -26,12 +44,12 @@ export function formatBlogImagePrompt(visualDescription: string, hookText: strin
 
   return `${visual}
 
-REQUIRED TEXT OVERLAY — render this exact hook in large, bold, editorial typography integrated with the image: "${hook}"
+HEADLINE TEXT to render in the image: "${hook}"
 ${BLOG_IMAGE_TEXT_OVERLAY_RULES}`
 }
 
 /**
- * When no hook is provided, instruct the model to invent one from context (never the title).
+ * When no hook is provided, instruct the model to invent one from context.
  */
 export function ensureBlogImagePromptHasHook(
   prompt: string,
@@ -39,15 +57,15 @@ export function ensureBlogImagePromptHasHook(
 ): string {
   const base = prompt.trim()
   const titleGuard = options?.articleTitle?.trim()
-    ? `\n- Do NOT use this article title as the overlay text: "${options.articleTitle.trim()}"`
+    ? `\n- Do NOT use the article title as the headline: "${options.articleTitle.trim()}"`
     : ''
 
-  if (/REQUIRED TEXT OVERLAY|TEXT OVERLAY|hook text/i.test(base)) return base
+  if (/HEADLINE TEXT|TEXT OVERLAY|hook text/i.test(base)) return base
 
   return `${base}
 
 ${BLOG_IMAGE_TEXT_OVERLAY_RULES}
-- Invent a specific 4–10 word curiosity hook tied to the article topic and render it prominently in the image.${titleGuard}`
+- Invent a punchy 5–8 word benefit hook tied to the topic and render it as the dominant headline text.${titleGuard}`
 }
 
 const HOOK_PIPE_RE = /\|\s*HOOK:\s*["']?([^"'\n|]+?)["']?\s*$/i
