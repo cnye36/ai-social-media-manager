@@ -57,6 +57,8 @@ export interface MediaItem {
   svg?: string
   /** Accessibility alt text for images */
   alt_text?: string
+  /** X thread only: zero-based tweet index this asset belongs to */
+  tweet_index?: number
 }
 
 export interface Post {

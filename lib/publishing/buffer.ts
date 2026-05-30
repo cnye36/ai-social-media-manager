@@ -1,4 +1,5 @@
 import { createAdminClient } from '@/lib/supabase/admin'
+import { isXThreadPost, buildXThreadBufferPayload, mediaToBufferAssets } from '@/lib/posts/x-format'
 import type { Post, Channel, BufferProfile } from '@/types/database'
 import type { PublishResult } from './types'
 
@@ -132,23 +133,38 @@ function buildCreatePostArgs(
   const has = (key: string) => key in props
 
   const scheduled = post.scheduled_for ? new Date(post.scheduled_for).toISOString() : undefined
-  const image = post.media_items?.find(m => m.type === 'image' && m.url)
-
   const mode = scheduled ? 'customScheduled' : 'addToQueue'
   const schedulingType = 'automatic'
-  const assets = image?.url ? [{ image: { url: image.url } }] : []
+
+  const xThread = post.channel === 'x' && isXThreadPost(post)
+    ? buildXThreadBufferPayload(post)
+    : null
+
+  const image = post.media_items?.find(m => m.type === 'image' && m.url)
+  const assets = xThread
+    ? xThread.assets
+    : image?.url
+      ? mediaToBufferAssets(image)
+      : []
+  const text = xThread ? xThread.text : post.content
+  const threadMetadata = xThread?.metadata
 
   const args: Record<string, unknown> = {}
 
   if (has('channelId')) args.channelId = profile.id
   if (has('channel_id')) args.channel_id = profile.id
-  if (has('text')) args.text = post.content
-  if (has('content') && !has('text')) args.content = post.content
+  if (has('text')) args.text = text
+  if (has('content') && !has('text')) args.content = text
   if (has('schedulingType')) args.schedulingType = schedulingType
   if (has('scheduling_type')) args.scheduling_type = schedulingType
   if (has('mode')) args.mode = mode
   if (has('assets')) args.assets = assets
   if (has('organizationId')) args.organizationId = organizationId
+
+  if (threadMetadata) {
+    // Always include thread metadata — required for multi-tweet X posts
+    args.metadata = threadMetadata
+  }
 
   if (scheduled) {
     if (has('dueAt')) args.dueAt = scheduled
@@ -161,11 +177,12 @@ function buildCreatePostArgs(
   if (!Object.keys(args).length) {
     return {
       channelId: profile.id,
-      text: post.content,
+      text,
       schedulingType,
       mode,
       assets,
       organizationId,
+      ...(threadMetadata ? { metadata: threadMetadata } : {}),
       ...(scheduled ? { dueAt: scheduled } : {}),
     }
   }

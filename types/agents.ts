@@ -1,4 +1,4 @@
-import type { Channel } from './database'
+import type { Channel, MediaItem } from './database'
 
 export type ContentGoal = 'awareness' | 'engagement' | 'promotion' | 'education'
 export type PostLength = 'short' | 'medium' | 'long'
@@ -7,6 +7,8 @@ export type ArticleFormat = 'blog_post' | 'listicle' | 'deep_dive'
 export interface ThreadTweet {
   text: string
   imagePrompt?: string
+  /** Image or video attached to this tweet in an X thread */
+  media?: MediaItem
 }
 
 export interface GenerateRequest {

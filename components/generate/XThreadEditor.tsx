@@ -1,8 +1,9 @@
 'use client'
 
 import { useState, useRef } from 'react'
-import { Bold, Italic, List, ImageIcon, CalendarClock, Check, Loader2, CircleCheck } from 'lucide-react'
+import { Bold, Italic, List, ImageIcon, CalendarClock, Check, Loader2, CircleCheck, X } from 'lucide-react'
 import { buildStatusDatetimePayload } from '@/lib/content-status'
+import { threadMediaToPostItems } from '@/lib/posts/x-format'
 import { HoverDownloadImage } from '@/components/media/HoverDownloadImage'
 import { AltTextBox } from '@/components/media/AltTextBox'
 import { MediaPanel } from './MediaPanel'
@@ -10,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { mediaItemFromResult, type MediaResult } from '@/types/media'
 import type { GeneratedPost, ThreadTweet } from '@/types/agents'
+import type { MediaItem } from '@/types/database'
 
 type SaveState = 'idle' | 'saving' | 'draft' | 'scheduled' | 'published'
 
@@ -21,20 +23,32 @@ interface XThreadEditorProps {
   embedded?: boolean
 }
 
+function mediaFromTweet(tweet: ThreadTweet): MediaItem | undefined {
+  return tweet.media?.url ? tweet.media : undefined
+}
+
 export function XThreadEditor({ post, companyId, brandColors, embedded }: XThreadEditorProps) {
   const rawThread = (post.contentVariants?.thread ?? []) as ThreadTweet[]
   const [tweets, setTweets] = useState(() => rawThread.map(t => t.text))
+  const [tweetMedia, setTweetMedia] = useState<Record<number, MediaItem>>(() => {
+    const initial: Record<number, MediaItem> = {}
+    rawThread.forEach((t, i) => {
+      const media = mediaFromTweet(t)
+      if (media) initial[i] = media
+    })
+    return initial
+  })
   const [focusedIdx, setFocusedIdx] = useState(0)
   const [saveState, setSaveState] = useState<SaveState>('idle')
   const [showSchedule, setShowSchedule] = useState(false)
   const [scheduledFor, setScheduledFor] = useState('')
-  const [acceptedMedia, setAcceptedMedia] = useState<MediaResult | null>(null)
   const [savedPostId, setSavedPostId] = useState<string | null>(null)
   const textareaRefs = useRef<(HTMLTextAreaElement | null)[]>([])
 
   const threadContent = tweets.join('\n\n---\n\n')
   const suggestedPrompt =
     rawThread[focusedIdx]?.imagePrompt ?? post.imagePrompt
+  const focusedMedia = tweetMedia[focusedIdx]
 
   function applyFormatting(type: 'bold' | 'italic' | 'bullet') {
     const ta = textareaRefs.current[focusedIdx]
@@ -66,28 +80,47 @@ export function XThreadEditor({ post, companyId, brandColors, embedded }: XThrea
     requestAnimationFrame(() => { ta.focus(); ta.setSelectionRange(ns, ne) })
   }
 
-  function buildMediaItems() {
-    return acceptedMedia ? [mediaItemFromResult(acceptedMedia)] : []
+  function buildUpdatedThread(): ThreadTweet[] {
+    return rawThread.map((t, i) => ({
+      ...t,
+      text: tweets[i] ?? t.text,
+      ...(tweetMedia[i] ? { media: tweetMedia[i] } : {}),
+    }))
   }
 
   async function handleMediaAccept(media: MediaResult) {
-    setAcceptedMedia(media)
+    const item = mediaItemFromResult(media)
+    setTweetMedia(prev => ({ ...prev, [focusedIdx]: item }))
+
     if (savedPostId) {
+      const updatedThread = rawThread.map((t, i) => ({
+        ...t,
+        text: tweets[i] ?? t.text,
+        ...(i === focusedIdx ? { media: item } : tweetMedia[i] ? { media: tweetMedia[i] } : {}),
+      }))
       await fetch(`/api/posts/${savedPostId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ media_items: [mediaItemFromResult(media)] }),
+        body: JSON.stringify({
+          content_variants: { thread: updatedThread },
+          media_items: threadMediaToPostItems(updatedThread),
+        }),
       })
     }
+  }
+
+  function removeTweetMedia(index: number) {
+    setTweetMedia(prev => {
+      const next = { ...prev }
+      delete next[index]
+      return next
+    })
   }
 
   async function saveThread(status: 'draft' | 'scheduled' | 'published', scheduleDatetime?: string) {
     setSaveState('saving')
     try {
-      const updatedThread: ThreadTweet[] = rawThread.map((t, i) => ({
-        ...t,
-        text: tweets[i] ?? t.text,
-      }))
+      const updatedThread = buildUpdatedThread()
       const statusPayload = buildStatusDatetimePayload(
         status,
         status === 'scheduled' ? (scheduleDatetime ?? '') : '',
@@ -97,7 +130,7 @@ export function XThreadEditor({ post, companyId, brandColors, embedded }: XThrea
         ai_generated: true,
         generation_params: { imagePrompt: post.imagePrompt },
         content_variants: { thread: updatedThread },
-        media_items: buildMediaItems(),
+        media_items: threadMediaToPostItems(updatedThread),
         ...statusPayload,
       }
 
@@ -138,7 +171,7 @@ export function XThreadEditor({ post, companyId, brandColors, embedded }: XThrea
     <div className={cn('space-y-3', !embedded && 'p-4')}>
       {!embedded && (
         <p className="text-xs text-zinc-500">
-          {tweets.length} tweets · edit each tweet below
+          {tweets.length} tweets · click a tweet to attach media to it
         </p>
       )}
 
@@ -166,6 +199,7 @@ export function XThreadEditor({ post, companyId, brandColors, embedded }: XThrea
       <div className="space-y-2 max-h-[440px] overflow-y-auto pr-0.5">
         {tweets.map((text, i) => {
           const imageHint = rawThread[i]?.imagePrompt
+          const attached = tweetMedia[i]
           const over = text.length > 280
           return (
             <div
@@ -180,6 +214,9 @@ export function XThreadEditor({ post, companyId, brandColors, embedded }: XThrea
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wide">
                   {tweetLabels(i)}
+                  {attached && (
+                    <span className="ml-2 normal-case text-violet-400/80 font-normal">· image attached</span>
+                  )}
                 </span>
                 <span className={cn('text-[11px] tabular-nums', over ? 'text-red-400 font-medium' : 'text-zinc-600')}>
                   {text.length}/280
@@ -193,7 +230,31 @@ export function XThreadEditor({ post, companyId, brandColors, embedded }: XThrea
                 rows={3}
                 className="w-full bg-transparent text-sm text-zinc-200 leading-relaxed resize-none focus:outline-none placeholder:text-zinc-600"
               />
-              {imageHint && (
+              {attached && (
+                <div className="rounded-lg overflow-hidden border border-zinc-700">
+                  <div className="px-2 py-1 bg-zinc-800/80 flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <ImageIcon className="w-3 h-3 text-violet-400" />
+                      <span className="text-[10px] text-zinc-400">Media for this tweet</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => removeTweetMedia(i)}
+                      className="p-0.5 text-zinc-600 hover:text-red-400 transition-colors"
+                      title="Remove image"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                  <HoverDownloadImage
+                    src={attached.url}
+                    alt={attached.alt_text ?? 'Tweet image'}
+                    className="w-full object-contain max-h-32"
+                    wrapperClassName="w-full"
+                  />
+                </div>
+              )}
+              {imageHint && !attached && (
                 <div className="flex items-start gap-1.5 text-[11px] text-amber-400/80 bg-amber-500/5 border border-amber-500/20 rounded px-2 py-1.5">
                   <ImageIcon className="w-3 h-3 mt-0.5 shrink-0 text-amber-400" />
                   <span className="leading-relaxed">{imageHint}</span>
@@ -266,7 +327,17 @@ export function XThreadEditor({ post, companyId, brandColors, embedded }: XThrea
           </Button>
           <button
             type="button"
-            onClick={() => setTweets(rawThread.map(t => t.text))}
+            onClick={() => {
+              setTweets(rawThread.map(t => t.text))
+              setTweetMedia(() => {
+                const initial: Record<number, MediaItem> = {}
+                rawThread.forEach((t, idx) => {
+                  const media = mediaFromTweet(t)
+                  if (media) initial[idx] = media
+                })
+                return initial
+              })
+            }}
             className="ml-auto text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
           >
             Discard edits
@@ -274,44 +345,26 @@ export function XThreadEditor({ post, companyId, brandColors, embedded }: XThrea
         </div>
       )}
 
-      {acceptedMedia && (
-        <div className="rounded-lg overflow-hidden border border-zinc-700">
-          <div className="px-3 py-1.5 bg-zinc-800 flex items-center justify-between">
-            <div className="flex items-center gap-1.5">
-              <ImageIcon className="w-3 h-3 text-violet-400" />
-              <span className="text-[10px] text-zinc-400 font-medium uppercase tracking-wide">
-                Image attached
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={() => setAcceptedMedia(null)}
-              className="text-[10px] text-zinc-600 hover:text-red-400 transition-colors"
-            >
-              Remove
-            </button>
+      <div className="rounded-lg border border-zinc-800 p-3 space-y-2">
+        <p className="text-xs text-zinc-500">
+          Add media to <span className="text-zinc-300">{tweetLabels(focusedIdx)}</span>
+          {focusedMedia && ' (replacing current image)'}
+        </p>
+        {focusedMedia && (
+          <div className="px-1">
+            <AltTextBox value={focusedMedia.alt_text ?? ''} />
           </div>
-          <HoverDownloadImage
-            src={acceptedMedia.url}
-            alt={acceptedMedia.altText}
-            className="w-full object-contain max-h-48"
-            wrapperClassName="w-full"
-          />
-          <div className="px-3 pb-3">
-            <AltTextBox value={acceptedMedia.altText} />
-          </div>
-        </div>
-      )}
-
-      <MediaPanel
-        postContent={threadContent}
-        companyId={companyId}
-        channel="x"
-        brandColors={brandColors}
-        postId={savedPostId ?? undefined}
-        suggestedPrompt={suggestedPrompt}
-        onAccept={handleMediaAccept}
-      />
+        )}
+        <MediaPanel
+          postContent={tweets[focusedIdx] ?? ''}
+          companyId={companyId}
+          channel="x"
+          brandColors={brandColors}
+          postId={savedPostId ?? undefined}
+          suggestedPrompt={suggestedPrompt}
+          onAccept={handleMediaAccept}
+        />
+      </div>
     </div>
   )
 }
