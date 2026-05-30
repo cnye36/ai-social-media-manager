@@ -43,10 +43,7 @@ export async function POST(req: NextRequest) {
       updates.status = 'scheduled'
     }
     if (result.platformPostId) {
-      const params = (post.generation_params && typeof post.generation_params === 'object')
-        ? post.generation_params as Record<string, unknown>
-        : {}
-      updates.generation_params = { ...params, buffer_post_id: result.platformPostId }
+      updates.buffer_post_id = result.platformPostId
     }
 
     let updatedPost = post

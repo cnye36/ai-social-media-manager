@@ -2,25 +2,27 @@
 
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
-import { Building2, Palette, BookOpen, Link2, Globe } from 'lucide-react'
+import { Building2, Palette, BookOpen, Link2, Globe, CalendarClock } from 'lucide-react'
 import { CompanySettingsForm } from '@/components/settings/CompanySettingsForm'
 import { BrandSettingsForm } from '@/components/settings/BrandSettingsForm'
 import { BufferConnect } from '@/components/settings/BufferConnect'
 import { RedditConnect } from '@/components/settings/RedditConnect'
 import { CanvaConnect } from '@/components/settings/CanvaConnect'
+import { PostingSchedule } from '@/components/settings/PostingSchedule'
 import { ScrapeForm } from '@/components/knowledge/ScrapeForm'
 import { ManualEntryForm } from '@/components/knowledge/ManualEntryForm'
 import { KnowledgeList } from '@/components/knowledge/KnowledgeList'
 import { BlogSitesSettings } from '@/components/settings/BlogSitesSettings'
 import type { Company, BrandProfile, KnowledgeChunk, BlogSite } from '@/types/database'
 
-type Tab = 'company' | 'brand' | 'knowledge' | 'connections' | 'blog'
+type Tab = 'company' | 'brand' | 'knowledge' | 'connections' | 'blog' | 'schedule'
 
 const tabs: { id: Tab; label: string; icon: typeof Building2 }[] = [
   { id: 'company', label: 'Company', icon: Building2 },
   { id: 'brand', label: 'Brand & Voice', icon: Palette },
   { id: 'knowledge', label: 'Knowledge Base', icon: BookOpen },
   { id: 'connections', label: 'Connections', icon: Link2 },
+  { id: 'schedule', label: 'Posting Schedule', icon: CalendarClock },
   { id: 'blog', label: 'Blog Sites', icon: Globe },
 ]
 
@@ -41,7 +43,7 @@ export function SettingsClient({
   blogSites,
   defaultTab = 'company',
 }: SettingsClientProps) {
-  const validTabs: Tab[] = ['company', 'brand', 'knowledge', 'connections', 'blog']
+  const validTabs: Tab[] = ['company', 'brand', 'knowledge', 'connections', 'schedule', 'blog']
   const [activeTab, setActiveTab] = useState<Tab>(
     validTabs.includes(defaultTab as Tab) ? (defaultTab as Tab) : 'company'
   )
@@ -111,6 +113,19 @@ export function SettingsClient({
             </div>
             <RedditConnect companyId={company.id} />
           </div>
+        </div>
+      )}
+
+      {activeTab === 'schedule' && (
+        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
+          <div className="mb-5">
+            <h2 className="font-semibold text-white">Posting Schedule</h2>
+            <p className="text-zinc-400 text-sm mt-0.5">
+              Define prime-time slots for each channel. Approving a draft places it in the next
+              available slot. The cron job keeps Buffer's queue filled automatically.
+            </p>
+          </div>
+          <PostingSchedule companyId={company.id} />
         </div>
       )}
 

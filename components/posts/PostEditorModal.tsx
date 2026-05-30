@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { format } from 'date-fns'
-import { Bold, Italic, List, Copy, Check, Trash2, CalendarClock, Image as ImageIcon, Send } from 'lucide-react'
+import { Bold, Italic, List, Copy, Check, Trash2, CalendarClock, Image as ImageIcon, CheckCircle2 } from 'lucide-react'
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -22,7 +22,7 @@ import {
   toDatetimeLocal,
 } from '@/lib/content-status'
 
-const BUFFER_CHANNELS: Channel[] = ['linkedin', 'x', 'facebook']
+const SOCIAL_CHANNELS: Channel[] = ['linkedin', 'x', 'facebook']
 
 // ─── Formatting ribbon ───────────────────────────────────────────────────────
 
@@ -78,9 +78,8 @@ export function PostEditorModal({
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
   const [saveSuccess, setSaveSuccess] = useState(false)
-  const [bufferState, setBufferState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
-  const [bufferError, setBufferError] = useState('')
-  const [bufferQueuedAt, setBufferQueuedAt] = useState<string | null>(null)
+  const [approveState, setApproveState] = useState<'idle' | 'sending' | 'done' | 'error'>('idle')
+  const [approveError, setApproveError] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
@@ -96,9 +95,8 @@ export function PostEditorModal({
       setPendingMediaItems(null)
       setSaveError('')
       setSaveSuccess(false)
-      setBufferState('idle')
-      setBufferError('')
-      setBufferQueuedAt(null)
+      setApproveState('idle')
+      setApproveError('')
       setTab('post')
     }
   }, [post?.id, open])
@@ -178,32 +176,23 @@ export function PostEditorModal({
     setTimeout(() => setCopied(false), 2000)
   }
 
-  async function handleSendToBuffer() {
+  async function handleApprove() {
     if (!post) return
-    setBufferState('sending')
-    setBufferError('')
-    const res = await fetch('/api/buffer/publish', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ postId: post.id }),
-    })
+    setApproveState('sending')
+    setApproveError('')
+    // Save any pending content changes first
+    if (content !== post.content) await handleSave()
+    const res = await fetch(`/api/posts/${post.id}/approve`, { method: 'POST' })
     if (res.ok) {
-      const data = await res.json() as { post?: Post; scheduledFor?: string }
-      const queuedAt = data.post?.scheduled_for ?? data.scheduledFor ?? null
-      if (data.post) {
-        onUpdate?.(data.post)
-        setStatus(data.post.status as PostStatus)
-        setScheduledFor(toDatetimeLocal(data.post.scheduled_for))
-      } else if (queuedAt) {
-        setStatus('scheduled')
-        setScheduledFor(toDatetimeLocal(queuedAt))
-      }
-      setBufferQueuedAt(queuedAt)
-      setBufferState('sent')
+      const updated = await res.json() as Post
+      onUpdate?.(updated)
+      setStatus(updated.status as PostStatus)
+      setScheduledFor(toDatetimeLocal(updated.scheduled_for))
+      setApproveState('done')
     } else {
       const d = await res.json().catch(() => ({}))
-      setBufferError(typeof d.error === 'string' ? d.error : 'Failed to send to Buffer')
-      setBufferState('error')
+      setApproveError(typeof d.error === 'string' ? d.error : 'Failed to approve')
+      setApproveState('error')
     }
   }
 
@@ -381,28 +370,24 @@ export function PostEditorModal({
         <div className="px-5 py-4 border-t border-zinc-800 flex flex-col gap-2 flex-shrink-0">
           {saveSuccess && <p className="text-xs text-green-400">Saved successfully.</p>}
           {saveError && <p className="text-xs text-red-400">{saveError}</p>}
-          {bufferError && <p className="text-xs text-red-400">{bufferError}</p>}
+          {approveError && <p className="text-xs text-red-400">{approveError}</p>}
           <div className="flex items-center gap-2">
             <Button onClick={handleSave} disabled={saving} className="flex-1">
               {saving ? 'Saving…' : 'Save changes'}
             </Button>
-            {BUFFER_CHANNELS.includes(channel) && (
+            {SOCIAL_CHANNELS.includes(channel) && status === 'draft' && (
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={handleSendToBuffer}
-                disabled={bufferState === 'sending' || bufferState === 'sent'}
-                title="Send to Buffer queue"
-                className={cn(bufferState === 'sent' && 'text-green-400')}
+                onClick={handleApprove}
+                disabled={approveState === 'sending' || approveState === 'done'}
+                title="Approve — add to next available schedule slot"
+                className={cn(approveState === 'done' && 'text-green-400')}
               >
-                {bufferState === 'sent' ? <Check className="w-3.5 h-3.5" /> : <Send className="w-3.5 h-3.5" />}
-                {bufferState === 'sending'
-                  ? 'Sending…'
-                  : bufferState === 'sent'
-                    ? bufferQueuedAt
-                      ? format(new Date(bufferQueuedAt), 'MMM d · h:mm a')
-                      : 'Queued!'
-                    : 'Buffer'}
+                {approveState === 'done'
+                  ? <Check className="w-3.5 h-3.5" />
+                  : <CheckCircle2 className="w-3.5 h-3.5" />}
+                {approveState === 'sending' ? 'Scheduling…' : approveState === 'done' ? 'Scheduled!' : 'Approve'}
               </Button>
             )}
             <Button variant="secondary" size="icon" onClick={handleCopy} title="Copy">

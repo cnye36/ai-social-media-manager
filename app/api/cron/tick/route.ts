@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { publishDueContent } from '@/lib/publishing/publish-due'
+import { fillBufferQueues } from '@/lib/publishing/buffer-queue'
 import { runMonitors } from '@/lib/reddit/monitor'
 
 export const runtime = 'nodejs'
@@ -20,12 +21,11 @@ export async function GET(request: Request) {
 
   try {
     const publish = await publishDueContent(supabase)
+    // After marking posts published, refill freed Buffer queue slots
+    const bufferFill = await fillBufferQueues()
     const reddit = await runMonitors()
 
-    return NextResponse.json({
-      publish,
-      reddit,
-    })
+    return NextResponse.json({ publish, bufferFill, reddit })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Cron tick failed'
     return NextResponse.json({ error: message }, { status: 500 })

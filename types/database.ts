@@ -68,11 +68,24 @@ export interface Post {
   content_variants: Record<string, unknown>
   scheduled_for: string | null
   published_at: string | null
+  buffer_post_id: string | null
   media_items: MediaItem[]
   generation_params: Record<string, unknown>
   ai_generated: boolean
   created_at: string
   updated_at: string
+}
+
+export interface ChannelSchedule {
+  id: string
+  company_id: string
+  channel: Channel
+  day_of_week: number
+  hour: number
+  minute: number
+  timezone: string
+  enabled: boolean
+  created_at: string
 }
 
 export interface Article {

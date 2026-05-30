@@ -52,10 +52,14 @@ export async function publishDueContent(
 
   const postResults = await Promise.allSettled(
     (duePosts as Post[] | null ?? []).map(async post => {
-      await publish(post)
+      // Posts already pushed to Buffer don't need a direct publish call —
+      // Buffer will post them automatically. Just mark done and clear the slot.
+      if (!post.buffer_post_id) {
+        await publish(post)
+      }
       const { error } = await supabase
         .from('posts')
-        .update({ status: 'published', published_at: publishedAt, scheduled_for: null })
+        .update({ status: 'published', published_at: publishedAt, scheduled_for: null, buffer_post_id: null })
         .eq('id', post.id)
       if (error) throw new Error(error.message)
     }),

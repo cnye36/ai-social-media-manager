@@ -5,7 +5,14 @@ import { Check, Link2, Link2Off, RefreshCw, AlertCircle, ExternalLink } from 'lu
 import { LinkedInIcon, XIcon, FacebookIcon } from '@/components/ui/channel-icons'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import type { BufferProfile } from '@/types/database'
+import { bufferDaysCoverage } from '@/lib/scheduling/defaults'
+import type { BufferProfile, Channel } from '@/types/database'
+
+interface QueueStatus {
+  inQueue: number
+  pending: number
+  limit: number
+}
 
 const SERVICE_ICONS: Record<string, React.ReactNode> = {
   twitter:  <XIcon className="w-4 h-4" />,
@@ -27,6 +34,7 @@ interface Integration {
 
 export function BufferConnect({ companyId }: { companyId: string }) {
   const [integration, setIntegration] = useState<Integration | null | undefined>(undefined)
+  const [queueStatus, setQueueStatus] = useState<Partial<Record<Channel, QueueStatus>>>({})
   const [token, setToken] = useState('')
   const [showReconnect, setShowReconnect] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -35,7 +43,15 @@ export function BufferConnect({ companyId }: { companyId: string }) {
   useEffect(() => {
     fetch(`/api/buffer?companyId=${companyId}`)
       .then(r => r.json())
-      .then(d => setIntegration(d as Integration | null))
+      .then(d => {
+        setIntegration(d as Integration | null)
+        if (d) {
+          fetch(`/api/buffer/queue-status?companyId=${companyId}`)
+            .then(r => r.json())
+            .then(q => setQueueStatus(q as Partial<Record<Channel, QueueStatus>>))
+            .catch(() => {})
+        }
+      })
       .catch(() => setIntegration(null))
   }, [companyId])
 
@@ -112,11 +128,24 @@ export function BufferConnect({ companyId }: { companyId: string }) {
                 )}
               >
                 <span className="text-zinc-400">{SERVICE_ICONS[profile.service]}</span>
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <p className="text-xs font-medium text-white capitalize truncate">{profile.channel}</p>
                   <p className="text-[11px] text-zinc-500 truncate">@{profile.service_username}</p>
+                  {queueStatus[profile.channel] && (
+                    <p className="text-[11px] text-zinc-500 mt-0.5">
+                      <span className="text-zinc-300">{queueStatus[profile.channel]!.inQueue}</span>
+                      /{queueStatus[profile.channel]!.limit} queued
+                      <span className="text-zinc-600 mx-1">·</span>
+                      ~{bufferDaysCoverage(profile.channel)}d coverage
+                      {queueStatus[profile.channel]!.pending > 0 && (
+                        <span className="text-violet-400 ml-1.5">
+                          +{queueStatus[profile.channel]!.pending} waiting
+                        </span>
+                      )}
+                    </p>
+                  )}
                 </div>
-                <Check className="w-3 h-3 text-green-400 ml-auto flex-shrink-0" />
+                <Check className="w-3 h-3 text-green-400 flex-shrink-0" />
               </div>
             ))}
           </div>

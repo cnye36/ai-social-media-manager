@@ -91,6 +91,7 @@ const STATUS_FILTERS = [
   { id: 'new', label: 'New' },
   { id: undefined, label: 'All' },
   { id: 'drafted', label: 'Drafted' },
+  { id: 'replied', label: 'Replied' },
   { id: 'manual_review', label: 'Manual' },
   { id: 'dismissed', label: 'Dismissed' },
 ] as const
@@ -274,8 +275,11 @@ function OpportunityCard({
   const [draftContext, setDraftContext] = useState('')
   const [copied, setCopied] = useState(false)
   const [draftError, setDraftError] = useState<string | null>(null)
+  const [statusActionError, setStatusActionError] = useState<string | null>(null)
+  const [statusUpdating, setStatusUpdating] = useState(false)
 
   const isDismissed = opp.status === 'dismissed'
+  const isReplied = opp.status === 'replied'
   const postUrl = redditPostUrl(opp)
 
   // The active reply to display/copy: the edited text if editing, otherwise the saved draft
@@ -298,7 +302,10 @@ function OpportunityCard({
       if (res.ok) {
         const { draft_replies } = await res.json() as { draft_replies: ReplyVariant[] }
         setVariants(draft_replies ?? [])
-        onUpdate({ id: opp.id, status: 'drafted' })
+        onUpdate({
+          id: opp.id,
+          status: opp.status === 'new' ? 'drafted' : opp.status,
+        })
         setEditingReply(false)
       } else {
         const body = await res.json().catch(() => ({}))
@@ -322,12 +329,34 @@ function OpportunityCard({
   }
 
   async function updateStatus(status: RedditOpportunity['status']) {
-    const res = await fetch(`/api/reddit/opportunities/${opp.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status }),
-    })
-    if (res.ok) onUpdate({ id: opp.id, status })
+    setStatusUpdating(true)
+    setStatusActionError(null)
+    try {
+      const res = await fetch(`/api/reddit/opportunities/${opp.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      })
+      if (res.ok) {
+        const data = await res.json() as RedditOpportunity
+        onUpdate({
+          id: data.id,
+          status: data.status,
+          draft_reply: data.draft_reply,
+        })
+        if (status === 'replied') {
+          setVariants([])
+          setSelectedVariant(null)
+        }
+      } else {
+        const body = await res.json().catch(() => ({}))
+        setStatusActionError(
+          typeof body.error === 'string' ? body.error : 'Could not update status',
+        )
+      }
+    } finally {
+      setStatusUpdating(false)
+    }
   }
 
   async function saveReplyEdit() {
@@ -564,44 +593,64 @@ function OpportunityCard({
 
           {/* Action bar */}
           {!isDismissed && (
-            <div className="flex items-center gap-2 pt-1 flex-wrap">
-              {(opp.draft_reply || selectedVariant) && (
-                <Button
-                  size="sm"
-                  onClick={copyReply}
-                  className="bg-orange-600 hover:bg-orange-500"
-                >
-                  {copied ? <><Check className="w-3.5 h-3.5" /> Copied</> : <><Copy className="w-3.5 h-3.5" /> Copy reply</>}
-                </Button>
+            <div className="space-y-2 pt-1">
+              {statusActionError && (
+                <p className="text-xs text-red-400 bg-red-900/20 border border-red-800 rounded-lg px-3 py-2">
+                  {statusActionError}
+                </p>
               )}
-              <a
-                href={postUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-md transition-colors border border-zinc-700"
-              >
-                <ExternalLink className="w-3.5 h-3.5" /> Open post
-              </a>
-              {opp.status !== 'manual_review' && (
+              {isReplied && (
+                <p className="text-xs text-green-400/90">
+                  Marked as replied — switch to the Replied filter to find it again.
+                </p>
+              )}
+              <div className="flex items-center gap-2 flex-wrap">
+                {(opp.draft_reply || selectedVariant) && (
+                  <Button
+                    size="sm"
+                    onClick={copyReply}
+                    className="bg-orange-600 hover:bg-orange-500"
+                  >
+                    {copied ? <><Check className="w-3.5 h-3.5" /> Copied</> : <><Copy className="w-3.5 h-3.5" /> Copy reply</>}
+                  </Button>
+                )}
+                <a
+                  href={postUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-md transition-colors border border-zinc-700"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" /> Open post
+                </a>
+                {opp.status !== 'manual_review' && !isReplied && (
+                  <button
+                    type="button"
+                    disabled={statusUpdating}
+                    onClick={() => updateStatus('manual_review')}
+                    className="text-xs text-zinc-500 hover:text-yellow-400 transition-colors px-2 disabled:opacity-50"
+                  >
+                    Mark manual
+                  </button>
+                )}
+                {!isReplied && (
+                  <button
+                    type="button"
+                    disabled={statusUpdating}
+                    onClick={() => updateStatus('replied')}
+                    className="text-xs text-zinc-500 hover:text-green-400 transition-colors px-2 disabled:opacity-50"
+                  >
+                    {statusUpdating ? 'Saving…' : 'Mark replied'}
+                  </button>
+                )}
                 <button
-                  onClick={() => updateStatus('manual_review')}
-                  className="text-xs text-zinc-500 hover:text-yellow-400 transition-colors px-2"
+                  type="button"
+                  disabled={statusUpdating}
+                  onClick={() => updateStatus('dismissed')}
+                  className="ml-auto text-xs text-zinc-600 hover:text-red-400 transition-colors disabled:opacity-50"
                 >
-                  Mark manual
+                  Dismiss
                 </button>
-              )}
-              <button
-                onClick={() => updateStatus('replied')}
-                className="text-xs text-zinc-500 hover:text-green-400 transition-colors px-2"
-              >
-                Mark replied
-              </button>
-              <button
-                onClick={() => updateStatus('dismissed')}
-                className="ml-auto text-xs text-zinc-600 hover:text-red-400 transition-colors"
-              >
-                Dismiss
-              </button>
+              </div>
             </div>
           )}
         </div>
@@ -632,7 +681,12 @@ function OpportunitiesTab({ companyId }: { companyId: string }) {
   useEffect(() => { fetchOpportunities() }, [fetchOpportunities])
 
   function handleUpdate(updated: Partial<RedditOpportunity> & { id: string }) {
-    setOpportunities(prev => prev.map(o => o.id === updated.id ? { ...o, ...updated } : o))
+    setOpportunities(prev => {
+      if (statusFilter && updated.status && updated.status !== statusFilter) {
+        return prev.filter(o => o.id !== updated.id)
+      }
+      return prev.map(o => (o.id === updated.id ? { ...o, ...updated } : o))
+    })
   }
 
   return (

@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import { format } from 'date-fns'
-import { Copy, Check, Trash2, CalendarClock, Calendar } from 'lucide-react'
+import { Copy, Check, Trash2, CalendarClock, Calendar, CheckCircle2 } from 'lucide-react'
 import { PostEditorModal } from './PostEditorModal'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -10,6 +10,8 @@ import { LinkedInIcon, XIcon, RedditIcon, FacebookIcon } from '@/components/ui/c
 import { cn } from '@/lib/utils'
 import { isXThreadPost, xThreadTweetCount } from '@/lib/posts/x-format'
 import type { Post, Channel, PostStatus } from '@/types/database'
+
+const SOCIAL_CHANNELS: Channel[] = ['linkedin', 'x', 'facebook']
 
 const CHANNEL_ICONS: Record<Channel, React.ReactNode> = {
   linkedin: <LinkedInIcon className="w-3.5 h-3.5" />,
@@ -57,6 +59,8 @@ export function PostsTable({ posts: initialPosts, companyId }: PostsTableProps) 
   const [channelFilter, setChannelFilter] = useState<Channel | 'all'>('all')
   const [statusFilter, setStatusFilter] = useState<PostStatus | 'all'>('all')
   const [copiedId, setCopiedId] = useState<string | null>(null)
+  const [approvingId, setApprovingId] = useState<string | null>(null)
+  const [approveError, setApproveError] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
   const [editorPost, setEditorPost] = useState<Post | null>(null)
   const [editorOpen, setEditorOpen] = useState(false)
@@ -88,6 +92,19 @@ export function PostsTable({ posts: initialPosts, companyId }: PostsTableProps) 
         setPosts(prev => prev.map(p => p.id === post.id ? { ...p, status: nextStatus } : p))
       }
     })
+  }
+
+  async function handleApprove(post: Post) {
+    setApprovingId(post.id)
+    setApproveError(null)
+    const res = await fetch(`/api/posts/${post.id}/approve`, { method: 'POST' })
+    const data = await res.json() as Post & { error?: string }
+    if (res.ok) {
+      setPosts(prev => prev.map(p => p.id === post.id ? data : p))
+    } else {
+      setApproveError(data.error ?? 'Failed to approve')
+    }
+    setApprovingId(null)
   }
 
   async function handleDelete(postId: string) {
@@ -145,10 +162,15 @@ export function PostsTable({ posts: initialPosts, companyId }: PostsTableProps) 
         </div>
       </div>
 
-      {/* Post count */}
+      {/* Post count + approve errors */}
       <p className="text-sm text-zinc-500">
         {filtered.length} post{filtered.length !== 1 ? 's' : ''}
       </p>
+      {approveError && (
+        <p className="text-xs text-red-400 bg-red-400/10 border border-red-400/20 rounded-lg px-3 py-2">
+          {approveError}
+        </p>
+      )}
 
       {/* Table */}
       {filtered.length === 0 ? (
@@ -203,6 +225,17 @@ export function PostsTable({ posts: initialPosts, companyId }: PostsTableProps) 
 
               {/* Actions */}
               <div className="flex items-center gap-1 flex-shrink-0">
+                {post.status === 'draft' && SOCIAL_CHANNELS.includes(post.channel as Channel) && (
+                  <button
+                    onClick={() => handleApprove(post)}
+                    disabled={approvingId === post.id}
+                    className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-violet-600/20 text-violet-300 hover:bg-violet-600/40 transition-colors disabled:opacity-50"
+                    title="Approve — schedule in next available slot"
+                  >
+                    <CheckCircle2 className="w-3 h-3" />
+                    {approvingId === post.id ? '…' : 'Approve'}
+                  </button>
+                )}
                 {(post.status === 'draft' || post.status === 'scheduled') && (
                   <button
                     onClick={() => { setEditorPost(post); setEditorOpen(true) }}
