@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { fetchBufferProfiles } from '@/lib/publishing/buffer'
+import { fetchBufferProfilesWithOrganization } from '@/lib/publishing/buffer'
 
 // GET  /api/buffer?companyId=xxx  — fetch current integration (profiles only, token redacted)
 // POST /api/buffer                — connect with a pasted access token
@@ -42,9 +42,9 @@ export async function POST(req: NextRequest) {
   if (!company) return NextResponse.json({ error: 'Company not found' }, { status: 404 })
 
   // Validate token and fetch profiles
-  let profiles
+  let bufferResult
   try {
-    profiles = await fetchBufferProfiles(accessToken, organizationId)
+    bufferResult = await fetchBufferProfilesWithOrganization(accessToken, organizationId)
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 400 })
   }
@@ -54,13 +54,13 @@ export async function POST(req: NextRequest) {
     .upsert({
       company_id: companyId,
       access_token: accessToken,
-      ...(organizationId ? { organization_id: organizationId } : {}),
-      profiles,
+      ...(bufferResult.organizationId ? { organization_id: bufferResult.organizationId } : {}),
+      profiles: bufferResult.profiles,
       connected_at: new Date().toISOString(),
     })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ profiles })
+  return NextResponse.json({ profiles: bufferResult.profiles })
 }
 
 export async function DELETE(req: NextRequest) {

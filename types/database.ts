@@ -161,6 +161,7 @@ export interface BufferIntegration {
   id: string
   company_id: string
   access_token: string
+  organization_id: string | null
   profiles: BufferProfile[]
   connected_at: string
 }

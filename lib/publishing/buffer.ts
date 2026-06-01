@@ -31,6 +31,11 @@ interface McpEnvelope<T = unknown> {
   error?: { code: number; message: string }
 }
 
+export interface BufferProfilesResult {
+  profiles: BufferProfile[]
+  organizationId?: string
+}
+
 async function mcpFetch<T>(
   token: string,
   body: object,
@@ -122,11 +127,132 @@ async function callTool(
   return extractContent(result)
 }
 
+function schemaRequires(schema: McpTool['inputSchema'] | undefined, key: string): boolean {
+  return schema?.required?.includes(key) ?? false
+}
+
+function firstString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value : undefined
+}
+
+function extractOrganizationId(data: unknown): string | undefined {
+  const directKeys = ['organizationId', 'organization_id', 'orgId', 'org_id', 'workspaceId', 'workspace_id']
+
+  function visit(obj: unknown): string | undefined {
+    if (!obj || typeof obj !== 'object') return undefined
+    if (Array.isArray(obj)) {
+      for (const item of obj) {
+        const found = visit(item)
+        if (found) return found
+      }
+      return undefined
+    }
+
+    const record = obj as Record<string, unknown>
+    for (const key of directKeys) {
+      const found = firstString(record[key])
+      if (found) return found
+    }
+
+    for (const key of ['organization', 'org', 'workspace', 'account']) {
+      const nested = record[key]
+      if (nested && typeof nested === 'object') {
+        const found = visit(nested)
+        if (found) return found
+
+        const nestedId = firstString((nested as Record<string, unknown>).id)
+        if (nestedId) return nestedId
+      }
+    }
+
+    const type = String(record.type ?? record.kind ?? '').toLowerCase()
+    if (/organi[sz]ation|workspace|account/.test(type)) {
+      const id = firstString(record.id)
+      if (id) return id
+    }
+
+    for (const value of Object.values(record)) {
+      const found = visit(value)
+      if (found) return found
+    }
+
+    return undefined
+  }
+
+  const found = visit(data)
+  if (found) return found
+
+  if (Array.isArray(data) && data.length === 1) {
+    return firstString((data[0] as Record<string, unknown> | undefined)?.id)
+  }
+  if (data && typeof data === 'object') {
+    return firstString((data as Record<string, unknown>).id)
+  }
+
+  return undefined
+}
+
+async function discoverOrganizationId(
+  token: string,
+  tools: McpTool[],
+  sessionId?: string
+): Promise<string | undefined> {
+  const exactNames = [
+    'list_organizations', 'get_organizations', 'organizations',
+    'list_workspaces', 'get_workspaces', 'workspaces',
+    'get_current_organization', 'current_organization',
+    'get_account', 'account', 'me', 'whoami', 'get_user',
+  ]
+  const candidates = [
+    ...exactNames
+      .map(name => tools.find(tool => tool.name === name))
+      .filter((tool): tool is McpTool => Boolean(tool)),
+    ...tools.filter(tool =>
+      /organi[sz]ation|workspace|account|whoami|\bme\b|user/i.test(tool.name) &&
+      !exactNames.includes(tool.name)
+    ),
+  ]
+
+  for (const tool of candidates) {
+    try {
+      const data = await callTool(token, tool.name, {}, sessionId)
+      const organizationId = extractOrganizationId(data)
+      if (organizationId) return organizationId
+    } catch {
+      // Some discovery tools require arguments or scopes; try the next candidate.
+    }
+  }
+
+  return undefined
+}
+
+function buildChannelArgs(schema: McpTool['inputSchema'] | undefined, organizationId?: string): Record<string, unknown> {
+  const props = schema?.properties ?? {}
+  const args: Record<string, unknown> = {}
+
+  if (organizationId) {
+    if ('organizationId' in props || !schema) args.organizationId = organizationId
+    if ('organization_id' in props) args.organization_id = organizationId
+  }
+  if (organizationId && !Object.keys(args).length) args.organizationId = organizationId
+
+  if (
+    !organizationId &&
+    (schemaRequires(schema, 'organizationId') || schemaRequires(schema, 'organization_id'))
+  ) {
+    throw new Error(
+      'Buffer requires an organization ID for this API key, but none could be detected. Recreate the MCP key in Buffer and try again.'
+    )
+  }
+
+  return args
+}
+
 /** Map our post to Buffer MCP `create_post` args (GraphQL CreatePostInput). */
 function buildCreatePostArgs(
   post: Post,
   profile: { id: string },
-  organizationId: string,
+  organizationId: string | null | undefined,
   schema?: McpTool['inputSchema']
 ): Record<string, unknown> {
   const props = schema?.properties ?? {}
@@ -159,7 +285,7 @@ function buildCreatePostArgs(
   if (has('scheduling_type')) args.scheduling_type = schedulingType
   if (has('mode')) args.mode = mode
   if (has('assets')) args.assets = assets
-  if (has('organizationId')) args.organizationId = organizationId
+  if (organizationId && has('organizationId')) args.organizationId = organizationId
 
   if (threadMetadata) {
     // Always include thread metadata — required for multi-tweet X posts
@@ -181,7 +307,7 @@ function buildCreatePostArgs(
       schedulingType,
       mode,
       assets,
-      organizationId,
+      ...(organizationId ? { organizationId } : {}),
       ...(threadMetadata ? { metadata: threadMetadata } : {}),
       ...(scheduled ? { dueAt: scheduled } : {}),
     }
@@ -260,6 +386,13 @@ export async function fetchBufferProfiles(
   accessToken: string,
   organizationId?: string
 ): Promise<BufferProfile[]> {
+  return (await fetchBufferProfilesWithOrganization(accessToken, organizationId)).profiles
+}
+
+export async function fetchBufferProfilesWithOrganization(
+  accessToken: string,
+  organizationId?: string
+): Promise<BufferProfilesResult> {
   const sessionId = await initSession(accessToken)
   const tools = await listTools(accessToken, sessionId)
 
@@ -276,7 +409,8 @@ export async function fetchBufferProfiles(
     throw new Error(`No channel-listing tool found. Available: ${tools.map(t => t.name).join(', ')}`)
   }
 
-  const channelArgs = organizationId ? { organizationId } : {}
+  const resolvedOrganizationId = organizationId ?? await discoverOrganizationId(accessToken, tools, sessionId)
+  const channelArgs = buildChannelArgs(channelTool.inputSchema, resolvedOrganizationId)
   const data = await callTool(accessToken, channelTool.name, channelArgs, sessionId)
 
   const items: unknown[] = Array.isArray(data)
@@ -306,7 +440,7 @@ export async function fetchBufferProfiles(
       `No supported profiles found. Raw list_channels response: ${JSON.stringify(data).slice(0, 600)}`
     )
   }
-  return profiles
+  return { profiles, organizationId: resolvedOrganizationId }
 }
 
 export async function getBufferIntegration(companyId: string) {
@@ -316,7 +450,7 @@ export async function getBufferIntegration(companyId: string) {
     .select('*')
     .eq('company_id', companyId)
     .maybeSingle()
-  return data as { access_token: string; organization_id: string; profiles: BufferProfile[] } | null
+  return data as { access_token: string; organization_id: string | null; profiles: BufferProfile[] } | null
 }
 
 export async function publishViaBuffer(post: Post): Promise<PublishResult> {
@@ -342,10 +476,14 @@ export async function publishViaBuffer(post: Post): Promise<PublishResult> {
     throw new Error(`No post-creation tool found. Available: ${tools.map(t => t.name).join(', ')}`)
   }
 
+  const organizationId = integration.organization_id ?? await discoverOrganizationId(
+    integration.access_token, tools, sessionId
+  )
+
   const args = buildCreatePostArgs(
     post,
     profile,
-    integration.organization_id,
+    organizationId,
     createTool.inputSchema
   )
 
