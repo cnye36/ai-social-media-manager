@@ -135,68 +135,60 @@ function firstString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value : undefined
 }
 
-function extractOrganizationId(data: unknown): string | undefined {
+function extractOrganizationIds(data: unknown): string[] {
   const directKeys = ['organizationId', 'organization_id', 'orgId', 'org_id', 'workspaceId', 'workspace_id']
+  const ids = new Set<string>()
 
-  function visit(obj: unknown): string | undefined {
-    if (!obj || typeof obj !== 'object') return undefined
+  const add = (value: unknown) => {
+    const id = firstString(value)
+    if (id) ids.add(id)
+  }
+
+  function visit(obj: unknown): void {
+    if (!obj || typeof obj !== 'object') return
     if (Array.isArray(obj)) {
-      for (const item of obj) {
-        const found = visit(item)
-        if (found) return found
-      }
-      return undefined
+      obj.forEach(visit)
+      return
     }
 
     const record = obj as Record<string, unknown>
     for (const key of directKeys) {
-      const found = firstString(record[key])
-      if (found) return found
+      add(record[key])
     }
 
     for (const key of ['organization', 'org', 'workspace', 'account']) {
       const nested = record[key]
       if (nested && typeof nested === 'object') {
-        const found = visit(nested)
-        if (found) return found
-
-        const nestedId = firstString((nested as Record<string, unknown>).id)
-        if (nestedId) return nestedId
+        visit(nested)
+        add((nested as Record<string, unknown>).id)
       }
     }
 
     const type = String(record.type ?? record.kind ?? '').toLowerCase()
     if (/organi[sz]ation|workspace|account/.test(type)) {
-      const id = firstString(record.id)
-      if (id) return id
+      add(record.id)
     }
 
-    for (const value of Object.values(record)) {
-      const found = visit(value)
-      if (found) return found
-    }
-
-    return undefined
+    Object.values(record).forEach(visit)
   }
 
-  const found = visit(data)
-  if (found) return found
+  visit(data)
 
   if (Array.isArray(data) && data.length === 1) {
-    return firstString((data[0] as Record<string, unknown> | undefined)?.id)
+    add((data[0] as Record<string, unknown> | undefined)?.id)
   }
   if (data && typeof data === 'object') {
-    return firstString((data as Record<string, unknown>).id)
+    add((data as Record<string, unknown>).id)
   }
 
-  return undefined
+  return [...ids]
 }
 
-async function discoverOrganizationId(
+async function discoverOrganizationIds(
   token: string,
   tools: McpTool[],
   sessionId?: string
-): Promise<string | undefined> {
+): Promise<string[]> {
   const exactNames = [
     'list_organizations', 'get_organizations', 'organizations',
     'list_workspaces', 'get_workspaces', 'workspaces',
@@ -212,18 +204,18 @@ async function discoverOrganizationId(
       !exactNames.includes(tool.name)
     ),
   ]
+  const ids = new Set<string>()
 
   for (const tool of candidates) {
     try {
       const data = await callTool(token, tool.name, {}, sessionId)
-      const organizationId = extractOrganizationId(data)
-      if (organizationId) return organizationId
+      extractOrganizationIds(data).forEach(id => ids.add(id))
     } catch {
       // Some discovery tools require arguments or scopes; try the next candidate.
     }
   }
 
-  return undefined
+  return [...ids]
 }
 
 function buildChannelArgs(schema: McpTool['inputSchema'] | undefined, organizationId?: string): Record<string, unknown> {
@@ -246,6 +238,39 @@ function buildChannelArgs(schema: McpTool['inputSchema'] | undefined, organizati
   }
 
   return args
+}
+
+function extractProfileItems(data: unknown): unknown[] {
+  if (Array.isArray(data)) return data
+  if (!data || typeof data !== 'object') return []
+
+  const record = data as Record<string, unknown>
+  for (const key of ['channels', 'profiles', 'items', 'data', 'nodes']) {
+    if (Array.isArray(record[key])) return record[key] as unknown[]
+  }
+
+  return []
+}
+
+function parseBufferProfiles(data: unknown): BufferProfile[] {
+  const profiles: BufferProfile[] = []
+
+  for (const p of extractProfileItems(data) as Array<Record<string, string>>) {
+    const raw = (
+      p.service ?? p.service_type ?? p.platform ?? p.type ??
+      p.network ?? p.channel_type ?? p.provider ?? ''
+    ).toLowerCase()
+    const channel = SERVICE_TO_CHANNEL[raw]
+    if (!channel) continue
+    profiles.push({
+      id: p.id ?? p.channel_id ?? '',
+      service: raw as BufferProfile['service'],
+      service_username: p.service_username ?? p.username ?? p.handle ?? p.display_name ?? p.name ?? '',
+      channel,
+    })
+  }
+
+  return profiles
 }
 
 /** Map our post to Buffer MCP `create_post` args (GraphQL CreatePostInput). */
@@ -409,38 +434,49 @@ export async function fetchBufferProfilesWithOrganization(
     throw new Error(`No channel-listing tool found. Available: ${tools.map(t => t.name).join(', ')}`)
   }
 
-  const resolvedOrganizationId = organizationId ?? await discoverOrganizationId(accessToken, tools, sessionId)
-  const channelArgs = buildChannelArgs(channelTool.inputSchema, resolvedOrganizationId)
-  const data = await callTool(accessToken, channelTool.name, channelArgs, sessionId)
+  const discoveredOrganizationIds = organizationId
+    ? []
+    : await discoverOrganizationIds(accessToken, tools, sessionId)
+  const organizationIds = [
+    ...new Set([organizationId, ...discoveredOrganizationIds].filter(Boolean) as string[]),
+  ]
+  const requiresOrganizationId =
+    schemaRequires(channelTool.inputSchema, 'organizationId') ||
+    schemaRequires(channelTool.inputSchema, 'organization_id')
 
-  const items: unknown[] = Array.isArray(data)
-    ? data
-    : (data as Record<string, unknown[]>).channels
-      ?? (data as Record<string, unknown[]>).profiles
-      ?? []
+  const attempts: Array<{ organizationId?: string; args: Record<string, unknown> }> = [
+    ...organizationIds.map(id => ({ organizationId: id, args: buildChannelArgs(channelTool.inputSchema, id) })),
+    ...(requiresOrganizationId ? [] : [{ args: buildChannelArgs(channelTool.inputSchema) }]),
+  ]
 
-  const profiles: BufferProfile[] = []
-  for (const p of items as Array<Record<string, string>>) {
-    const raw = (
-      p.service ?? p.service_type ?? p.platform ?? p.type ??
-      p.network ?? p.channel_type ?? p.provider ?? ''
-    ).toLowerCase()
-    const channel = SERVICE_TO_CHANNEL[raw]
-    if (!channel) continue
-    profiles.push({
-      id: p.id ?? p.channel_id ?? '',
-      service: raw as BufferProfile['service'],
-      service_username: p.service_username ?? p.username ?? p.handle ?? p.display_name ?? p.name ?? '',
-      channel,
-    })
-  }
-
-  if (!profiles.length) {
+  if (!attempts.length) {
     throw new Error(
-      `No supported profiles found. Raw list_channels response: ${JSON.stringify(data).slice(0, 600)}`
+      'Buffer requires an organization ID for this API key, but none could be detected. Recreate the MCP key in Buffer and try again.'
     )
   }
-  return { profiles, organizationId: resolvedOrganizationId }
+
+  let lastData: unknown = []
+  let lastError: Error | undefined
+  for (const attempt of attempts) {
+    try {
+      const data = await callTool(accessToken, channelTool.name, attempt.args, sessionId)
+      const profiles = parseBufferProfiles(data)
+      if (profiles.length) {
+        return { profiles, organizationId: attempt.organizationId }
+      }
+      lastData = data
+    } catch (err) {
+      lastError = err as Error
+    }
+  }
+
+  if (lastError && JSON.stringify(lastData) === '[]') {
+    throw lastError
+  }
+
+  throw new Error(
+    `No supported profiles found. Raw list_channels response: ${JSON.stringify(lastData).slice(0, 600)}`
+  )
 }
 
 export async function getBufferIntegration(companyId: string) {
@@ -476,9 +512,9 @@ export async function publishViaBuffer(post: Post): Promise<PublishResult> {
     throw new Error(`No post-creation tool found. Available: ${tools.map(t => t.name).join(', ')}`)
   }
 
-  const organizationId = integration.organization_id ?? await discoverOrganizationId(
-    integration.access_token, tools, sessionId
-  )
+  const organizationId = integration.organization_id ?? (
+    await discoverOrganizationIds(integration.access_token, tools, sessionId)
+  )[0]
 
   const args = buildCreatePostArgs(
     post,
