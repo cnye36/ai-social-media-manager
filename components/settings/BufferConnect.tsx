@@ -36,6 +36,7 @@ export function BufferConnect({ companyId }: { companyId: string }) {
   const [integration, setIntegration] = useState<Integration | null | undefined>(undefined)
   const [queueStatus, setQueueStatus] = useState<Partial<Record<Channel, QueueStatus>>>({})
   const [token, setToken] = useState('')
+  const [organizationId, setOrganizationId] = useState('')
   const [showReconnect, setShowReconnect] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -62,7 +63,11 @@ export function BufferConnect({ companyId }: { companyId: string }) {
     const res = await fetch('/api/buffer', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ companyId, accessToken: token.trim() }),
+      body: JSON.stringify({
+        companyId,
+        accessToken: token.trim(),
+        organizationId: organizationId.trim() || undefined,
+      }),
     })
     const data = await res.json() as { profiles?: BufferProfile[]; error?: string }
     setLoading(false)
@@ -72,6 +77,7 @@ export function BufferConnect({ companyId }: { companyId: string }) {
     }
     setIntegration({ id: '', profiles: data.profiles ?? [], connected_at: new Date().toISOString() })
     setToken('')
+    setOrganizationId('')
     setShowReconnect(false)
   }
 
@@ -81,6 +87,7 @@ export function BufferConnect({ companyId }: { companyId: string }) {
     await fetch(`/api/buffer?companyId=${companyId}`, { method: 'DELETE' })
     setIntegration(null)
     setToken('')
+    setOrganizationId('')
     setShowReconnect(false)
     setLoading(false)
   }
@@ -190,6 +197,20 @@ export function BufferConnect({ companyId }: { companyId: string }) {
               >
                 publish.buffer.com/settings/integrations/mcp <ExternalLink className="w-2.5 h-2.5" />
               </a>
+            </p>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs text-zinc-400 font-medium">Buffer organization ID</label>
+            <input
+              value={organizationId}
+              onChange={e => setOrganizationId(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleConnect()}
+              placeholder="Paste your organization ID"
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-violet-500/60"
+            />
+            <p className="text-[11px] text-zinc-600 leading-relaxed">
+              Use the organization ID shown on the same Buffer MCP integration page. This helps match the API key to the right workspace.
             </p>
           </div>
 

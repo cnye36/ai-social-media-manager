@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { scheduleViaBufferIfConnected } from '@/lib/publishing/buffer-schedule'
+import type { Post } from '@/types/database'
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
@@ -69,5 +71,25 @@ export async function POST(request: Request) {
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  if (data.status === 'scheduled' && data.scheduled_for && !data.buffer_post_id) {
+    try {
+      const bufferUpdates = await scheduleViaBufferIfConnected(data as Post)
+      if (Object.keys(bufferUpdates).length > 0) {
+        const { data: updated, error: updateError } = await supabase
+          .from('posts')
+          .update(bufferUpdates)
+          .eq('id', data.id)
+          .select()
+          .single()
+        if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 })
+        return NextResponse.json(updated, { status: 201 })
+      }
+    } catch (err) {
+      await supabase.from('posts').delete().eq('id', data.id)
+      return NextResponse.json({ error: (err as Error).message }, { status: 400 })
+    }
+  }
+
   return NextResponse.json(data, { status: 201 })
 }

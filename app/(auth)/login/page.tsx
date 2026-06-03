@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { getSiteUrl } from '@/lib/site-url'
 
+type Mode = 'signin' | 'signup'
+
 export default function LoginPage() {
   useEffect(() => {
     const site = process.env.NEXT_PUBLIC_SITE_URL
@@ -16,19 +18,45 @@ export default function LoginPage() {
     }
   }, [])
 
+  const [mode, setMode] = useState<Mode>('signin')
   const [email, setEmail] = useState('')
-  const [sent, setSent] = useState(false)
+  const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [signedUp, setSignedUp] = useState(false)
 
-  async function handleMagicLink(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    setError('')
     setLoading(true)
     const supabase = createClient()
-    await supabase.auth.signInWithOtp({
-      email,
-      options: { emailRedirectTo: `${getSiteUrl()}/auth/callback` },
-    })
-    setSent(true)
+
+    if (mode === 'signup') {
+      if (password !== confirmPassword) {
+        setError('Passwords do not match')
+        setLoading(false)
+        return
+      }
+      const { error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: { emailRedirectTo: `${getSiteUrl()}/auth/callback` },
+      })
+      if (error) {
+        setError(error.message)
+      } else {
+        setSignedUp(true)
+      }
+    } else {
+      const { error } = await supabase.auth.signInWithPassword({ email, password })
+      if (error) {
+        setError(error.message)
+      } else {
+        window.location.href = '/'
+      }
+    }
+
     setLoading(false)
   }
 
@@ -40,6 +68,14 @@ export default function LoginPage() {
     })
   }
 
+  function switchMode(next: Mode) {
+    setMode(next)
+    setError('')
+    setPassword('')
+    setConfirmPassword('')
+    setSignedUp(false)
+  }
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-zinc-950">
       <div className="w-full max-w-md p-8 bg-zinc-900 rounded-2xl border border-zinc-800 shadow-xl">
@@ -48,11 +84,19 @@ export default function LoginPage() {
           <p className="text-zinc-400 mt-1 text-sm">AI-powered content for every channel</p>
         </div>
 
-        {sent ? (
+        {signedUp ? (
           <div className="text-center py-6">
             <div className="text-4xl mb-3">📬</div>
-            <p className="text-white font-medium">Check your email</p>
-            <p className="text-zinc-400 text-sm mt-1">We sent a magic link to <strong>{email}</strong></p>
+            <p className="text-white font-medium">Confirm your email</p>
+            <p className="text-zinc-400 text-sm mt-1">
+              We sent a confirmation link to <strong>{email}</strong>
+            </p>
+            <button
+              onClick={() => switchMode('signin')}
+              className="mt-4 text-violet-400 text-sm hover:text-violet-300 transition-colors"
+            >
+              Back to sign in
+            </button>
           </div>
         ) : (
           <div className="space-y-4">
@@ -70,7 +114,30 @@ export default function LoginPage() {
               <div className="flex-1 h-px bg-zinc-800" />
             </div>
 
-            <form onSubmit={handleMagicLink} className="space-y-3">
+            <div className="flex rounded-lg overflow-hidden border border-zinc-700">
+              <button
+                onClick={() => switchMode('signin')}
+                className={`flex-1 py-2 text-sm font-medium transition-colors ${
+                  mode === 'signin'
+                    ? 'bg-zinc-700 text-white'
+                    : 'text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                Sign In
+              </button>
+              <button
+                onClick={() => switchMode('signup')}
+                className={`flex-1 py-2 text-sm font-medium transition-colors ${
+                  mode === 'signup'
+                    ? 'bg-zinc-700 text-white'
+                    : 'text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                Sign Up
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmit} className="space-y-3">
               <input
                 type="email"
                 value={email}
@@ -79,12 +146,37 @@ export default function LoginPage() {
                 required
                 className="w-full px-4 py-2.5 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent"
               />
+              <input
+                type="password"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                placeholder="Password"
+                required
+                minLength={6}
+                className="w-full px-4 py-2.5 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent"
+              />
+              {mode === 'signup' && (
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={e => setConfirmPassword(e.target.value)}
+                  placeholder="Confirm password"
+                  required
+                  minLength={6}
+                  className="w-full px-4 py-2.5 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent"
+                />
+              )}
+              {error && (
+                <p className="text-red-400 text-sm">{error}</p>
+              )}
               <button
                 type="submit"
                 disabled={loading}
                 className="w-full px-4 py-2.5 bg-violet-600 text-white rounded-lg font-medium hover:bg-violet-500 transition-colors disabled:opacity-50"
               >
-                {loading ? 'Sending...' : 'Send Magic Link'}
+                {loading
+                  ? mode === 'signup' ? 'Creating account...' : 'Signing in...'
+                  : mode === 'signup' ? 'Create Account' : 'Sign In'}
               </button>
             </form>
           </div>

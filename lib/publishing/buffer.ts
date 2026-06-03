@@ -4,6 +4,7 @@ import type { Post, Channel, BufferProfile } from '@/types/database'
 import type { PublishResult } from './types'
 
 const BUFFER_MCP = 'https://mcp.buffer.com/mcp'
+const BUFFER_GRAPHQL = 'https://api.buffer.com'
 const MCP_VERSION = '2024-11-05'
 
 export const SERVICE_TO_CHANNEL: Record<string, Channel> = {
@@ -29,6 +30,11 @@ interface McpTool {
 interface McpEnvelope<T = unknown> {
   result?: T
   error?: { code: number; message: string }
+}
+
+interface GraphqlEnvelope<T = unknown> {
+  data?: T
+  errors?: Array<{ message?: string; extensions?: { retryAfter?: number; code?: string } }>
 }
 
 export interface BufferProfilesResult {
@@ -125,6 +131,35 @@ async function callTool(
     sessionId
   )
   return extractContent(result)
+}
+
+async function bufferGraphql<T>(
+  token: string,
+  query: string,
+  variables?: Record<string, unknown>
+): Promise<T> {
+  const res = await fetch(BUFFER_GRAPHQL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ query, variables }),
+  })
+
+  const envelope = await res.json().catch(async () => ({
+    errors: [{ message: await res.text() }],
+  })) as GraphqlEnvelope<T>
+
+  if (!res.ok || envelope.errors?.length) {
+    const first = envelope.errors?.[0]
+    const retryAfter = first?.extensions?.retryAfter
+    const wait = retryAfter ? ` Try again in ${Math.ceil(retryAfter / 60)} minutes.` : ''
+    throw new Error(`Buffer API${res.ok ? '' : ` (${res.status})`}: ${first?.message ?? res.statusText}${wait}`)
+  }
+
+  if (!envelope.data) throw new Error('Buffer API returned no data')
+  return envelope.data
 }
 
 function schemaRequires(schema: McpTool['inputSchema'] | undefined, key: string): boolean {
@@ -265,7 +300,7 @@ function parseBufferProfiles(data: unknown): BufferProfile[] {
     profiles.push({
       id: p.id ?? p.channel_id ?? '',
       service: raw as BufferProfile['service'],
-      service_username: p.service_username ?? p.username ?? p.handle ?? p.display_name ?? p.name ?? '',
+      service_username: p.service_username ?? p.username ?? p.handle ?? p.displayName ?? p.display_name ?? p.name ?? '',
       channel,
     })
   }
@@ -339,6 +374,29 @@ function buildCreatePostArgs(
   }
 
   return args
+}
+
+function buildCreatePostInput(post: Post, profile: { id: string }): Record<string, unknown> {
+  const scheduled = post.scheduled_for ? new Date(post.scheduled_for).toISOString() : undefined
+  const xThread = post.channel === 'x' && isXThreadPost(post)
+    ? buildXThreadBufferPayload(post)
+    : null
+  const image = post.media_items?.find(m => m.type === 'image' && m.url)
+  const assets = xThread
+    ? xThread.assets
+    : image?.url
+      ? mediaToBufferAssets(image)
+      : []
+
+  return {
+    channelId: profile.id,
+    text: xThread ? xThread.text : post.content,
+    schedulingType: 'automatic',
+    mode: scheduled ? 'customScheduled' : 'addToQueue',
+    ...(assets.length ? { assets } : {}),
+    ...(xThread?.metadata ? { metadata: xThread.metadata } : {}),
+    ...(scheduled ? { dueAt: scheduled } : {}),
+  }
 }
 
 /** Extract Buffer post id and queue slot from create_post / get_post payloads. */
@@ -418,64 +476,34 @@ export async function fetchBufferProfilesWithOrganization(
   accessToken: string,
   organizationId?: string
 ): Promise<BufferProfilesResult> {
-  const sessionId = await initSession(accessToken)
-  const tools = await listTools(accessToken, sessionId)
-
-  if (!tools.length) {
-    throw new Error('Buffer MCP returned no tools. Check that your token has the right scopes.')
-  }
-
-  const channelTool = pickTool(tools, [
-    'list_channels', 'get_channels', 'channels',
-    'list_profiles', 'get_profiles', 'profiles',
-  ])
-
-  if (!channelTool) {
-    throw new Error(`No channel-listing tool found. Available: ${tools.map(t => t.name).join(', ')}`)
-  }
-
-  const discoveredOrganizationIds = organizationId
-    ? []
-    : await discoverOrganizationIds(accessToken, tools, sessionId)
-  const organizationIds = [
-    ...new Set([organizationId, ...discoveredOrganizationIds].filter(Boolean) as string[]),
-  ]
-  const requiresOrganizationId =
-    schemaRequires(channelTool.inputSchema, 'organizationId') ||
-    schemaRequires(channelTool.inputSchema, 'organization_id')
-
-  const attempts: Array<{ organizationId?: string; args: Record<string, unknown> }> = [
-    ...organizationIds.map(id => ({ organizationId: id, args: buildChannelArgs(channelTool.inputSchema, id) })),
-    ...(requiresOrganizationId ? [] : [{ args: buildChannelArgs(channelTool.inputSchema) }]),
-  ]
-
-  if (!attempts.length) {
+  if (!organizationId) {
     throw new Error(
-      'Buffer requires an organization ID for this API key, but none could be detected. Recreate the MCP key in Buffer and try again.'
+      'Buffer organization ID is required. Copy it from Buffer Settings > API and paste it with the API key.'
     )
   }
 
-  let lastData: unknown = []
-  let lastError: Error | undefined
-  for (const attempt of attempts) {
-    try {
-      const data = await callTool(accessToken, channelTool.name, attempt.args, sessionId)
-      const profiles = parseBufferProfiles(data)
-      if (profiles.length) {
-        return { profiles, organizationId: attempt.organizationId }
+  const data = await bufferGraphql<{ channels: Array<Record<string, string>> }>(
+    accessToken,
+    `
+      query GetChannels($orgId: String!) {
+        channels(input: { organizationId: $orgId }) {
+          id
+          name
+          displayName
+          service
+          avatar
+          isQueuePaused
+        }
       }
-      lastData = data
-    } catch (err) {
-      lastError = err as Error
-    }
-  }
+    `,
+    { orgId: organizationId }
+  )
 
-  if (lastError && JSON.stringify(lastData) === '[]') {
-    throw lastError
-  }
+  const profiles = parseBufferProfiles(data)
+  if (profiles.length) return { profiles, organizationId }
 
   throw new Error(
-    `No supported profiles found. Raw list_channels response: ${JSON.stringify(lastData).slice(0, 600)}`
+    `No supported profiles found. Raw channels response: ${JSON.stringify(data.channels ?? []).slice(0, 600)}`
   )
 }
 
@@ -500,46 +528,40 @@ export async function publishViaBuffer(post: Post): Promise<PublishResult> {
     )
   }
 
-  const sessionId = await initSession(integration.access_token)
-  const tools = await listTools(integration.access_token, sessionId)
-
-  const createTool = pickTool(tools, [
-    'create_post', 'create_update', 'schedule_post',
-    'publish_post', 'create_draft', 'add_to_queue', 'queue_post',
-  ])
-
-  if (!createTool) {
-    throw new Error(`No post-creation tool found. Available: ${tools.map(t => t.name).join(', ')}`)
-  }
-
-  const organizationId = integration.organization_id ?? (
-    await discoverOrganizationIds(integration.access_token, tools, sessionId)
-  )[0]
-
-  const args = buildCreatePostArgs(
-    post,
-    profile,
-    organizationId,
-    createTool.inputSchema
+  const input = buildCreatePostInput(post, profile)
+  const data = await bufferGraphql<{
+    createPost?: {
+      __typename?: string
+      message?: string
+      post?: { id?: string; dueAt?: string | null }
+    }
+  }>(
+    integration.access_token,
+    `
+      mutation CreatePost($input: CreatePostInput!) {
+        createPost(input: $input) {
+          __typename
+          ... on PostActionSuccess {
+            post {
+              id
+              dueAt
+            }
+          }
+          ... on MutationError {
+            message
+          }
+        }
+      }
+    `,
+    { input }
   )
 
-  const result = await callTool(integration.access_token, createTool.name, args, sessionId)
+  const result = data.createPost
+  if (!result) throw new Error('Buffer API returned no createPost result')
+  if (result.message) throw new Error(`Buffer rejected the post: ${result.message}`)
 
-  // Surface any error string the MCP returned instead of silently succeeding
-  if (typeof result === 'string' && result.length > 0) {
-    const lower = result.toLowerCase()
-    if (lower.includes('error') || lower.includes('failed') || lower.includes('invalid')) {
-      throw new Error(`Buffer rejected the post: ${result}`)
-    }
-  }
-
-  let { postId: platformPostId, dueAt } = parseBufferPostMeta(result)
-
-  if (!dueAt && platformPostId) {
-    dueAt = await fetchBufferPostDueAt(
-      integration.access_token, platformPostId, tools, sessionId
-    )
-  }
+  const platformPostId = result.post?.id
+  const dueAt = result.post?.dueAt ?? undefined
 
   return {
     success: true,

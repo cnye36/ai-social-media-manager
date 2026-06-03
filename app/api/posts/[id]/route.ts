@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { scheduleViaBufferIfConnected } from '@/lib/publishing/buffer-schedule'
+import type { Post } from '@/types/database'
 
 export async function GET(
   _request: Request,
@@ -53,6 +55,13 @@ export async function PATCH(
   if (ownership === 'not_found') return NextResponse.json({ error: 'Not found' }, { status: 404 })
   if (ownership === 'forbidden') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
+  const { data: existingPost, error: fetchError } = await supabase
+    .from('posts')
+    .select('*')
+    .eq('id', id)
+    .single()
+  if (fetchError) return NextResponse.json({ error: fetchError.message }, { status: 500 })
+
   const body = await request.json()
   const { content, status, scheduled_for, published_at, media_items, content_variants } = body
 
@@ -78,6 +87,24 @@ export async function PATCH(
 
   if (status !== 'published' && published_at !== undefined) {
     updates.published_at = published_at
+  }
+
+  const nextPost = { ...existingPost, ...updates } as Post
+  const requestedScheduling =
+    status === 'scheduled' ||
+    (scheduled_for !== undefined && nextPost.status === 'scheduled')
+  const shouldPushToBuffer =
+    nextPost.status === 'scheduled' &&
+    Boolean(nextPost.scheduled_for) &&
+    !nextPost.buffer_post_id &&
+    requestedScheduling
+
+  if (shouldPushToBuffer) {
+    try {
+      Object.assign(updates, await scheduleViaBufferIfConnected(nextPost))
+    } catch (err) {
+      return NextResponse.json({ error: (err as Error).message }, { status: 400 })
+    }
   }
 
   const { data, error } = await supabase

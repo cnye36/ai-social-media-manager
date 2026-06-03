@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { publishViaBuffer } from '@/lib/publishing/buffer'
+import { scheduleViaBufferIfConnected } from '@/lib/publishing/buffer-schedule'
 import type { Post } from '@/types/database'
 
 const BUFFER_CHANNELS = new Set(['linkedin', 'x', 'facebook'])
@@ -35,16 +35,15 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const result = await publishViaBuffer(post as Post)
+    const bufferUpdates = await scheduleViaBufferIfConnected(post as Post)
+    if (!bufferUpdates.buffer_post_id) {
+      return NextResponse.json(
+        { error: `No Buffer profile connected for ${post.channel}` },
+        { status: 400 }
+      )
+    }
 
-    const updates: Record<string, unknown> = {}
-    if (result.scheduledFor) {
-      updates.scheduled_for = result.scheduledFor
-      updates.status = 'scheduled'
-    }
-    if (result.platformPostId) {
-      updates.buffer_post_id = result.platformPostId
-    }
+    const updates: Record<string, unknown> = { status: 'scheduled', ...bufferUpdates }
 
     let updatedPost = post
     if (Object.keys(updates).length > 0) {
@@ -58,7 +57,12 @@ export async function POST(req: NextRequest) {
       if (data) updatedPost = data
     }
 
-    return NextResponse.json({ ...result, post: updatedPost })
+    return NextResponse.json({
+      success: true,
+      platformPostId: bufferUpdates.buffer_post_id,
+      scheduledFor: bufferUpdates.scheduled_for,
+      post: updatedPost,
+    })
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 400 })
   }
