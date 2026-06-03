@@ -12,6 +12,7 @@ import { mediaItemFromResult } from '@/types/media'
 import { ChannelPreview } from '@/components/posts/ChannelPreview'
 import { cn } from '@/lib/utils'
 import type { Post, Channel, PostStatus } from '@/types/database'
+import { postBodyForPublish } from '@/lib/generate/image-prompt'
 import {
   buildStatusDatetimePayload,
   datetimeFieldLabel,
@@ -84,7 +85,7 @@ export function PostEditorModal({
 
   useEffect(() => {
     if (post && open) {
-      setContent(post.content)
+      setContent(postBodyForPublish(post.content))
       setStatus(post.status as PostStatus)
       setScheduledFor(initialDatetimeLocal(
         post.status as PostStatus,
@@ -144,7 +145,7 @@ export function PostEditorModal({
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        content,
+        content: postBodyForPublish(content),
         ...statusPayload,
         media_items: mediaItems,
       }),

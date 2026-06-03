@@ -1,4 +1,5 @@
 import type { Post } from '@/types/database'
+import { postBodyForPublish } from '@/lib/generate/image-prompt'
 import type { PublishResult } from './types'
 
 // Smithery MCP: https://smithery.ai/server/linkedin
@@ -20,7 +21,7 @@ export async function publishToLinkedIn(post: Post): Promise<PublishResult> {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${apiKey}`,
     },
-    body: JSON.stringify({ content: post.content, visibility: 'PUBLIC' }),
+    body: JSON.stringify({ content: postBodyForPublish(post.content), visibility: 'PUBLIC' }),
   })
 
   if (!res.ok) {

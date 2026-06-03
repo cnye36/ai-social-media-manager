@@ -10,6 +10,7 @@ import type { GenerateRequest, GeneratedPost, ThreadTweet } from '@/types/agents
 import { stripEmDashes } from '@/lib/content/no-em-dash'
 import { formatRedditMarkdown, parseRedditPost, type RedditPostContent } from '@/lib/reddit/parse'
 import { buildSubredditPromptBlock, loadSubredditConfig } from '@/lib/reddit/subreddit-config'
+import { splitImagePromptFromText } from '@/lib/generate/image-prompt'
 
 const agentBuilders: Record<Channel, (p: Parameters<typeof buildLinkedInAgent>[0]) => ReturnType<typeof buildLinkedInAgent>> = {
   linkedin: buildLinkedInAgent,
@@ -70,12 +71,10 @@ function applyRedditDisclosurePreference(
 }
 
 function parseImagePrompt(text: string): { content: string; imagePrompt?: string } {
-  const marker = '\n--\nIMAGE_PROMPT:'
-  const idx = text.indexOf(marker)
-  if (idx === -1) return { content: stripEmDashes(text.trim()) }
+  const { content, imagePrompt } = splitImagePromptFromText(text)
   return {
-    content: stripEmDashes(text.slice(0, idx).trim()),
-    imagePrompt: text.slice(idx + marker.length).trim(),
+    content: stripEmDashes(content),
+    ...(imagePrompt ? { imagePrompt: stripEmDashes(imagePrompt) } : {}),
   }
 }
 

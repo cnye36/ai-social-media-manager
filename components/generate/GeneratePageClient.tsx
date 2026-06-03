@@ -14,6 +14,7 @@ import { XIcon } from '@/components/ui/channel-icons'
 import { cn } from '@/lib/utils'
 import type { Channel } from '@/types/database'
 import type { GeneratedPost, ThreadTweet } from '@/types/agents'
+import { splitImagePromptFromText } from '@/lib/generate/image-prompt'
 
 import { mediaItemFromResult, type MediaResult } from '@/types/media'
 
@@ -71,7 +72,7 @@ interface MultiPostPreviewerProps {
 function MultiPostPreviewer({ posts, batchErrors, companyId, brandColors, onReset }: MultiPostPreviewerProps) {
   const [activeIdx, setActiveIdx] = useState(0)
   const [edits, setEdits] = useState<Record<number, string>>(
-    Object.fromEntries(posts.map((p, i) => [i, p.content.split('\n--\nIMAGE_PROMPT:')[0].trim()]))
+    Object.fromEntries(posts.map((p, i) => [i, splitImagePromptFromText(p.content).content]))
   )
   const [saveStates, setSaveStates] = useState<Record<number, SaveState>>(
     Object.fromEntries(posts.map((_, i) => [i, 'idle' as SaveState]))
@@ -317,7 +318,7 @@ function MultiPostPreviewer({ posts, batchErrors, companyId, brandColors, onRese
             <button
               onClick={() => setEdits(prev => ({
                 ...prev,
-                [activeIdx]: posts[activeIdx].content.split('\n--\nIMAGE_PROMPT:')[0].trim(),
+                [activeIdx]: splitImagePromptFromText(posts[activeIdx].content).content,
               }))}
               className="ml-auto text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
             >
@@ -389,9 +390,15 @@ export function GeneratePageClient({ companyId, brandColors }: GeneratePageClien
     setGenerationKey(k => k + 1)
   }
 
-  function handleChunk(chunk: string) { setContent(prev => prev + chunk) }
+  function handleChunk(chunk: string) {
+    setContent(prev => splitImagePromptFromText(prev + chunk).content)
+  }
 
-  function handleDone(imgPrompt?: string) { setIsStreaming(false); setImagePrompt(imgPrompt) }
+  function handleDone(imgPrompt?: string) {
+    setIsStreaming(false)
+    setImagePrompt(imgPrompt)
+    setContent(prev => splitImagePromptFromText(prev).content)
+  }
 
   function handleError(msg: string) { setIsStreaming(false); setError(msg) }
 

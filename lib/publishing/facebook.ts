@@ -1,4 +1,5 @@
 import type { Post } from '@/types/database'
+import { postBodyForPublish } from '@/lib/generate/image-prompt'
 import type { PublishResult } from './types'
 
 // Facebook Graph API — direct calls (no MCP needed, one HTTP request each)
@@ -29,7 +30,7 @@ export async function publishToFacebook(post: Post): Promise<PublishResult> {
   const res = await fetch(`${GRAPH}/${targetId}/feed`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message: post.content, access_token: token }),
+    body: JSON.stringify({ message: postBodyForPublish(post.content), access_token: token }),
   })
 
   const data = await res.json() as { id?: string; error?: { message: string } }

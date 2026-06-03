@@ -12,6 +12,8 @@ import { resolveXThreadMode } from '@/lib/generate/x-thread'
 import type { Channel } from '@/types/database'
 import type { ContentGoal, GeneratedPost, PostLength } from '@/types/agents'
 import type { PostIdea } from '@/app/api/generate/ideas/route'
+import { normalizeContentGoal } from '@/lib/content/content-goal'
+import { splitImagePromptFromText } from '@/lib/generate/image-prompt'
 
 const CHANNELS: { id: Channel; label: string; icon: React.ReactNode; hint: string }[] = [
   { id: 'linkedin', label: 'LinkedIn', icon: <LinkedInIcon className="w-4 h-4" />, hint: 'Thought leadership, 300–1300 chars' },
@@ -129,9 +131,10 @@ export function GenerateForm({
     additionalContext?: string
     useXThread?: boolean
   }) {
-    const { topic: t, contentGoal: goal, postLength: length, channels, additionalContext: ctx, useXThread = false } = params
+    const { topic: t, postLength: length, channels, additionalContext: ctx, useXThread = false } = params
     if (!t.trim() || channels.length === 0) return
 
+    const goal = normalizeContentGoal(params.contentGoal)
     setTopic(t)
     setContentGoal(goal)
     if (ctx !== undefined) setAdditionalContext(ctx)
@@ -202,9 +205,8 @@ export function GenerateForm({
         fullText += chunk
         onChunk(chunk)
       }
-      const marker = '\n--\nIMAGE_PROMPT:'
-      const idx = fullText.indexOf(marker)
-      onDone(idx !== -1 ? fullText.slice(idx + marker.length).trim() : undefined)
+      const { imagePrompt } = splitImagePromptFromText(fullText)
+      onDone(imagePrompt)
     } catch {
       onError('Network error — please try again')
     } finally {
@@ -232,12 +234,13 @@ export function GenerateForm({
     const useXThread = resolveXThreadMode(selectedChannels, threadMode, idea)
     if (useXThread) setThreadMode(true)
 
+    const goal = normalizeContentGoal(idea.angle)
     setTopic(idea.title)
-    setContentGoal(idea.angle)
+    setContentGoal(goal)
     setAdditionalContext(idea.description)
     doGenerate({
       topic: idea.title,
-      contentGoal: idea.angle,
+      contentGoal: goal,
       postLength: 'medium',
       channels: selectedChannels,
       additionalContext: idea.description,

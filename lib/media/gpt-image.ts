@@ -1,5 +1,6 @@
 import OpenAI from 'openai'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { MAX_ALT_TEXT_LENGTH } from '@/lib/media/alt-text'
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
@@ -113,7 +114,7 @@ export async function updateMediaLibraryAlt(storagePath: string, altText: string
   const supabase = createAdminClient()
   const { error } = await supabase
     .from('media_library')
-    .update({ alt_text: altText.slice(0, 500) })
+    .update({ alt_text: altText.slice(0, MAX_ALT_TEXT_LENGTH) })
     .eq('storage_path', storagePath)
   if (error) console.warn('[media-library] alt_text update failed:', error.message)
 }

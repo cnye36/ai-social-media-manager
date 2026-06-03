@@ -13,6 +13,7 @@ import { cn } from '@/lib/utils'
 import { HoverDownloadImage } from '@/components/media/HoverDownloadImage'
 import { AltTextBox } from '@/components/media/AltTextBox'
 import { mediaItemFromResult } from '@/types/media'
+import { splitImagePromptFromText } from '@/lib/generate/image-prompt'
 import type { Channel } from '@/types/database'
 import type { MediaResult } from '@/types/media'
 
@@ -57,10 +58,11 @@ interface PostPreviewProps {
   brandColors?: { primary?: string; accent?: string }
   onReset: () => void
   generationParams: Record<string, unknown>
+  onSaved?: () => void
 }
 
 export function PostPreview({
-  channel, content, imagePrompt, isStreaming, companyId, brandColors, onReset, generationParams,
+  channel, content, imagePrompt, isStreaming, companyId, brandColors, onReset, generationParams, onSaved,
 }: PostPreviewProps) {
   const [copied, setCopied] = useState(false)
   const [saveState, setSaveState] = useState<SaveState>('idle')
@@ -79,9 +81,9 @@ export function PostPreview({
   const displayContent = editedContent ?? content
   const meta = channel ? CHANNEL_META[channel] : null
 
-  const cleanContent = displayContent.includes('\n--\nIMAGE_PROMPT:')
-    ? displayContent.split('\n--\nIMAGE_PROMPT:')[0].trim()
-    : displayContent
+  const parsedBody = splitImagePromptFromText(displayContent)
+  const cleanContent = parsedBody.content
+  const resolvedImagePrompt = imagePrompt ?? parsedBody.imagePrompt
 
   async function handleCopy() {
     await navigator.clipboard.writeText(cleanContent)
@@ -137,7 +139,10 @@ export function PostPreview({
     const body = {
       content: cleanContent,
       media_items: buildMediaItems(),
-      generation_params: generationParams,
+      generation_params: {
+        ...generationParams,
+        ...(resolvedImagePrompt ? { imagePrompt: resolvedImagePrompt } : {}),
+      },
       ...statusPayload,
     }
 
@@ -168,6 +173,7 @@ export function PostPreview({
       setSaveState(status === 'draft' ? 'draft' : status === 'scheduled' ? 'scheduled' : 'published')
       setShowSchedule(false)
       setScheduledFor('')
+      onSaved?.()
     } catch {
       setSaveError(savedPostId ? 'Failed to update post' : 'Failed to save post')
       setSaveState('idle')
@@ -478,7 +484,7 @@ export function PostPreview({
           channel={channel}
           brandColors={brandColors}
           postId={savedPostId ?? undefined}
-          suggestedPrompt={imagePrompt}
+          suggestedPrompt={resolvedImagePrompt}
           onAccept={handleMediaAccept}
         />
       )}

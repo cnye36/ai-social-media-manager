@@ -2,12 +2,12 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { generatePost, generatePostReadableStream } from '@/agents/index'
 import type { Channel } from '@/types/database'
+import { normalizeContentGoal } from '@/lib/content/content-goal'
 import type { ContentGoal, PostLength } from '@/types/agents'
 
 export const maxDuration = 60
 
 const VALID_CHANNELS: Channel[] = ['linkedin', 'x', 'reddit', 'facebook']
-const VALID_GOALS: ContentGoal[] = ['awareness', 'engagement', 'promotion', 'education']
 const VALID_LENGTHS: PostLength[] = ['short', 'medium', 'long']
 
 export async function POST(request: Request) {
@@ -21,7 +21,7 @@ export async function POST(request: Request) {
   if (!companyId) return NextResponse.json({ error: 'companyId required' }, { status: 400 })
   if (!VALID_CHANNELS.includes(channel)) return NextResponse.json({ error: 'Invalid channel' }, { status: 400 })
   if (!topic?.trim()) return NextResponse.json({ error: 'topic required' }, { status: 400 })
-  if (!VALID_GOALS.includes(contentGoal)) return NextResponse.json({ error: 'Invalid contentGoal' }, { status: 400 })
+  const normalizedGoal = normalizeContentGoal(contentGoal)
   if (!VALID_LENGTHS.includes(postLength)) return NextResponse.json({ error: 'Invalid postLength' }, { status: 400 })
 
   // Verify company ownership
@@ -32,7 +32,7 @@ export async function POST(request: Request) {
     companyId,
     channel: channel as Channel,
     topic: topic.trim(),
-    contentGoal: contentGoal as ContentGoal,
+    contentGoal: normalizedGoal,
     postLength: postLength as PostLength,
     additionalContext: additionalContext?.trim(),
     threadMode: threadMode === true,

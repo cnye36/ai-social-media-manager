@@ -1,5 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { isXThreadPost, buildXThreadBufferPayload, mediaToBufferAssets } from '@/lib/posts/x-format'
+import { postBodyForPublish } from '@/lib/generate/image-prompt'
 import type { Post, Channel, BufferProfile } from '@/types/database'
 import type { PublishResult } from './types'
 
@@ -332,7 +333,7 @@ function buildCreatePostArgs(
     : image?.url
       ? mediaToBufferAssets(image)
       : []
-  const text = xThread ? xThread.text : post.content
+  const text = xThread ? xThread.text : postBodyForPublish(post.content)
   const threadMetadata = xThread?.metadata
 
   const args: Record<string, unknown> = {}
@@ -390,7 +391,7 @@ function buildCreatePostInput(post: Post, profile: { id: string }): Record<strin
 
   return {
     channelId: profile.id,
-    text: xThread ? xThread.text : post.content,
+    text: xThread ? xThread.text : postBodyForPublish(post.content),
     schedulingType: 'automatic',
     mode: scheduled ? 'customScheduled' : 'addToQueue',
     ...(assets.length ? { assets } : {}),

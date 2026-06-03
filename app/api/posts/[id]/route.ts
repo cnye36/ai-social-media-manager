@@ -1,7 +1,5 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { scheduleViaBufferIfConnected } from '@/lib/publishing/buffer-schedule'
-import type { Post } from '@/types/database'
 
 export async function GET(
   _request: Request,
@@ -87,24 +85,6 @@ export async function PATCH(
 
   if (status !== 'published' && published_at !== undefined) {
     updates.published_at = published_at
-  }
-
-  const nextPost = { ...existingPost, ...updates } as Post
-  const requestedScheduling =
-    status === 'scheduled' ||
-    (scheduled_for !== undefined && nextPost.status === 'scheduled')
-  const shouldPushToBuffer =
-    nextPost.status === 'scheduled' &&
-    Boolean(nextPost.scheduled_for) &&
-    !nextPost.buffer_post_id &&
-    requestedScheduling
-
-  if (shouldPushToBuffer) {
-    try {
-      Object.assign(updates, await scheduleViaBufferIfConnected(nextPost))
-    } catch (err) {
-      return NextResponse.json({ error: (err as Error).message }, { status: 400 })
-    }
   }
 
   const { data, error } = await supabase

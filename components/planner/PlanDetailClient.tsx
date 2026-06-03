@@ -12,6 +12,7 @@ import { PostEditorModal } from '@/components/posts/PostEditorModal'
 import { LinkedInIcon, XIcon, RedditIcon, FacebookIcon } from '@/components/ui/channel-icons'
 import { cn } from '@/lib/utils'
 import { CHANNEL_PLAYBOOKS, isThreadSlot } from '@/lib/content-planning/channel-playbook'
+import { postBodyForPublish } from '@/lib/generate/image-prompt'
 import type { Channel, Post } from '@/types/database'
 import type { ContentPlanWithSlots, ContentPlanSlot } from '@/types/content-planning'
 
@@ -397,7 +398,7 @@ function WrittenSlotRow({
   onApprove: () => void
 }) {
   const isScheduled = post?.status === 'scheduled'
-  const contentPreview = post?.content?.split('\n--\nIMAGE_PROMPT:')[0]?.trim()
+  const contentPreview = post?.content ? postBodyForPublish(post.content) : undefined
 
   return (
     <div className={cn(

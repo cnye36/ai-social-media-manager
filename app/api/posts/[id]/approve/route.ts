@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getNextAvailableSlot } from '@/lib/scheduling/next-slot'
-import { scheduleViaBufferIfConnected } from '@/lib/publishing/buffer-schedule'
-import type { Channel, Post } from '@/types/database'
+import type { Channel } from '@/types/database'
 
 const SOCIAL_CHANNELS: Channel[] = ['linkedin', 'x', 'facebook']
 
@@ -49,22 +48,10 @@ export async function POST(
   }
 
   const scheduledFor = slot.toISOString()
-  const scheduledPost = {
-    ...post,
-    status: 'scheduled',
-    scheduled_for: scheduledFor,
-  } as Post
-
-  let bufferUpdates: Record<string, unknown> = {}
-  try {
-    bufferUpdates = await scheduleViaBufferIfConnected(scheduledPost)
-  } catch (err) {
-    return NextResponse.json({ error: (err as Error).message }, { status: 400 })
-  }
 
   const { data: updated, error } = await supabase
     .from('posts')
-    .update({ status: 'scheduled', scheduled_for: scheduledFor, ...bufferUpdates })
+    .update({ status: 'scheduled', scheduled_for: scheduledFor })
     .eq('id', id)
     .select()
     .single()

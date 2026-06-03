@@ -1,6 +1,7 @@
 'use client'
 
 import { cn } from '@/lib/utils'
+import { splitImagePromptFromText } from '@/lib/generate/image-prompt'
 import { HoverDownloadImage } from '@/components/media/HoverDownloadImage'
 import type { Channel } from '@/types/database'
 
@@ -12,7 +13,7 @@ interface ChannelPreviewProps {
 }
 
 function cleanText(content: string) {
-  return content.split('\n--\nIMAGE_PROMPT:')[0].trim()
+  return splitImagePromptFromText(content).content
 }
 
 function MediaBlock({ url, channel, alt }: { url: string; channel: Channel; alt?: string }) {

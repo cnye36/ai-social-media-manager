@@ -3,15 +3,16 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import {
   Sparkles, Loader2, Bold, Italic, List, ArrowUp, MessageSquare,
-  Share2, Bookmark, MoreHorizontal, Check, CalendarClock, RefreshCw,
+  Share2, Bookmark, MoreHorizontal, Check, CalendarClock, CircleCheck, RefreshCw,
   Eye, Pencil, X, Plus, Trash2, ToggleLeft, ToggleRight, ExternalLink,
-  Copy, ChevronDown, ChevronUp, Radio, AlertTriangle,
+  Copy, ChevronDown, ChevronUp, Radio, AlertTriangle, History,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { format, formatDistanceToNow } from 'date-fns'
 import { cn } from '@/lib/utils'
+import { buildStatusDatetimePayload, toDatetimeLocal } from '@/lib/content-status'
 import { formatRedditMarkdown, parseRedditPost, type RedditPostContent } from '@/lib/reddit/parse'
 import { lintRedditSubmission } from '@/lib/reddit/submission-lint'
 import type { ContentGoal, GeneratedPost, PostLength } from '@/types/agents'
@@ -19,7 +20,7 @@ import type { Post } from '@/types/database'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Tab = 'generate' | 'ideas' | 'opportunities' | 'monitors' | 'saved'
+type Tab = 'generate' | 'ideas' | 'opportunities' | 'monitors' | 'saved' | 'history'
 
 interface RedditOpportunity {
   id: string
@@ -1051,7 +1052,7 @@ function MonitorsTab({ companyId }: { companyId: string }) {
 // ─── Generate tab (existing flow) ─────────────────────────────────────────────
 
 type RedditPost = RedditPostContent & { subreddit: string }
-type SaveState = 'idle' | 'saving' | 'draft' | 'scheduled'
+type SaveState = 'idle' | 'saving' | 'draft' | 'scheduled' | 'published'
 type OutputTab = 'edit' | 'preview'
 
 function redditFromPost(post: Post): RedditPost | null {
@@ -1139,7 +1140,9 @@ function GenerateTab({
 
   const [saveState, setSaveState] = useState<SaveState>('idle')
   const [showSchedule, setShowSchedule] = useState(false)
+  const [showMarkPublished, setShowMarkPublished] = useState(false)
   const [scheduledFor, setScheduledFor] = useState('')
+  const [publishedFor, setPublishedFor] = useState('')
   const [savedPostId, setSavedPostId] = useState<string | null>(initialDraft?.id ?? null)
 
   const bodyRef = useRef<HTMLTextAreaElement>(null)
@@ -1166,6 +1169,7 @@ function GenerateTab({
     )
     setSaveState('idle')
     setShowSchedule(false)
+    setShowMarkPublished(false)
     setOutputTab('edit')
   }, [initialDraft, initialTopic, initialSubreddit])
 
@@ -1177,6 +1181,7 @@ function GenerateTab({
     setGeneratedPost(null)
     setSaveState('idle')
     setShowSchedule(false)
+    setShowMarkPublished(false)
 
     const context = [
       additionalContext.trim(),
@@ -1230,7 +1235,7 @@ function GenerateTab({
     }
   }
 
-  async function savePost(status: 'draft' | 'scheduled', scheduledAt?: string) {
+  async function savePost(status: 'draft' | 'scheduled' | 'published', datetime?: string) {
     if (!editTitle.trim() || !editBody.trim()) return
     setSaveState('saving')
     const content = formatRedditMarkdown({
@@ -1239,10 +1244,12 @@ function GenerateTab({
       subreddit: editSubreddit,
       disclosure,
     })
+    const statusPayload = status === 'draft'
+      ? { status: 'draft' as const, scheduled_for: null }
+      : buildStatusDatetimePayload(status, datetime ?? '')
     const payload = {
       content,
-      status,
-      ...(scheduledAt ? { scheduled_for: scheduledAt } : {}),
+      ...statusPayload,
       generation_params: { imagePrompt },
       content_variants: {
         reddit: {
@@ -1273,9 +1280,13 @@ function GenerateTab({
       if (res.ok) {
         const saved = await res.json() as Post
         setSavedPostId(saved.id)
-        setSaveState(status === 'draft' ? 'draft' : 'scheduled')
+        setSaveState(
+          status === 'draft' ? 'draft' : status === 'scheduled' ? 'scheduled' : 'published'
+        )
         setShowSchedule(false)
+        setShowMarkPublished(false)
         setScheduledFor('')
+        setPublishedFor('')
         if (status === 'draft') onDraftSaved?.()
       } else {
         setSaveState('idle')
@@ -1288,7 +1299,8 @@ function GenerateTab({
   function handleReset() {
     setGeneratedPost(null)
     setEditTitle(''); setEditBody(''); setEditSubreddit(''); setDisclosure(null)
-    setSaveState('idle'); setShowSchedule(false); setScheduledFor('')
+    setSaveState('idle'); setShowSchedule(false); setShowMarkPublished(false)
+    setScheduledFor(''); setPublishedFor('')
     setImagePrompt(undefined)
     setSavedPostId(null)
     setOutputTab('edit')
@@ -1629,6 +1641,18 @@ function GenerateTab({
                     Edit again
                   </button>
                 </div>
+              ) : saveState === 'published' ? (
+                <div className="flex items-center gap-3 pt-2 border-t border-zinc-800">
+                  <span className="flex items-center gap-1.5 text-sm text-emerald-400">
+                    <CircleCheck className="w-4 h-4" /> Marked as published
+                  </span>
+                  <button onClick={() => setSaveState('idle')} className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors">
+                    Edit again
+                  </button>
+                  <button onClick={handleReset} className="ml-auto flex items-center gap-1 text-xs text-zinc-600 hover:text-zinc-400 transition-colors">
+                    <RefreshCw className="w-3 h-3" /> New post
+                  </button>
+                </div>
               ) : saveState === 'saving' ? (
                 <div className="flex items-center gap-2 text-sm text-zinc-500 pt-2 border-t border-zinc-800">
                   <Loader2 className="w-4 h-4 animate-spin" /> Saving…
@@ -1656,13 +1680,48 @@ function GenerateTab({
                     </Button>
                   </div>
                 </div>
+              ) : showMarkPublished ? (
+                <div className="space-y-2 pt-2 border-t border-zinc-800">
+                  <p className="text-xs text-zinc-500">When did you publish on Reddit?</p>
+                  <input
+                    type="datetime-local"
+                    value={publishedFor}
+                    onChange={e => setPublishedFor(e.target.value)}
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-orange-500 [color-scheme:dark]"
+                  />
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      onClick={() => savePost('published', publishedFor)}
+                      className="bg-emerald-600 hover:bg-emerald-500"
+                    >
+                      <CircleCheck className="w-3.5 h-3.5" />
+                      Confirm published
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => { setShowMarkPublished(false); setPublishedFor('') }}>
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
               ) : (
-                <div className="flex items-center gap-2 pt-2 border-t border-zinc-800">
+                <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-zinc-800">
                   <Button size="sm" onClick={() => savePost('draft')} className="bg-orange-600 hover:bg-orange-500">
                     <Bookmark className="w-3.5 h-3.5" /> {savedPostId ? 'Update saved post' : 'Save for later'}
                   </Button>
-                  <Button size="sm" variant="outline" onClick={() => setShowSchedule(true)}>
+                  <Button size="sm" variant="outline" onClick={() => { setShowMarkPublished(false); setShowSchedule(true) }}>
                     <CalendarClock className="w-3.5 h-3.5" /> Schedule
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setShowSchedule(false)
+                      setPublishedFor(toDatetimeLocal(new Date().toISOString()))
+                      setShowMarkPublished(true)
+                    }}
+                  >
+                    <CircleCheck className="w-3.5 h-3.5" />
+                    Mark published
                   </Button>
                   <button onClick={handleReset} className="ml-auto flex items-center gap-1 text-xs text-zinc-600 hover:text-zinc-400 transition-colors">
                     <RefreshCw className="w-3 h-3" /> New post
@@ -2326,6 +2385,197 @@ function SavedPostsTab({
   )
 }
 
+// ─── History tab ─────────────────────────────────────────────────────────────
+
+function HistoryTab({
+  companyId,
+  onContinueEditing,
+}: {
+  companyId: string
+  onContinueEditing: (post: Post) => void
+}) {
+  const [posts, setPosts] = useState<Post[]>([])
+  const [loading, setLoading] = useState(true)
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [copiedId, setCopiedId] = useState<string | null>(null)
+  const [statusFilter, setStatusFilter] = useState<string>('all')
+
+  useEffect(() => {
+    const controller = new AbortController()
+    setLoading(true)
+    fetch(`/api/posts?companyId=${companyId}&channel=reddit`, { signal: controller.signal })
+      .then(r => r.json())
+      .then(d => setPosts(Array.isArray(d) ? d : []))
+      .catch(e => { if ((e as Error).name !== 'AbortError') setPosts([]) })
+      .finally(() => setLoading(false))
+    return () => controller.abort()
+  }, [companyId])
+
+  async function handleDelete(post: Post) {
+    if (!confirm('Delete this post? This cannot be undone.')) return
+    const res = await fetch(`/api/posts/${post.id}`, { method: 'DELETE' })
+    if (res.ok) setPosts(prev => prev.filter(p => p.id !== post.id))
+  }
+
+  async function handleCopy(post: Post) {
+    const reddit = redditFromPost(post)
+    const text = reddit ? `${reddit.title}\n\n${reddit.body}` : post.content
+    await navigator.clipboard.writeText(text)
+    setCopiedId(post.id)
+    setTimeout(() => setCopiedId(null), 2000)
+  }
+
+  const STATUS_BADGE: Record<string, string> = {
+    draft: 'text-zinc-400 bg-zinc-800',
+    scheduled: 'text-yellow-400 bg-yellow-900/30',
+    published: 'text-emerald-400 bg-emerald-900/30',
+    archived: 'text-zinc-600 bg-zinc-900 border border-zinc-800',
+  }
+
+  const allStatuses = ['all', 'draft', 'scheduled', 'published', 'archived']
+  const filtered = statusFilter === 'all' ? posts : posts.filter(p => p.status === statusFilter)
+
+  return (
+    <div className="max-w-3xl">
+      <div className="flex items-center justify-between mb-4">
+        <p className="text-sm text-zinc-500">
+          All Reddit posts across every status — drafts, scheduled, published, and archived.
+        </p>
+        <span className="text-xs text-zinc-600">({posts.length} total)</span>
+      </div>
+
+      {/* Status filter pills */}
+      <div className="flex gap-1.5 flex-wrap mb-5">
+        {allStatuses.map(s => (
+          <button
+            key={s}
+            onClick={() => setStatusFilter(s)}
+            className={cn(
+              'px-3 py-1 rounded-full text-xs font-medium border transition-all capitalize',
+              statusFilter === s
+                ? 'bg-orange-600/20 border-orange-600/50 text-orange-300'
+                : 'border-zinc-700 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300'
+            )}
+          >
+            {s === 'all' ? `All (${posts.length})` : `${s} (${posts.filter(p => p.status === s).length})`}
+          </button>
+        ))}
+      </div>
+
+      {loading ? (
+        <div className="space-y-3">
+          {[1, 2, 3].map(i => (
+            <div key={i} className="h-24 rounded-xl bg-zinc-800/50 animate-pulse" />
+          ))}
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-20 border border-dashed border-zinc-800 rounded-xl text-center">
+          <MessageSquare className="w-10 h-10 text-zinc-700 mb-3" />
+          <p className="text-sm text-zinc-400 font-medium">
+            {statusFilter === 'all' ? 'No Reddit posts yet' : `No ${statusFilter} posts`}
+          </p>
+          <p className="text-xs text-zinc-600 mt-1">
+            {statusFilter === 'all' ? 'Generate a post to see it here' : 'Try a different status filter'}
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {filtered.map(post => {
+            const reddit = redditFromPost(post)
+            const title = reddit?.title ?? post.content.slice(0, 80)
+            const sub = reddit?.subreddit
+            const expanded = expandedId === post.id
+            const dateLabel = post.published_at
+              ? `Published ${formatDistanceToNow(new Date(post.published_at), { addSuffix: true })}`
+              : post.scheduled_for
+                ? `Scheduled ${format(new Date(post.scheduled_for), 'MMM d, h:mm a')}`
+                : `Created ${formatDistanceToNow(new Date(post.created_at), { addSuffix: true })}`
+
+            return (
+              <div
+                key={post.id}
+                className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden hover:border-zinc-700 transition-colors"
+              >
+                <div className="px-5 py-4 flex items-start gap-4">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap mb-1.5">
+                      {sub && (
+                        <span className="text-[11px] font-semibold text-orange-400/90">r/{sub}</span>
+                      )}
+                      <span className={cn(
+                        'text-[10px] font-medium px-1.5 py-0.5 rounded capitalize',
+                        STATUS_BADGE[post.status] ?? 'text-zinc-500 bg-zinc-800'
+                      )}>
+                        {post.status}
+                      </span>
+                      <span className="text-[11px] text-zinc-600">{dateLabel}</span>
+                    </div>
+                    <p className="text-sm font-semibold text-white leading-snug line-clamp-2">{title}</p>
+                    {reddit?.body && (
+                      <p className="text-xs text-zinc-500 mt-1.5 line-clamp-2 leading-relaxed">{reddit.body}</p>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-1 shrink-0">
+                    {(post.status === 'draft' || post.status === 'scheduled') && (
+                      <Button
+                        size="sm"
+                        onClick={() => onContinueEditing(post)}
+                        className="bg-orange-600 hover:bg-orange-500"
+                      >
+                        <Pencil className="w-3.5 h-3.5" /> Edit
+                      </Button>
+                    )}
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => handleCopy(post)}
+                      title="Copy content"
+                    >
+                      {copiedId === post.id
+                        ? <Check className="w-3.5 h-3.5 text-green-400" />
+                        : <Copy className="w-3.5 h-3.5" />
+                      }
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setExpandedId(expanded ? null : post.id)}
+                      title={expanded ? 'Collapse' : 'Preview'}
+                    >
+                      {expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => handleDelete(post)}
+                      className="text-red-400 hover:text-red-300"
+                      title="Delete"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                </div>
+
+                {expanded && reddit && (
+                  <div className="px-5 pb-4 border-t border-zinc-800 pt-4">
+                    <RedditPreview
+                      title={reddit.title}
+                      body={reddit.body}
+                      subreddit={reddit.subreddit}
+                      disclosure={reddit.disclosure}
+                    />
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Main page client ─────────────────────────────────────────────────────────
 
 interface RedditPageClientProps {
@@ -2362,6 +2612,7 @@ export function RedditPageClient({ companyId }: RedditPageClientProps) {
     { id: 'ideas', label: 'Ideas', icon: <Sparkles className="w-3.5 h-3.5" /> },
     { id: 'generate', label: 'Generate', icon: <MessageSquare className="w-3.5 h-3.5" /> },
     { id: 'saved', label: 'Saved', icon: <Bookmark className="w-3.5 h-3.5" /> },
+    { id: 'history', label: 'History', icon: <History className="w-3.5 h-3.5" /> },
     { id: 'opportunities', label: 'Opportunities', icon: <Radio className="w-3.5 h-3.5" /> },
     { id: 'monitors', label: 'Monitors', icon: <Eye className="w-3.5 h-3.5" /> },
   ]
@@ -2422,9 +2673,16 @@ export function RedditPageClient({ companyId }: RedditPageClientProps) {
             onContinueEditing={handleOpenDraft}
           />
         )}
+        {tab === 'history' && (
+          <HistoryTab
+            companyId={companyId}
+            onContinueEditing={handleOpenDraft}
+          />
+        )}
         {tab === 'opportunities' && <OpportunitiesTab companyId={companyId} />}
         {tab === 'monitors' && <MonitorsTab companyId={companyId} />}
       </div>
     </div>
   )
 }
+  

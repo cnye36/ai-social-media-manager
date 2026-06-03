@@ -2,7 +2,8 @@ import OpenAI from 'openai'
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
-const MAX_ALT_LENGTH = 125
+/** Matches `media_library.alt_text` storage cap in `lib/media/gpt-image.ts`. */
+export const MAX_ALT_TEXT_LENGTH = 500
 
 export async function generateImageAltText(params: {
   promptUsed: string
@@ -19,8 +20,8 @@ export async function generateImageAltText(params: {
         {
           role: 'system',
           content: `You write accessibility alt text for marketing images.
-Write one concise sentence (max ${MAX_ALT_LENGTH} characters). Describe what a sighted user would see — subject, action, mood, key text on the image if any.
-Avoid "image of", hashtags, and prompt jargon. Plain language only.`,
+Write 1–2 complete sentences (up to ${MAX_ALT_TEXT_LENGTH} characters). Describe what a sighted user would see — subject, action, mood, and any readable text on the image.
+Do not truncate mid-sentence. Avoid "image of", hashtags, and prompt jargon. Plain language only.`,
         },
         {
           role: 'user',
@@ -36,13 +37,13 @@ Avoid "image of", hashtags, and prompt jargon. Plain language only.`,
         },
       ],
       response_format: { type: 'json_object' },
-      max_completion_tokens: 80,
+      max_completion_tokens: 200,
       temperature: 0.3,
     })
 
     const parsed = JSON.parse(res.choices[0]?.message?.content ?? '{}') as { altText?: string }
     const alt = parsed.altText?.trim()
-    if (alt) return alt.slice(0, MAX_ALT_LENGTH)
+    if (alt) return alt.slice(0, MAX_ALT_TEXT_LENGTH)
   } catch (err) {
     console.warn('[alt-text] generation failed:', (err as Error).message)
   }
@@ -55,5 +56,5 @@ function fallbackAltText(promptUsed: string): string {
     .replace(/\b(high quality|professional|social media optimized|legible text)\b/gi, '')
     .replace(/\s+/g, ' ')
     .trim()
-  return (cleaned || 'Generated marketing image').slice(0, MAX_ALT_LENGTH)
+  return (cleaned || 'Generated marketing image').slice(0, MAX_ALT_TEXT_LENGTH)
 }

@@ -1,3 +1,5 @@
+import { splitImagePromptFromText } from '@/lib/generate/image-prompt'
+
 export interface RedditPostContent {
   title: string
   body: string
@@ -6,13 +8,8 @@ export interface RedditPostContent {
 }
 
 function stripImagePrompt(text: string): { content: string; imagePrompt?: string } {
-  const marker = '\n--\nIMAGE_PROMPT:'
-  const idx = text.indexOf(marker)
-  if (idx === -1) return { content: text.trim() }
-  return {
-    content: text.slice(0, idx).trim(),
-    imagePrompt: text.slice(idx + marker.length).trim(),
-  }
+  const { content, imagePrompt } = splitImagePromptFromText(text)
+  return { content: content.trim(), ...(imagePrompt ? { imagePrompt } : {}) }
 }
 
 /** Pull a JSON object string from markdown fences or embedded `{...}`. */

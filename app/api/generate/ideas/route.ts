@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { createClient } from '@/lib/supabase/server'
 import { retrieve } from '@/lib/rag/retrieve'
+import { normalizeContentGoal } from '@/lib/content/content-goal'
 import type { ContentGoal } from '@/types/agents'
 import type { Channel } from '@/types/database'
 
@@ -21,8 +22,8 @@ export async function POST(req: Request) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const body = await req.json() as { companyId?: string; count?: number }
-  const { companyId, count = 8 } = body
+  const body = await req.json() as { companyId?: string; count?: number; voice?: 'personal' | 'company' }
+  const { companyId, count = 8, voice = 'company' } = body
 
   if (!companyId) return NextResponse.json({ error: 'companyId required' }, { status: 400 })
 
@@ -50,7 +51,39 @@ export async function POST(req: Request) {
     ? chunks.map(c => (c.title ? `[${c.title}]\n${c.content}` : c.content)).join('\n\n---\n\n')
     : 'No knowledge base content available yet.'
 
-  const prompt = `You are a social media strategist for ${company.name}.
+  const prompt = voice === 'personal'
+    ? `You are a content strategist helping the founder/owner/developer behind ${company.name} build their personal brand on social media.
+
+${brandContext ? `What they are building (for context only — use this to ground the ideas in their real work):\n${brandContext}\n` : ''}
+Knowledge about what they are building:
+${knowledgeContext}
+
+Generate exactly ${count} diverse, specific personal post ideas. These are for the INDIVIDUAL's personal profile, not a company page. Requirements:
+- Write ideas from the founder/owner/developer's first-person perspective — "I" voice, personal experience
+- Focus heavily on these three content types (mix them up):
+  1. EDUCATIONAL: AI/automation insights, how things actually work, lessons learned, technical breakdowns — teach something genuinely useful from their real experience
+  2. BEHIND-THE-SCENES: Building in public, decisions made, mistakes made, what it is really like building an AI product/agency — raw and honest
+  3. OPINION / HOT TAKE: Contrarian views on AI, takes on industry trends, things most people get wrong, strong opinions the founder actually holds
+- Make titles punchy, specific, and first-person where natural ("Why I stopped using X", "We shipped this wrong — here's what I learned")
+- Descriptions should explain the hook and what makes this interesting from a personal perspective
+- Suggest 1-2 channels that fit best for each idea
+- For each idea that includes "x" in suggestedChannels, set xFormat:
+  - "thread" when the idea naturally spans 3–7 tweets (step-by-step guides, numbered lessons, breakdowns)
+  - "post" for a single hot take or punchy one-liner
+
+Return a JSON object with this exact shape:
+{
+  "ideas": [
+    {
+      "title": "Short punchy title (max 8 words)",
+      "description": "1-2 sentences on the hook and why it resonates personally",
+      "angle": "education" | "engagement" | "promotion" | "awareness",
+      "suggestedChannels": ["linkedin" | "x" | "facebook"],
+      "xFormat": "post" | "thread"
+    }
+  ]
+}`
+    : `You are a social media strategist for ${company.name}.
 
 ${brandContext ? `Brand context:\n${brandContext}\n` : ''}
 Knowledge base excerpts:
@@ -89,7 +122,14 @@ Return a JSON object with this exact shape:
 
     const raw = completion.choices[0]?.message?.content ?? '{}'
     const parsed = JSON.parse(raw) as { ideas?: PostIdea[] }
-    const ideas = parsed.ideas ?? []
+    const ideas = (parsed.ideas ?? []).map(idea => ({
+      ...idea,
+      angle: normalizeContentGoal(idea.angle),
+      suggestedChannels: Array.isArray(idea.suggestedChannels)
+        ? idea.suggestedChannels.filter((ch): ch is Channel =>
+            ['linkedin', 'x', 'reddit', 'facebook'].includes(ch))
+        : [],
+    }))
 
     return NextResponse.json({ ideas })
   } catch (err) {

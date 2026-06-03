@@ -268,7 +268,7 @@ export function MediaDetailModal({ item, companyId, onClose }: MediaDetailModalP
             <div className="p-4 space-y-4 text-xs">
               {(item.alt_text ?? item.prompt) && (
                 <AltTextBox
-                  value={item.alt_text ?? item.prompt?.slice(0, 125) ?? ''}
+                  value={item.alt_text ?? item.prompt ?? ''}
                   label="Alt text"
                 />
               )}

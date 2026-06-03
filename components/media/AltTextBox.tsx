@@ -45,7 +45,7 @@ export function AltTextBox({ value, label = 'Alt text', className }: AltTextBoxP
           )}
         </button>
       </div>
-      <p className="text-xs text-zinc-300 leading-relaxed bg-zinc-900/80 border border-zinc-700 rounded-lg px-3 py-2.5 whitespace-pre-wrap">
+      <p className="text-xs text-zinc-300 leading-relaxed bg-zinc-900/80 border border-zinc-700 rounded-lg px-3 py-2.5 whitespace-pre-wrap break-words">
         {value.trim() || '—'}
       </p>
     </div>

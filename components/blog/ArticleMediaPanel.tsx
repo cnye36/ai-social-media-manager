@@ -155,7 +155,7 @@ export function ArticleMediaPanel({
       url: item.url,
       storagePath: item.storage_path ?? '',
       promptUsed: item.prompt ?? '',
-      altText: item.alt_text ?? item.prompt?.slice(0, 125) ?? 'Generated image',
+      altText: item.alt_text ?? item.prompt ?? 'Generated image',
     })
   }
 

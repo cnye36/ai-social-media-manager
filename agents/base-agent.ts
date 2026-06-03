@@ -98,5 +98,5 @@ OUTPUT FORMAT:
 Return ONLY the post content — no preamble, no "here's a post", no explanation.
 If the channel supports it and a thread would be more effective than a single post, return a JSON object: {"thread": ["tweet 1", "tweet 2", ...]}
 Otherwise return the post text directly.
-At the very end, on a new line after two dashes (--), add a suggested image generation prompt prefixed with IMAGE_PROMPT: that describes a visual for this post using the brand colors if defined.`
+Do NOT append image prompts, separators (e.g. --), or IMAGE_PROMPT: lines — image generation is handled separately from the post body.`
 }

@@ -1,11 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Lightbulb, Loader2, ChevronDown, ChevronUp, ArrowRight, RotateCcw, GitBranch } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import type { ContentGoal } from '@/types/agents'
 import type { Channel } from '@/types/database'
+import { normalizeContentGoal } from '@/lib/content/content-goal'
 import { ideaWantsThread } from '@/lib/generate/x-thread'
 import type { PostIdea } from '@/app/api/generate/ideas/route'
 
@@ -21,14 +22,25 @@ interface IdeaSparkProps {
   selectedChannels: Channel[]
   onGenerate: (idea: PostIdea) => void
   disabled?: boolean
+  voice?: 'personal' | 'company'
 }
 
-export function IdeaSpark({ companyId, selectedChannels, onGenerate, disabled }: IdeaSparkProps) {
+export function IdeaSpark({ companyId, selectedChannels, onGenerate, disabled, voice }: IdeaSparkProps) {
   const [open, setOpen] = useState(false)
   const [ideas, setIdeas] = useState<PostIdea[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [generatingIdx, setGeneratingIdx] = useState<number | null>(null)
+
+  // Clear cached ideas when voice changes so stale company/personal ideas are not shown
+  const prevVoice = useRef(voice)
+  useEffect(() => {
+    if (prevVoice.current !== voice) {
+      prevVoice.current = voice
+      setIdeas([])
+      setOpen(false)
+    }
+  }, [voice])
 
   async function fetchIdeas() {
     setLoading(true)
@@ -37,7 +49,7 @@ export function IdeaSpark({ companyId, selectedChannels, onGenerate, disabled }:
       const res = await fetch('/api/generate/ideas', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ companyId, count: 8 }),
+        body: JSON.stringify({ companyId, count: 8, voice: voice ?? 'company' }),
       })
       if (!res.ok) {
         const d = await res.json() as { error?: string }
@@ -126,6 +138,7 @@ export function IdeaSpark({ companyId, selectedChannels, onGenerate, disabled }:
           ) : (
             ideas.map((idea, i) => {
               const isGenerating = generatingIdx === i
+              const angle = normalizeContentGoal(idea.angle)
               return (
                 <button
                   key={i}
@@ -148,8 +161,8 @@ export function IdeaSpark({ companyId, selectedChannels, onGenerate, disabled }:
                       )}>
                         {idea.title}
                       </span>
-                      <span className={cn('text-[10px] font-medium px-1.5 py-0.5 rounded border capitalize shrink-0', ANGLE_STYLES[idea.angle])}>
-                        {idea.angle}
+                      <span className={cn('text-[10px] font-medium px-1.5 py-0.5 rounded border capitalize shrink-0', ANGLE_STYLES[angle])}>
+                        {angle}
                       </span>
                       {ideaWantsThread(idea) && (
                         <span className="text-[10px] font-medium px-1.5 py-0.5 rounded border shrink-0 flex items-center gap-0.5 border-sky-500/30 bg-sky-500/10 text-sky-300">

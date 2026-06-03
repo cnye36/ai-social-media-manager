@@ -1,4 +1,5 @@
 import type { Post } from '@/types/database'
+import { postBodyForPublish } from '@/lib/generate/image-prompt'
 import type { PublishResult } from './types'
 
 // TwitterAPI.io — pay-as-you-go write access ($0.15 / 1,000 requests)
@@ -13,7 +14,7 @@ export async function publishToX(post: Post): Promise<PublishResult> {
   if (!apiKey) throw new Error('TWITTERAPI_IO_KEY is required')
 
   // Enforce Twitter's 280-char hard limit
-  const text = post.content.slice(0, 280)
+  const text = postBodyForPublish(post.content).slice(0, 280)
 
   const res = await fetch('https://api.twitterapi.io/twitter/tweet/create', {
     method: 'POST',

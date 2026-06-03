@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { LayoutDashboard, CalendarDays, Sparkles, FileText, Settings, LogOut, MessageSquareMore, Images, CalendarRange, BookOpen } from 'lucide-react'
+import { LinkedInIcon, XIcon, FacebookIcon } from '@/components/ui/channel-icons'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
@@ -12,6 +13,9 @@ import type { Company } from '@/types/database'
 const navItems = [
   { label: 'Dashboard', icon: LayoutDashboard, href: '' },
   { label: 'Generate', icon: Sparkles, href: '/generate' },
+  { label: 'LinkedIn', icon: null, href: '/linkedin' },
+  { label: 'X', icon: null, href: '/x' },
+  { label: 'Facebook', icon: null, href: '/facebook' },
   { label: 'Planner', icon: CalendarRange, href: '/planner' },
   { label: 'Blog', icon: BookOpen, href: '/blog' },
   { label: 'Reddit', icon: MessageSquareMore, href: '/reddit' },
@@ -62,7 +66,16 @@ export function Sidebar({ companies, currentCompanyId }: SidebarProps) {
                   : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
               )}
             >
-              <Icon className="w-4 h-4 flex-shrink-0" />
+              {label === 'LinkedIn'
+                ? <LinkedInIcon className="w-4 h-4 flex-shrink-0" />
+                : label === 'X'
+                  ? <XIcon className="w-4 h-4 flex-shrink-0" />
+                  : label === 'Facebook'
+                    ? <FacebookIcon className="w-4 h-4 flex-shrink-0" />
+                    : Icon
+                      ? <Icon className="w-4 h-4 flex-shrink-0" />
+                      : null
+              }
               {label}
             </Link>
           )
