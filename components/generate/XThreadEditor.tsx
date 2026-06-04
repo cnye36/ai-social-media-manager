@@ -1,9 +1,10 @@
 'use client'
 
 import { useState, useRef } from 'react'
-import { Bold, Italic, List, ImageIcon, CalendarClock, Check, Loader2, CircleCheck, X } from 'lucide-react'
+import { Bold, Italic, List, ImageIcon, CalendarClock, Check, Loader2, CircleCheck, X, Eye, Pencil } from 'lucide-react'
 import { buildStatusDatetimePayload } from '@/lib/content-status'
 import { threadMediaToPostItems } from '@/lib/posts/x-format'
+import { XThreadPreview } from '@/components/posts/ChannelPreview'
 import { HoverDownloadImage } from '@/components/media/HoverDownloadImage'
 import { AltTextBox } from '@/components/media/AltTextBox'
 import { MediaPanel } from './MediaPanel'
@@ -21,13 +22,14 @@ interface XThreadEditorProps {
   brandColors?: { primary?: string; accent?: string }
   /** Hide top chrome when nested inside multi-channel tabs */
   embedded?: boolean
+  voice?: 'personal' | 'company'
 }
 
 function mediaFromTweet(tweet: ThreadTweet): MediaItem | undefined {
   return tweet.media?.url ? tweet.media : undefined
 }
 
-export function XThreadEditor({ post, companyId, brandColors, embedded }: XThreadEditorProps) {
+export function XThreadEditor({ post, companyId, brandColors, embedded, voice = 'company' }: XThreadEditorProps) {
   const rawThread = (post.contentVariants?.thread ?? []) as ThreadTweet[]
   const [tweets, setTweets] = useState(() => rawThread.map(t => t.text))
   const [tweetMedia, setTweetMedia] = useState<Record<number, MediaItem>>(() => {
@@ -39,6 +41,7 @@ export function XThreadEditor({ post, companyId, brandColors, embedded }: XThrea
     return initial
   })
   const [focusedIdx, setFocusedIdx] = useState(0)
+  const [viewMode, setViewMode] = useState<'edit' | 'preview'>('edit')
   const [saveState, setSaveState] = useState<SaveState>('idle')
   const [showSchedule, setShowSchedule] = useState(false)
   const [scheduledFor, setScheduledFor] = useState('')
@@ -167,14 +170,60 @@ export function XThreadEditor({ post, companyId, brandColors, embedded }: XThrea
   const tweetLabels = (i: number) =>
     i === 0 ? 'Hook' : i === tweets.length - 1 ? 'Close' : `Tweet ${i + 1}`
 
+  const previewDisplayName = voice === 'personal' ? 'You' : 'Company'
+  const previewHandle = voice === 'personal' ? 'you' : 'company'
+  const previewTweets = tweets.map((text, i) => ({
+    text,
+    mediaUrl: tweetMedia[i]?.url,
+    mediaAlt: tweetMedia[i]?.alt_text ?? undefined,
+  }))
+
   return (
     <div className={cn('space-y-3', !embedded && 'p-4')}>
-      {!embedded && (
-        <p className="text-xs text-zinc-500">
-          {tweets.length} tweets · click a tweet to attach media to it
-        </p>
-      )}
+      <div className="flex items-center justify-between gap-3">
+        {!embedded ? (
+          <p className="text-xs text-zinc-500">
+            {tweets.length} tweets · click a tweet to attach media to it
+          </p>
+        ) : (
+          <p className="text-xs text-zinc-500">{tweets.length} tweets</p>
+        )}
+        <div className="flex items-center rounded-lg border border-zinc-700 overflow-hidden shrink-0">
+          <button
+            type="button"
+            onClick={() => setViewMode('edit')}
+            className={cn(
+              'flex items-center gap-1 px-2.5 py-1 text-xs transition-colors',
+              viewMode === 'edit'
+                ? 'bg-zinc-700 text-white'
+                : 'text-zinc-500 hover:text-zinc-300',
+            )}
+          >
+            <Pencil className="w-3 h-3" /> Edit
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode('preview')}
+            className={cn(
+              'flex items-center gap-1 px-2.5 py-1 text-xs transition-colors',
+              viewMode === 'preview'
+                ? 'bg-zinc-700 text-white'
+                : 'text-zinc-500 hover:text-zinc-300',
+            )}
+          >
+            <Eye className="w-3 h-3" /> Preview
+          </button>
+        </div>
+      </div>
 
+      {viewMode === 'preview' ? (
+        <XThreadPreview
+          tweets={previewTweets}
+          displayName={previewDisplayName}
+          handle={previewHandle}
+        />
+      ) : (
+        <>
       <div className="flex items-center gap-0.5 border border-zinc-800 rounded-lg p-1 w-fit">
         {([
           { type: 'bold' as const, icon: <Bold className="w-3.5 h-3.5" /> },
@@ -264,6 +313,8 @@ export function XThreadEditor({ post, companyId, brandColors, embedded }: XThrea
           )
         })}
       </div>
+        </>
+      )}
 
       {saveState === 'draft' ? (
         <div className="flex items-center gap-3 pt-1 border-t border-zinc-800">
@@ -345,6 +396,7 @@ export function XThreadEditor({ post, companyId, brandColors, embedded }: XThrea
         </div>
       )}
 
+      {viewMode === 'edit' && (
       <div className="rounded-lg border border-zinc-800 p-3 space-y-2">
         <p className="text-xs text-zinc-500">
           Add media to <span className="text-zinc-300">{tweetLabels(focusedIdx)}</span>
@@ -365,6 +417,7 @@ export function XThreadEditor({ post, companyId, brandColors, embedded }: XThrea
           onAccept={handleMediaAccept}
         />
       </div>
+      )}
     </div>
   )
 }

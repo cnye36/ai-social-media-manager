@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { format } from 'date-fns'
 import { Bold, Italic, List, Copy, Check, Trash2, CalendarClock, Image as ImageIcon, CheckCircle2 } from 'lucide-react'
+import { SendToBufferButton } from '@/components/posts/SendToBufferButton'
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -81,6 +82,7 @@ export function PostEditorModal({
   const [saveSuccess, setSaveSuccess] = useState(false)
   const [approveState, setApproveState] = useState<'idle' | 'sending' | 'done' | 'error'>('idle')
   const [approveError, setApproveError] = useState('')
+  const [bufferPostId, setBufferPostId] = useState<string | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
@@ -98,6 +100,7 @@ export function PostEditorModal({
       setSaveSuccess(false)
       setApproveState('idle')
       setApproveError('')
+      setBufferPostId(post.buffer_post_id)
       setTab('post')
     }
   }, [post?.id, open])
@@ -155,6 +158,7 @@ export function PostEditorModal({
       onUpdate?.(updated)
       setStatus(updated.status as PostStatus)
       setScheduledFor(syncDatetimeFieldsFromSaved(updated))
+      setBufferPostId(updated.buffer_post_id)
       setSaveSuccess(true)
       setTimeout(() => setSaveSuccess(false), 2500)
     } else {
@@ -189,6 +193,7 @@ export function PostEditorModal({
       onUpdate?.(updated)
       setStatus(updated.status as PostStatus)
       setScheduledFor(toDatetimeLocal(updated.scheduled_for))
+      setBufferPostId(updated.buffer_post_id)
       setApproveState('done')
     } else {
       const d = await res.json().catch(() => ({}))
@@ -329,6 +334,24 @@ export function PostEditorModal({
                   </button>
                 )}
               </div>
+
+              {SOCIAL_CHANNELS.includes(channel) && status !== 'published' && (
+                <SendToBufferButton
+                  postId={post.id}
+                  channel={channel}
+                  scheduledFor={post.scheduled_for ?? (scheduledFor ? new Date(scheduledFor).toISOString() : null)}
+                  bufferPostId={bufferPostId ?? post.buffer_post_id}
+                  onSuccess={p => {
+                    setBufferPostId(p.buffer_post_id ?? null)
+                    onUpdate?.({
+                      ...post,
+                      buffer_post_id: p.buffer_post_id ?? null,
+                      scheduled_for: p.scheduled_for ?? post.scheduled_for,
+                      status: post.status === 'draft' ? 'scheduled' : post.status,
+                    })
+                  }}
+                />
+              )}
 
             </div>
           ) : (

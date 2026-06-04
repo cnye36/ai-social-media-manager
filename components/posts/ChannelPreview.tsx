@@ -74,15 +74,27 @@ function LinkedInPreview({ content: raw, mediaUrl, mediaAlt }: { content: string
 
 // ─── X / Twitter ─────────────────────────────────────────────────────────────
 
+export interface XThreadPreviewTweet {
+  text: string
+  mediaUrl?: string
+  mediaAlt?: string
+}
+
+function XAvatar({ label }: { label: string }) {
+  return (
+    <div className="w-10 h-10 rounded-full bg-zinc-700 flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
+      {label.charAt(0).toUpperCase()}
+    </div>
+  )
+}
+
 function XPreview({ content: raw, mediaUrl, mediaAlt }: { content: string; mediaUrl?: string; mediaAlt?: string }) {
   const text = cleanText(raw)
 
   return (
     <div className="rounded-lg border border-zinc-700 bg-black text-left p-3">
       <div className="flex gap-2.5">
-        <div className="w-10 h-10 rounded-full bg-zinc-700 flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
-          C
-        </div>
+        <XAvatar label="Company" />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5 flex-wrap">
             <span className="text-[13px] font-bold text-white">Company</span>
@@ -107,6 +119,81 @@ function XPreview({ content: raw, mediaUrl, mediaAlt }: { content: string; media
               {text.length}/280
             </span>
           </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export function XThreadPreview({
+  tweets,
+  displayName = 'Company',
+  handle = 'company',
+}: {
+  tweets: XThreadPreviewTweet[]
+  displayName?: string
+  handle?: string
+}) {
+  if (tweets.length === 0) {
+    return (
+      <div className="rounded-lg border border-zinc-700 bg-black p-6 text-center text-xs text-zinc-600">
+        No tweets to preview
+      </div>
+    )
+  }
+
+  return (
+    <div className="rounded-lg border border-zinc-700 bg-black text-left overflow-hidden">
+      <div className="p-3">
+        <div className="relative">
+          {tweets.length > 1 && (
+            <div
+              className="absolute left-[19px] top-10 bottom-10 w-0.5 bg-zinc-700/80 rounded-full"
+              aria-hidden
+            />
+          )}
+          <div className="space-y-4">
+            {tweets.map((tweet, i) => (
+              <div key={i} className="flex gap-2.5 relative">
+                <div className="w-10 shrink-0">
+                  {i === 0 ? <XAvatar label={displayName} /> : <div className="h-1" />}
+                </div>
+                <div className="flex-1 min-w-0 pb-1">
+                  {i === 0 && (
+                    <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                      <span className="text-[13px] font-bold text-white">{displayName}</span>
+                      <span className="text-[11px] text-zinc-500">@{handle} · Just now</span>
+                    </div>
+                  )}
+                  <p className="text-[12px] text-zinc-100 leading-relaxed whitespace-pre-wrap">{tweet.text}</p>
+                  {tweet.mediaUrl && (
+                    <div className="mt-2 rounded-xl overflow-hidden border border-zinc-800">
+                      <MediaBlock url={tweet.mediaUrl} channel="x" alt={tweet.mediaAlt} />
+                    </div>
+                  )}
+                  {tweet.text.length > 280 && (
+                    <p className="text-[10px] text-red-400 mt-1 tabular-nums">
+                      {tweet.text.length}/280 — over limit
+                    </p>
+                  )}
+                  {i === 0 && tweets.length > 1 && (
+                    <p className="text-[11px] text-sky-400 mt-2 font-medium">Show this thread</p>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between mt-3 pt-2 border-t border-zinc-800/60 ml-[50px]">
+          <div className="flex gap-5">
+            {['💬', '↺', '♥', '↗', '🔖'].map(icon => (
+              <span key={icon} className="text-[10px] text-zinc-500">{icon}</span>
+            ))}
+          </div>
+          <span className="text-[10px] text-zinc-600">
+            {tweets.length} tweet{tweets.length !== 1 ? 's' : ''}
+          </span>
         </div>
       </div>
     </div>

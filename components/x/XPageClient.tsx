@@ -311,10 +311,11 @@ interface ThreadResultProps {
   post: GeneratedPost
   companyId: string
   brandColors?: { primary?: string; accent?: string }
+  voice: XVoice
   onReset: () => void
 }
 
-function ThreadResult({ post, companyId, brandColors, onReset }: ThreadResultProps) {
+function ThreadResult({ post, companyId, brandColors, voice, onReset }: ThreadResultProps) {
   const thread = (post.contentVariants?.thread ?? []) as { text: string }[]
   return (
     <div className="border border-zinc-800 rounded-xl overflow-hidden bg-zinc-900">
@@ -333,7 +334,7 @@ function ThreadResult({ post, companyId, brandColors, onReset }: ThreadResultPro
           New
         </button>
       </div>
-      <XThreadEditor post={post} companyId={companyId} brandColors={brandColors} />
+      <XThreadEditor post={post} companyId={companyId} brandColors={brandColors} voice={voice} />
     </div>
   )
 }
@@ -721,6 +722,7 @@ export function XPageClient({ companyId, brandColors }: XPageClientProps) {
                 post={threadPost!}
                 companyId={companyId}
                 brandColors={brandColors}
+                voice={activeVoice}
                 onReset={handleReset}
               />
             ) : (

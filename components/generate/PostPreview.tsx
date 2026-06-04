@@ -2,7 +2,8 @@
 
 import { useState, useRef } from 'react'
 import { format } from 'date-fns'
-import { Copy, Check, RefreshCw, Image as ImageIcon, Bold, Italic, List, Send, Eye, Pencil, CalendarClock, CircleCheck } from 'lucide-react'
+import { Copy, Check, RefreshCw, Image as ImageIcon, Bold, Italic, List, Eye, Pencil, CalendarClock, CircleCheck } from 'lucide-react'
+import { SendToBufferButton } from '@/components/posts/SendToBufferButton'
 import { buildStatusDatetimePayload } from '@/lib/content-status'
 import { LinkedInIcon, XIcon, RedditIcon, FacebookIcon } from '@/components/ui/channel-icons'
 import { Button } from '@/components/ui/button'
@@ -16,8 +17,6 @@ import { mediaItemFromResult } from '@/types/media'
 import { splitImagePromptFromText } from '@/lib/generate/image-prompt'
 import type { Channel } from '@/types/database'
 import type { MediaResult } from '@/types/media'
-
-const BUFFER_CHANNELS: Channel[] = ['linkedin', 'x', 'facebook']
 
 const CHANNEL_META: Record<Channel, { label: string; icon: React.ReactNode; accentClass: string; headerClass: string }> = {
   linkedin: {
@@ -72,9 +71,8 @@ export function PostPreview({
   const [showSchedule, setShowSchedule] = useState(false)
   const [scheduledFor, setScheduledFor] = useState('')
   const [acceptedMedia, setAcceptedMedia] = useState<AcceptedMedia | null>(null)
-  const [bufferState, setBufferState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
-  const [bufferError, setBufferError] = useState('')
-  const [bufferQueuedAt, setBufferQueuedAt] = useState<string | null>(null)
+  const [savedScheduledFor, setSavedScheduledFor] = useState<string | null>(null)
+  const [savedBufferPostId, setSavedBufferPostId] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<'edit' | 'preview'>('edit')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -147,6 +145,8 @@ export function PostPreview({
     }
 
     try {
+      let saved: { id: string; scheduled_for?: string | null; buffer_post_id?: string | null }
+
       if (savedPostId) {
         const res = await fetch(`/api/posts/${savedPostId}`, {
           method: 'PATCH',
@@ -154,6 +154,7 @@ export function PostPreview({
           body: JSON.stringify(body),
         })
         if (!res.ok) throw new Error('Failed to update post')
+        saved = await res.json() as typeof saved
       } else {
         const res = await fetch('/api/posts', {
           method: 'POST',
@@ -166,10 +167,12 @@ export function PostPreview({
           }),
         })
         if (!res.ok) throw new Error('Failed to save post')
-        const created = await res.json() as { id: string }
-        setSavedPostId(created.id)
+        saved = await res.json() as typeof saved
+        setSavedPostId(saved.id)
       }
 
+      setSavedScheduledFor(saved.scheduled_for ?? null)
+      setSavedBufferPostId(saved.buffer_post_id ?? null)
       setSaveState(status === 'draft' ? 'draft' : status === 'scheduled' ? 'scheduled' : 'published')
       setShowSchedule(false)
       setScheduledFor('')
@@ -177,26 +180,6 @@ export function PostPreview({
     } catch {
       setSaveError(savedPostId ? 'Failed to update post' : 'Failed to save post')
       setSaveState('idle')
-    }
-  }
-
-  async function handleSendToBuffer() {
-    if (!savedPostId) return
-    setBufferState('sending')
-    setBufferError('')
-    const res = await fetch('/api/buffer/publish', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ postId: savedPostId }),
-    })
-    if (res.ok) {
-      const data = await res.json() as { scheduledFor?: string; post?: { scheduled_for?: string | null } }
-      setBufferQueuedAt(data.post?.scheduled_for ?? data.scheduledFor ?? null)
-      setBufferState('sent')
-    } else {
-      const d = await res.json().catch(() => ({}))
-      setBufferError(typeof d.error === 'string' ? d.error : 'Failed to send to Buffer')
-      setBufferState('error')
     }
   }
 
@@ -282,25 +265,6 @@ export function PostPreview({
                 {copied ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
                 {copied ? 'Copied!' : 'Copy'}
               </Button>
-              {savedPostId && channel && BUFFER_CHANNELS.includes(channel) && saveState === 'draft' && (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={handleSendToBuffer}
-                  disabled={bufferState === 'sending' || bufferState === 'sent'}
-                  title="Send to Buffer queue"
-                  className={cn(bufferState === 'sent' && 'text-green-400')}
-                >
-                  {bufferState === 'sent' ? <Check className="w-3.5 h-3.5" /> : <Send className="w-3.5 h-3.5" />}
-                  {bufferState === 'sending'
-                    ? 'Sending…'
-                    : bufferState === 'sent'
-                      ? bufferQueuedAt
-                        ? format(new Date(bufferQueuedAt), 'MMM d · h:mm a')
-                        : 'Queued!'
-                      : 'Buffer'}
-                </Button>
-              )}
             </div>
           )}
         </div>
@@ -395,10 +359,28 @@ export function PostPreview({
                 </button>
               </div>
             ) : saveState === 'scheduled' ? (
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3">
                 <span className="flex items-center gap-1.5 text-sm text-yellow-400">
-                  <CalendarClock className="w-4 h-4" /> Scheduled
+                  <CalendarClock className="w-4 h-4" />
+                  Scheduled
+                  {savedScheduledFor && (
+                    <span className="text-zinc-400">
+                      · {format(new Date(savedScheduledFor), 'MMM d · h:mm a')}
+                    </span>
+                  )}
                 </span>
+                {savedPostId && channel && (
+                  <SendToBufferButton
+                    postId={savedPostId}
+                    channel={channel}
+                    scheduledFor={savedScheduledFor}
+                    bufferPostId={savedBufferPostId}
+                    onSuccess={p => {
+                      setSavedBufferPostId(p.buffer_post_id ?? null)
+                      if (p.scheduled_for) setSavedScheduledFor(p.scheduled_for)
+                    }}
+                  />
+                )}
                 <button
                   type="button"
                   onClick={() => setSaveState('idle')}
@@ -469,10 +451,9 @@ export function PostPreview({
           </div>
         )}
 
-        {(saveError || bufferError) && (
-          <div className="px-5 pb-3 space-y-1">
-            {saveError && <p className="text-xs text-red-400">{saveError}</p>}
-            {bufferError && <p className="text-xs text-red-400">{bufferError}</p>}
+        {saveError && (
+          <div className="px-5 pb-3">
+            <p className="text-xs text-red-400">{saveError}</p>
           </div>
         )}
       </div>

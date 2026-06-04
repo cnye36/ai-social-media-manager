@@ -34,33 +34,46 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `Buffer does not support ${post.channel}` }, { status: 400 })
   }
 
+  if (post.buffer_post_id) {
+    return NextResponse.json({ error: 'This post is already in Buffer.' }, { status: 400 })
+  }
+
+  if (!post.scheduled_for) {
+    return NextResponse.json(
+      { error: 'Set a publish date and time in the app before sending to Buffer.' },
+      { status: 400 },
+    )
+  }
+
   try {
     const bufferUpdates = await scheduleViaBufferIfConnected(post as Post)
     if (!bufferUpdates.buffer_post_id) {
       return NextResponse.json(
         { error: `No Buffer profile connected for ${post.channel}` },
-        { status: 400 }
+        { status: 400 },
       )
     }
 
-    const updates: Record<string, unknown> = { status: 'scheduled', ...bufferUpdates }
-
-    let updatedPost = post
-    if (Object.keys(updates).length > 0) {
-      const { data, error } = await supabase
-        .from('posts')
-        .update(updates)
-        .eq('id', postId)
-        .select()
-        .single()
-      if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-      if (data) updatedPost = data
+    const updates: Record<string, unknown> = {
+      buffer_post_id: bufferUpdates.buffer_post_id,
+      ...(bufferUpdates.scheduled_for ? { scheduled_for: bufferUpdates.scheduled_for } : {}),
+      // Keep status as scheduled once it has a time; only promote drafts.
+      ...(post.status === 'draft' ? { status: 'scheduled' } : {}),
     }
+
+    const { data: updatedPost, error } = await supabase
+      .from('posts')
+      .update(updates)
+      .eq('id', postId)
+      .select()
+      .single()
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
     return NextResponse.json({
       success: true,
       platformPostId: bufferUpdates.buffer_post_id,
-      scheduledFor: bufferUpdates.scheduled_for,
+      scheduledFor: bufferUpdates.scheduled_for ?? post.scheduled_for,
       post: updatedPost,
     })
   } catch (err) {

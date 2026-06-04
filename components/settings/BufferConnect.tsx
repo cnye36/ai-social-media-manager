@@ -157,7 +157,8 @@ export function BufferConnect({ companyId }: { companyId: string }) {
             ))}
           </div>
           <p className="text-[11px] text-zinc-600 leading-relaxed pt-1">
-            Scheduled posts for these channels route through Buffer automatically. Generated images are attached as URLs when present.
+            Posts are only sent to Buffer when you click <span className="text-zinc-400">Send to Buffer</span> on a scheduled post.
+            Your app schedule time is used — Buffer will not pick the next open slot.
           </p>
           <div className="flex gap-2 pt-1">
             <Button size="sm" variant="ghost" onClick={() => setShowReconnect(true)} className="text-xs text-zinc-500">

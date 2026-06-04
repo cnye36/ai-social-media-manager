@@ -9,7 +9,7 @@ export const maxDuration = 60
 /**
  * Single external-cron entry point (e.g. system crontab on a VPS).
  * Marks overdue scheduled posts as published, then runs Reddit monitors.
- * Buffer scheduling is handled separately by /api/cron/schedule-buffer (runs once daily).
+ * Buffer is not called here — posts are sent to Buffer manually from the UI.
  */
 export async function GET(request: Request) {
   const auth = request.headers.get('Authorization')

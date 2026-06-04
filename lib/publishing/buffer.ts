@@ -377,8 +377,17 @@ function buildCreatePostArgs(
   return args
 }
 
-function buildCreatePostInput(post: Post, profile: { id: string }): Record<string, unknown> {
+function buildCreatePostInput(
+  post: Post,
+  profile: { id: string },
+  options?: { requireCustomSchedule?: boolean },
+): Record<string, unknown> {
   const scheduled = post.scheduled_for ? new Date(post.scheduled_for).toISOString() : undefined
+
+  if (options?.requireCustomSchedule && !scheduled) {
+    throw new Error('Set a publish date and time before sending to Buffer.')
+  }
+
   const xThread = post.channel === 'x' && isXThreadPost(post)
     ? buildXThreadBufferPayload(post)
     : null
@@ -389,11 +398,14 @@ function buildCreatePostInput(post: Post, profile: { id: string }): Record<strin
       ? mediaToBufferAssets(image)
       : []
 
+  // Manual sends always use the app's scheduled time (never Buffer "next slot" queue).
+  const mode = options?.requireCustomSchedule || scheduled ? 'customScheduled' : 'addToQueue'
+
   return {
     channelId: profile.id,
     text: xThread ? xThread.text : postBodyForPublish(post.content),
     schedulingType: 'automatic',
-    mode: scheduled ? 'customScheduled' : 'addToQueue',
+    mode,
     ...(assets.length ? { assets } : {}),
     ...(xThread?.metadata ? { metadata: xThread.metadata } : {}),
     ...(scheduled ? { dueAt: scheduled } : {}),
@@ -518,7 +530,10 @@ export async function getBufferIntegration(companyId: string) {
   return data as { access_token: string; organization_id: string | null; profiles: BufferProfile[] } | null
 }
 
-export async function publishViaBuffer(post: Post): Promise<PublishResult> {
+export async function publishViaBuffer(
+  post: Post,
+  options?: { requireCustomSchedule?: boolean },
+): Promise<PublishResult> {
   const integration = await getBufferIntegration(post.company_id)
   if (!integration) throw new Error('No Buffer integration configured for this company')
 
@@ -529,7 +544,7 @@ export async function publishViaBuffer(post: Post): Promise<PublishResult> {
     )
   }
 
-  const input = buildCreatePostInput(post, profile)
+  const input = buildCreatePostInput(post, profile, options)
   const data = await bufferGraphql<{
     createPost?: {
       __typename?: string
