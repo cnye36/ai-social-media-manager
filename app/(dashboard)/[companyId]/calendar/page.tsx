@@ -13,24 +13,25 @@ export default async function CalendarPage({ params }: Props) {
   const { companyId } = await params
   const supabase = await createClient()
 
-  await publishDueContent(supabase, { companyId }).catch(() => {
-    // Non-blocking: cron still handles overdue publishes
-  })
-
   const rangeStart = startOfMonth(subMonths(new Date(), 1))
   const rangeEnd = endOfMonth(addMonths(new Date(), 1))
 
-  const [{ data: rawPosts }, { data: rawArticles }] = await Promise.all([
-    supabase
-      .from('posts')
-      .select('*')
-      .eq('company_id', companyId)
-      .in('status', ['scheduled', 'published']),
-    supabase
-      .from('articles')
-      .select('*')
-      .eq('company_id', companyId)
-      .in('status', ['scheduled', 'published']),
+  // Run publish check in parallel with data fetches — calendar shows both
+  // scheduled and published, so stale status within the same render is fine.
+  const [, [{ data: rawPosts }, { data: rawArticles }]] = await Promise.all([
+    publishDueContent(supabase, { companyId }).catch(() => {}),
+    Promise.all([
+      supabase
+        .from('posts')
+        .select('*')
+        .eq('company_id', companyId)
+        .in('status', ['scheduled', 'published']),
+      supabase
+        .from('articles')
+        .select('*')
+        .eq('company_id', companyId)
+        .in('status', ['scheduled', 'published']),
+    ]),
   ])
 
   const posts = filterPostsForCalendar(rawPosts ?? [], rangeStart, rangeEnd)

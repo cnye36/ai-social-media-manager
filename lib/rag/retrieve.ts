@@ -3,6 +3,11 @@ import { createClient } from '@/lib/supabase/server'
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
+// Cache embeddings for the lifetime of a warm server instance.
+// Eliminates duplicate API calls when multiple channels generate from the same query.
+const embeddingCache = new Map<string, { embedding: number[]; ts: number }>()
+const EMBEDDING_CACHE_TTL = 5 * 60 * 1000 // 5 minutes
+
 export interface RetrievedChunk {
   id: string
   title: string | null
@@ -18,12 +23,22 @@ export async function retrieve(
   topK = 5,
   threshold = 0.4
 ): Promise<RetrievedChunk[]> {
-  const embeddingResponse = await openai.embeddings.create({
-    model: 'text-embedding-3-small',
-    input: query,
-  })
-  const embedding = embeddingResponse.data[0]?.embedding
-  if (!embedding) throw new Error('OpenAI returned no embedding for the query')
+  const cacheKey = query.trim().toLowerCase()
+  const cached = embeddingCache.get(cacheKey)
+  const now = Date.now()
+
+  let embedding: number[]
+  if (cached && now - cached.ts < EMBEDDING_CACHE_TTL) {
+    embedding = cached.embedding
+  } else {
+    const embeddingResponse = await openai.embeddings.create({
+      model: 'text-embedding-3-small',
+      input: query,
+    })
+    embedding = embeddingResponse.data[0]?.embedding ?? []
+    if (!embedding.length) throw new Error('OpenAI returned no embedding for the query')
+    embeddingCache.set(cacheKey, { embedding, ts: now })
+  }
 
   const supabase = await createClient()
   const { data, error } = await supabase.rpc('search_knowledge', {

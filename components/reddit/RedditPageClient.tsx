@@ -6,6 +6,7 @@ import {
   Share2, Bookmark, MoreHorizontal, Check, CalendarClock, CircleCheck, RefreshCw,
   Eye, Pencil, X, Plus, Trash2, ToggleLeft, ToggleRight, ExternalLink,
   Copy, ChevronDown, ChevronUp, Radio, AlertTriangle, History,
+  CalendarDays, Clock,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -20,7 +21,7 @@ import type { Post } from '@/types/database'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Tab = 'generate' | 'ideas' | 'opportunities' | 'monitors' | 'saved' | 'history'
+type Tab = 'generate' | 'ideas' | 'opportunities' | 'monitors' | 'saved' | 'history' | 'planner'
 
 interface RedditOpportunity {
   id: string
@@ -741,6 +742,290 @@ function OpportunitiesTab({ companyId }: { companyId: string }) {
 }
 
 // ─── Monitors tab ─────────────────────────────────────────────────────────────
+
+// ─── Planner tab ──────────────────────────────────────────────────────────────
+
+interface PlannerSlot {
+  date: string
+  dayLabel: string
+  subreddit: string
+  timeWindow: string
+  postType: 'story' | 'question' | 'resource' | 'discussion' | 'analysis' | 'ama'
+  suggestedTitle: string
+  angle: string
+  titleFormula: string
+}
+
+const POST_TYPE_COLORS: Record<string, string> = {
+  story:      'bg-violet-500/15 text-violet-300 border-violet-500/20',
+  question:   'bg-blue-500/15 text-blue-300 border-blue-500/20',
+  resource:   'bg-emerald-500/15 text-emerald-300 border-emerald-500/20',
+  discussion: 'bg-amber-500/15 text-amber-300 border-amber-500/20',
+  analysis:   'bg-cyan-500/15 text-cyan-300 border-cyan-500/20',
+  ama:        'bg-pink-500/15 text-pink-300 border-pink-500/20',
+}
+
+function nextMondayISO(): string {
+  const d = new Date()
+  const day = d.getDay()
+  const daysUntilMonday = day === 0 ? 1 : (8 - day) % 7 || 7
+  d.setDate(d.getDate() + daysUntilMonday)
+  return d.toISOString().slice(0, 10)
+}
+
+function PlannerTab({
+  companyId,
+  onUseIdea,
+}: {
+  companyId: string
+  onUseIdea: (topic: string, subreddit: string) => void
+}) {
+  const [monitors, setMonitors] = useState<RedditMonitor[]>([])
+  const [selectedSubs, setSelectedSubs] = useState<string[]>([])
+  const [customSubInput, setCustomSubInput] = useState('')
+  const [weekStart, setWeekStart] = useState(nextMondayISO)
+  const [topicFocus, setTopicFocus] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [slots, setSlots] = useState<PlannerSlot[]>([])
+
+  useEffect(() => {
+    fetch(`/api/reddit/monitors?companyId=${companyId}`)
+      .then(r => r.json())
+      .then((data: RedditMonitor[]) => {
+        setMonitors(data)
+        // Pre-select all monitored subs
+        const allSubs = [...new Set(data.flatMap(m => m.subreddits))]
+        setSelectedSubs(allSubs)
+      })
+      .catch(() => {})
+  }, [companyId])
+
+  const allAvailableSubs = useMemo(() => {
+    return [...new Set(monitors.flatMap(m => m.subreddits))]
+  }, [monitors])
+
+  function toggleSub(sub: string) {
+    setSelectedSubs(prev =>
+      prev.includes(sub) ? prev.filter(s => s !== sub) : [...prev, sub]
+    )
+  }
+
+  function addCustomSub() {
+    const sub = customSubInput.replace(/^r\//, '').trim()
+    if (!sub) return
+    if (!selectedSubs.includes(sub)) setSelectedSubs(prev => [...prev, sub])
+    setCustomSubInput('')
+  }
+
+  async function generatePlan() {
+    if (selectedSubs.length === 0) { setError('Select at least one subreddit'); return }
+    setLoading(true)
+    setError(null)
+    setSlots([])
+    try {
+      const res = await fetch('/api/reddit/planner', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          companyId,
+          subreddits: selectedSubs,
+          weekStart,
+          topicFocus: topicFocus.trim() || undefined,
+        }),
+      })
+      const data = await res.json() as { slots?: PlannerSlot[]; error?: string }
+      if (!res.ok || data.error) throw new Error(data.error ?? 'Failed to generate plan')
+      setSlots(data.slots ?? [])
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Something went wrong')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Group slots by day for the calendar view
+  const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+  const slotsByDay = useMemo(() => {
+    const map: Record<string, PlannerSlot[]> = {}
+    for (const slot of slots) {
+      if (!map[slot.dayLabel]) map[slot.dayLabel] = []
+      map[slot.dayLabel].push(slot)
+    }
+    return map
+  }, [slots])
+
+  return (
+    <div className="space-y-6">
+      {/* Config panel */}
+      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 space-y-5">
+        <div>
+          <h2 className="text-white font-semibold text-sm mb-1">Weekly Reddit Planner</h2>
+          <p className="text-zinc-500 text-xs">
+            Pick your subreddits, choose a week, and get a full posting schedule with AI-generated titles timed for peak engagement.
+          </p>
+        </div>
+
+        {/* Subreddit selector */}
+        <div>
+          <label className="text-xs text-zinc-400 font-medium block mb-2">Subreddits to schedule</label>
+          <div className="flex flex-wrap gap-2 mb-3">
+            {allAvailableSubs.map(sub => (
+              <button
+                key={sub}
+                onClick={() => toggleSub(sub)}
+                className={cn(
+                  'px-3 py-1.5 rounded-lg text-xs font-medium border transition-all',
+                  selectedSubs.includes(sub)
+                    ? 'bg-orange-600/20 border-orange-500/40 text-orange-300'
+                    : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:text-zinc-300'
+                )}
+              >
+                r/{sub}
+              </button>
+            ))}
+          </div>
+          {/* Selected extras not in monitors */}
+          {selectedSubs.filter(s => !allAvailableSubs.includes(s)).map(sub => (
+            <span
+              key={sub}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium border bg-orange-600/20 border-orange-500/40 text-orange-300 mr-2 mb-2"
+            >
+              r/{sub}
+              <button onClick={() => setSelectedSubs(p => p.filter(s => s !== sub))} className="hover:text-white">
+                <X className="w-3 h-3" />
+              </button>
+            </span>
+          ))}
+          <div className="flex gap-2 mt-2">
+            <input
+              value={customSubInput}
+              onChange={e => setCustomSubInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addCustomSub() } }}
+              placeholder="Add another subreddit..."
+              className="flex-1 bg-zinc-800 border border-zinc-700 text-white text-xs rounded-lg px-3 py-2 placeholder-zinc-500 focus:outline-none focus:border-zinc-500"
+            />
+            <Button size="sm" variant="outline" onClick={addCustomSub} className="border-zinc-700 text-zinc-300">
+              <Plus className="w-3.5 h-3.5" />
+            </Button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          {/* Week picker */}
+          <div>
+            <label className="text-xs text-zinc-400 font-medium block mb-1.5">Week starting</label>
+            <input
+              type="date"
+              value={weekStart}
+              onChange={e => setWeekStart(e.target.value)}
+              className="w-full bg-zinc-800 border border-zinc-700 text-white text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-zinc-500"
+            />
+          </div>
+
+          {/* Topic focus */}
+          <div>
+            <label className="text-xs text-zinc-400 font-medium block mb-1.5">
+              Weekly theme <span className="text-zinc-600">(optional)</span>
+            </label>
+            <input
+              value={topicFocus}
+              onChange={e => setTopicFocus(e.target.value)}
+              placeholder="e.g. launch, automation tools, lessons learned..."
+              className="w-full bg-zinc-800 border border-zinc-700 text-white text-xs rounded-lg px-3 py-2 placeholder-zinc-500 focus:outline-none focus:border-zinc-500"
+            />
+          </div>
+        </div>
+
+        {error && (
+          <p className="text-red-400 text-xs flex items-center gap-1.5">
+            <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />{error}
+          </p>
+        )}
+
+        <Button
+          onClick={generatePlan}
+          disabled={loading || selectedSubs.length === 0}
+          className="bg-orange-600 hover:bg-orange-500 text-white text-sm w-full"
+        >
+          {loading
+            ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Building your week...</>
+            : <><CalendarDays className="w-4 h-4 mr-2" />Generate weekly plan</>}
+        </Button>
+      </div>
+
+      {/* Results — weekly schedule */}
+      {slots.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-white font-semibold text-sm">
+              Week of {new Date(weekStart + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}
+            </h3>
+            <span className="text-zinc-500 text-xs">{slots.length} posts planned</span>
+          </div>
+
+          {/* Day columns */}
+          <div className="grid grid-cols-1 gap-3">
+            {days.filter(d => slotsByDay[d]?.length).map(day => (
+              <div key={day} className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
+                <div className="px-4 py-2.5 border-b border-zinc-800 flex items-center gap-2">
+                  <span className="text-white text-sm font-semibold">{day}</span>
+                  <span className="text-zinc-500 text-xs">
+                    {new Date(slotsByDay[day][0].date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                  </span>
+                </div>
+                <div className="p-3 space-y-3">
+                  {slotsByDay[day].map((slot, i) => (
+                    <div key={i} className="bg-zinc-800/50 border border-zinc-700/50 rounded-xl p-4 space-y-3">
+                      {/* Header row */}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="px-2.5 py-1 bg-orange-500/15 text-orange-300 border border-orange-500/20 rounded-full text-xs font-semibold">
+                          r/{slot.subreddit}
+                        </span>
+                        <span className={cn(
+                          'px-2.5 py-1 rounded-full text-xs font-medium border',
+                          POST_TYPE_COLORS[slot.postType] ?? 'bg-zinc-700 text-zinc-300 border-zinc-600'
+                        )}>
+                          {slot.postType}
+                        </span>
+                        <span className="flex items-center gap-1 text-zinc-500 text-xs ml-auto">
+                          <Clock className="w-3 h-3" />{slot.timeWindow}
+                        </span>
+                      </div>
+
+                      {/* Title */}
+                      <p className="text-white text-sm font-medium leading-snug">{slot.suggestedTitle}</p>
+
+                      {/* Angle */}
+                      <p className="text-zinc-400 text-xs leading-relaxed">{slot.angle}</p>
+
+                      {/* Formula tag + action */}
+                      <div className="flex items-center justify-between">
+                        {slot.titleFormula && slot.titleFormula !== 'none' && (
+                          <span className="text-zinc-600 text-xs">
+                            formula: {slot.titleFormula}
+                          </span>
+                        )}
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => onUseIdea(slot.suggestedTitle, slot.subreddit)}
+                          className="border-zinc-600 text-zinc-300 hover:text-white text-xs ml-auto"
+                        >
+                          <Sparkles className="w-3 h-3 mr-1.5" />Generate post
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 function MonitorsTab({ companyId }: { companyId: string }) {
   const [monitors, setMonitors] = useState<RedditMonitor[]>([])
@@ -2604,6 +2889,7 @@ export function RedditPageClient({ companyId }: RedditPageClientProps) {
   }
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
+    { id: 'planner', label: 'Planner', icon: <CalendarDays className="w-3.5 h-3.5" /> },
     { id: 'ideas', label: 'Ideas', icon: <Sparkles className="w-3.5 h-3.5" /> },
     { id: 'generate', label: 'Generate', icon: <MessageSquare className="w-3.5 h-3.5" /> },
     { id: 'saved', label: 'Saved', icon: <Bookmark className="w-3.5 h-3.5" /> },
@@ -2648,6 +2934,9 @@ export function RedditPageClient({ companyId }: RedditPageClientProps) {
         </div>
 
         {/* Tab content */}
+        {tab === 'planner' && (
+          <PlannerTab companyId={companyId} onUseIdea={handleUseIdea} />
+        )}
         {tab === 'ideas' && (
           <IdeasTab companyId={companyId} onUseIdea={handleUseIdea} />
         )}

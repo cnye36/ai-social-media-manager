@@ -59,6 +59,22 @@ Return a JSON object:
   "disclosure": ${includeDisclosure ? '"I\'m the [role] at [company name]"' : 'null'}
 }
 
+VIRAL TITLE FORMULAS (use the one that fits — never force a formula):
+- Specificity: concrete number + concrete outcome + timeframe. "grew X to Y in Z weeks" not "tips for growing X"
+- After-years: persistence + recent change. "after N years of X, I finally figured out Y"
+- Hot take: opinion most haven't heard but should. "most [people in field] are wrong about X"
+- Curiosity gap: tease the outcome, not the lesson. "here's what actually happened when I tried X"
+- Fail-first: lead with the failure, earn the lesson. "I did X for 6 months — don't do X"
+- Question-as-title: debate the community genuinely has. "is X actually worth it for small teams?"
+WEAKEST titles are generic: "my experience with X", "tips for Y", "thoughts on Z" — they pull nobody in.
+
+STORY ARC (for non-question posts — follow this structure):
+1. Open: a specific, relatable moment — not a bio intro. "Six months ago I was staring at [concrete problem]" not "I'm the founder of..."
+2. Tension: what made it unexpectedly hard. One concrete detail here (a number, a name, a date) does more than a paragraph.
+3. Turn: the thing that changed — a failure, a discovery, a conversation, or a realization.
+4. Landing: one genuine lesson + one open thread. "still not sure if X was the right call — would do Y differently."
+The LAST LINE of the post is where replies happen. Make it a question or a take worth disputing.
+
 WHAT WORKS: Sharing what you learned (with specifics), asking for honest feedback, showing your work, unique data or research, stories of failure and recovery.
 WHAT TO AVOID: "Check out our product!", vague claims, anything that reads like an ad, engagement bait, posting the same content to multiple subreddits simultaneously, workflow demos that read like sales pitches, listing product features unprompted.
 

@@ -91,6 +91,8 @@ async function checkRobots(origin: string): Promise<(url: string) => boolean> {
   }
 }
 
+const MAX_CONCURRENT = 3
+
 export async function scrapeWebsite(
   startUrl: string,
   onProgress?: (pagesScraped: number) => void
@@ -99,41 +101,44 @@ export async function scrapeWebsite(
   const isAllowed = await checkRobots(origin)
 
   const visited = new Set<string>()
-  const queue = new Set<string>([startUrl])
+  const queued = new Set<string>([startUrl])
   const pages: ScrapedPage[] = []
 
-  while (queue.size > 0 && pages.length < MAX_PAGES) {
-    const url = queue.values().next().value!
-    queue.delete(url)
-    if (visited.has(url)) continue
-    visited.add(url)
-
-    if (!isAllowed(url)) continue
-
-    const result = await fetchPage(url)
-    if (!result) continue
-
-    const { html, finalUrl } = result
-    const $ = cheerio.load(html)
-
-    const title = $('title').text().trim() || $('h1').first().text().trim() || finalUrl
-    const content = extractText($)
-
-    if (content.length > 100) {
-      pages.push({ url: finalUrl, title, content })
-      onProgress?.(pages.length)
+  while (queued.size > 0 && pages.length < MAX_PAGES) {
+    const batch: string[] = []
+    for (const url of queued) {
+      if (batch.length >= MAX_CONCURRENT) break
+      batch.push(url)
+      queued.delete(url)
     }
 
-    // Discover new links from this page
-    const links = extractLinks($, finalUrl, origin)
-    for (const link of links) {
-      if (!visited.has(link)) {
-        queue.add(link)
+    await Promise.all(batch.map(async (url) => {
+      if (visited.has(url)) return
+      visited.add(url)
+      if (!isAllowed(url)) return
+
+      const result = await fetchPage(url)
+      if (!result) return
+
+      const { html, finalUrl } = result
+      const $ = cheerio.load(html)
+
+      const title = $('title').text().trim() || $('h1').first().text().trim() || finalUrl
+      const content = extractText($)
+
+      if (content.length > 100 && pages.length < MAX_PAGES) {
+        pages.push({ url: finalUrl, title, content })
+        onProgress?.(pages.length)
       }
-    }
 
-    // Small delay to be polite
-    await new Promise(r => setTimeout(r, 200))
+      const links = extractLinks($, finalUrl, origin)
+      for (const link of links) {
+        if (!visited.has(link)) queued.add(link)
+      }
+
+      // Polite delay per request
+      await new Promise(r => setTimeout(r, 200))
+    }))
   }
 
   return pages
