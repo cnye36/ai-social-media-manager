@@ -14,7 +14,12 @@ export async function GET(req: NextRequest) {
     .order('posted_at', { ascending: false })
     .limit(100)
 
-  if (status) query = query.eq('status', status)
+  if (status === 'new') {
+    // Legacy "drafted" rows were auto-set before reply selection; treat as still new
+    query = query.in('status', ['new', 'drafted'])
+  } else if (status) {
+    query = query.eq('status', status)
+  }
 
   const { data, error } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

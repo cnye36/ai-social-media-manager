@@ -89,9 +89,8 @@ const LENGTHS: { id: PostLength; label: string }[] = [
 ]
 
 const STATUS_FILTERS = [
-  { id: 'new', label: 'New' },
   { id: undefined, label: 'All' },
-  { id: 'drafted', label: 'Drafted' },
+  { id: 'new', label: 'New' },
   { id: 'replied', label: 'Replied' },
   { id: 'manual_review', label: 'Manual' },
   { id: 'dismissed', label: 'Dismissed' },
@@ -303,10 +302,6 @@ function OpportunityCard({
       if (res.ok) {
         const { draft_replies } = await res.json() as { draft_replies: ReplyVariant[] }
         setVariants(draft_replies ?? [])
-        onUpdate({
-          id: opp.id,
-          status: opp.status === 'new' ? 'drafted' : opp.status,
-        })
         setEditingReply(false)
       } else {
         const body = await res.json().catch(() => ({}))
@@ -326,7 +321,7 @@ function OpportunityCard({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ draft_reply: variant.text }),
     })
-    if (res.ok) onUpdate({ id: opp.id, draft_reply: variant.text, status: 'drafted' })
+    if (res.ok) onUpdate({ id: opp.id, draft_reply: variant.text })
   }
 
   async function updateStatus(status: RedditOpportunity['status']) {
@@ -506,7 +501,7 @@ function OpportunityCard({
             {variants.length > 0 && (
               <div className="space-y-2">
                 <p className="text-[11px] text-zinc-500">
-                  Pick the approach that fits best — click to select and save as your draft:
+                  Pick the approach that fits best — click to select:
                 </p>
                 {variants.map(variant => {
                   const isSelected = selectedVariant?.approach === variant.approach
@@ -545,7 +540,7 @@ function OpportunityCard({
             {opp.draft_reply && variants.length === 0 && (
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <p className="text-[10px] text-zinc-600 uppercase tracking-widest">Saved draft</p>
+                  <p className="text-[10px] text-zinc-600 uppercase tracking-widest">Selected reply</p>
                   {!editingReply && (
                     <button
                       onClick={() => { setEditingReply(true); setReplyText(opp.draft_reply ?? '') }}
@@ -664,7 +659,7 @@ function OpportunityCard({
 
 function OpportunitiesTab({ companyId }: { companyId: string }) {
   const [opportunities, setOpportunities] = useState<RedditOpportunity[]>([])
-  const [statusFilter, setStatusFilter] = useState<string | undefined>('new')
+  const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined)
   const [loading, setLoading] = useState(true)
 
   const fetchOpportunities = useCallback(async () => {

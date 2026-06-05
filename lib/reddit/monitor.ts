@@ -287,12 +287,6 @@ export async function draftReplyVariants(
     throw new Error('Failed to parse reply variants')
   }
 
-  // Mark as drafted without writing a specific reply yet
-  await supabase
-    .from('reddit_opportunities')
-    .update({ status: 'drafted' })
-    .eq('id', opportunityId)
-
   return variants
 }
 
@@ -359,7 +353,7 @@ export async function draftReply(
 
   await supabase
     .from('reddit_opportunities')
-    .update({ draft_reply: reply, status: 'drafted' })
+    .update({ draft_reply: reply })
     .eq('id', opportunityId)
 
   return reply
