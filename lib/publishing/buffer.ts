@@ -379,41 +379,6 @@ function buildCreatePostArgs(
   return args
 }
 
-function buildCreatePostInput(
-  post: Post,
-  profile: { id: string },
-  options?: { requireCustomSchedule?: boolean },
-): Record<string, unknown> {
-  const scheduled = post.scheduled_for ? new Date(post.scheduled_for).toISOString() : undefined
-
-  if (options?.requireCustomSchedule && !scheduled) {
-    throw new Error('Set a publish date and time before sending to Buffer.')
-  }
-
-  const xThread = post.channel === 'x' && isXThreadPost(post)
-    ? buildXThreadBufferPayload(post)
-    : null
-  const image = post.media_items?.find(m => m.type === 'image' && m.url)
-  const assets = xThread
-    ? xThread.assets
-    : image?.url
-      ? mediaToBufferAssets(image)
-      : []
-
-  // Manual sends always use the app's scheduled time (never Buffer "next slot" queue).
-  const mode = options?.requireCustomSchedule || scheduled ? 'customScheduled' : 'addToQueue'
-
-  return {
-    channelId: profile.id,
-    text: xThread ? xThread.text : postBodyForPublish(post.content),
-    schedulingType: 'automatic',
-    mode,
-    ...(post.channel === 'facebook' ? { type: 'post' } : {}),
-    ...(assets.length ? { assets } : {}),
-    ...(xThread?.metadata ? { metadata: xThread.metadata } : {}),
-    ...(scheduled ? { dueAt: scheduled } : {}),
-  }
-}
 
 /** Extract Buffer post id and queue slot from create_post / get_post payloads. */
 function parseBufferPostMeta(data: unknown): { postId?: string; dueAt?: string } {
@@ -547,44 +512,23 @@ export async function publishViaBuffer(
     )
   }
 
-  const input = buildCreatePostInput(post, profile, options)
-  const data = await bufferGraphql<{
-    createPost?: {
-      __typename?: string
-      message?: string
-      post?: { id?: string; dueAt?: string | null }
-    }
-  }>(
-    integration.access_token,
-    `
-      mutation CreatePost($input: CreatePostInput!) {
-        createPost(input: $input) {
-          __typename
-          ... on PostActionSuccess {
-            post {
-              id
-              dueAt
-            }
-          }
-          ... on MutationError {
-            message
-          }
-        }
-      }
-    `,
-    { input }
-  )
+  if (options?.requireCustomSchedule && !post.scheduled_for) {
+    throw new Error('Set a publish date and time before sending to Buffer.')
+  }
 
-  const result = data.createPost
-  if (!result) throw new Error('Buffer API returned no createPost result')
-  if (result.message) throw new Error(`Buffer rejected the post: ${result.message}`)
+  const token = integration.access_token
+  const sessionId = await initSession(token)
+  const tools = await listTools(token, sessionId)
+  const createTool = pickTool(tools, ['create_post', 'createPost', 'add_post', 'create_update'])
+  if (!createTool) throw new Error('Buffer MCP does not expose a create_post tool')
 
-  const platformPostId = result.post?.id
-  const dueAt = result.post?.dueAt ?? undefined
+  const args = buildCreatePostArgs(post, profile, integration.organization_id, createTool.inputSchema)
+  const data = await callTool(token, createTool.name, args, sessionId)
+  const { postId, dueAt } = parseBufferPostMeta(data)
 
   return {
     success: true,
-    platformPostId,
+    platformPostId: postId,
     scheduledFor: dueAt ? new Date(dueAt).toISOString() : undefined,
   }
 }
