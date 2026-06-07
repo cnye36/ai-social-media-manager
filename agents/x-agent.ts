@@ -1,6 +1,7 @@
 import { Agent } from '@openai/agents'
 import { buildRagSearchTool } from './tools/rag-search'
 import { buildBaseSystemPrompt } from './base-agent'
+import { X_HASHTAG_RULES, X_VARIETY_RULES } from '@/lib/content/x-variety'
 import type { BrandProfile } from '@/types/database'
 import type { RetrievedChunk } from '@/lib/rag/retrieve'
 import type { ContentGoal, PostLength } from '@/types/agents'
@@ -15,12 +16,15 @@ FORMAT — SINGLE TWEET ONLY:
 - Hard limit: 280 characters
 - The first 8 words must earn the read — most people only see the preview
 - No filler words. No thread announcements.
-- 1–2 hashtags max, or none — hashtag stuffing kills credibility on X
 - One idea. One tweet.
 - Never use em dashes (—). They are the single biggest giveaway that content is AI-generated. Use a comma, a period, or rewrite the sentence instead.
 
+${X_VARIETY_RULES}
+
+${X_HASHTAG_RULES}
+
 WHAT WORKS: Hot takes, contrarian perspectives, specific useful tips, real numbers, honest opinions, questions that make people think.
-WHAT TO AVOID: Corporate announcements, excessive hashtags, passive voice, anything you'd read in a press release.
+WHAT TO AVOID: Corporate announcements, excessive hashtags, passive voice, anything you'd read in a press release, repetitive "Most teams/Many companies" openers, defaulting to one brand keyword as the only hashtag.
 `.trim()
 
 const THREAD_RULES = `
@@ -47,8 +51,12 @@ THREAD RULES:
 - Only add "imagePrompt" where a visual genuinely amplifies the point (data visualization, diagram, before/after, etc.) — not every tweet needs one
 - imagePrompt should describe what kind of image would work best, not just "an image"
 
+${X_VARIETY_RULES}
+
+${X_HASHTAG_RULES}
+
 WHAT WORKS: Opening with a counterintuitive claim, numbered insights, before/after reveals, raw numbers that surprise.
-WHAT TO AVOID: "A thread 🧵" as your hook, padding, repeating the same point twice, weak closing tweet.
+WHAT TO AVOID: "A thread 🧵" as your hook, padding, repeating the same point twice, weak closing tweet, starting tweet 1 with "Most teams…" or similar generic B2B setups.
 `.trim()
 
 export function buildXAgent(params: {

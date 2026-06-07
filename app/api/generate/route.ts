@@ -3,6 +3,7 @@ import OpenAI from 'openai'
 import { createClient } from '@/lib/supabase/server'
 import { retrieve } from '@/lib/rag/retrieve'
 import { NO_EM_DASH_RULE, stripEmDashes } from '@/lib/content/no-em-dash'
+import { buildXVarietyBlock, pickXHookStyle } from '@/lib/content/x-variety'
 import type { Channel } from '@/types/database'
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
@@ -17,8 +18,8 @@ const CHANNEL_INSTRUCTIONS: Record<Channel, string> = {
   x: `You are a Twitter/X content specialist. Write a single engaging tweet.
 - HARD LIMIT: 280 characters total (count carefully)
 - Tone: Direct, punchy, conversational
-- Include 1–2 relevant hashtags within the character limit
-- Lead with a strong hook or surprising insight
+- Lead with a strong hook — rotate styles (hot take, question, stat, confession, myth-bust). NEVER open with "Most teams", "Many companies", or similar generic B2B setups
+- Hashtags: 0–2 max. Pick tags specific to THIS post's angle — brand keywords are for prose, not default hashtags. Zero hashtags is often best. Never slap the same single brand tag on every post
 - Single tweet only — no thread`,
 
   reddit: `You are a Reddit content specialist. Write an authentic Reddit post.
@@ -67,7 +68,7 @@ export async function POST(request: Request) {
         `Brand tone: ${brand.tone}`,
         brand.voice_notes && `Brand voice: ${brand.voice_notes}`,
         brand.target_audience && `Target audience: ${brand.target_audience}`,
-        brand.keywords?.length && `Keywords to weave in: ${brand.keywords.join(', ')}`,
+        brand.keywords?.length && `Brand themes (weave into copy naturally — not as default hashtags): ${brand.keywords.join(', ')}`,
         brand.avoid_phrases?.length && `Phrases to avoid: ${brand.avoid_phrases.join(', ')}`,
       ]
         .filter(Boolean)
@@ -98,11 +99,16 @@ export async function POST(request: Request) {
         .filter(Boolean)
         .join('\n\n')
 
+      const userContent =
+        channel === 'x'
+          ? `Write a ${channel} post about: ${topic}\n\n${buildXVarietyBlock(pickXHookStyle())}`
+          : `Write a ${channel} post about: ${topic}`
+
       const completion = await openai.chat.completions.create({
         model: 'gpt-5.4-mini',
         messages: [
           { role: 'system', content: systemPrompt },
-          { role: 'user', content: `Write a ${channel} post about: ${topic}` },
+          { role: 'user', content: userContent },
         ],
         max_completion_tokens: 800,
         temperature: 0.7,

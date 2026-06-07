@@ -61,52 +61,33 @@ interface SlotFrame {
 }
 
 function buildSlotFrames(subreddits: string[], weekStart: Date): SlotFrame[] {
-  // Ensure weekStart is a Monday
   const monday = startOfWeek(weekStart, { weekStartsOn: 1 })
-
   const frames: SlotFrame[] = []
-  const lastDayUsed: Record<string, number> = {}
 
-  // Sort subs by category priority (AI + business first — highest engagement)
+  // Track how many posts are already scheduled on each day so subs spread across the week
+  const dayOccupancy: Record<number, number> = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 }
+
+  // Sort subs by engagement priority: AI → business → tech → general
   const sorted = [...subreddits].sort((a, b) => {
     const order = { ai: 0, business: 1, tech: 2, general: 3 }
     return order[subCategory(a)] - order[subCategory(b)]
   })
 
-  // Post types to cycle through for variety
-  const postTypes: PlannerSlot['postType'][] = [
-    'story', 'question', 'discussion', 'resource', 'analysis', 'question', 'story',
-  ]
-
-  // Assign each sub to an optimal day, spacing repeats 3+ days apart
   for (const sub of sorted) {
     const { days, window } = TIMING[subCategory(sub)]
 
-    // Find the best available day: preferred day from timing map, not within 3 days of last use
-    let assigned: number | null = null
+    // Pick the preferred day with the fewest posts already assigned — spreads load across the week
+    let bestDay = days[0]
+    let bestCount = Infinity
     for (const d of days) {
-      const last = lastDayUsed[sub] ?? -99
-      if (d - last >= 3 || last === -99) {
-        assigned = d
-        break
+      if (dayOccupancy[d] < bestCount) {
+        bestCount = dayOccupancy[d]
+        bestDay = d
       }
     }
 
-    // If no preferred day is free, take any day that's available
-    if (assigned === null) {
-      for (let d = 0; d <= 6; d++) {
-        const last = lastDayUsed[sub] ?? -99
-        if (d - last >= 3) {
-          assigned = d
-          break
-        }
-      }
-    }
-
-    if (assigned === null) continue // shouldn't happen with <=7 subs
-
-    lastDayUsed[sub] = assigned
-    const date = addDays(monday, assigned)
+    dayOccupancy[bestDay]++
+    const date = addDays(monday, bestDay)
     frames.push({
       date: format(date, 'yyyy-MM-dd'),
       dayLabel: format(date, 'EEEE'),
@@ -115,7 +96,6 @@ function buildSlotFrames(subreddits: string[], weekStart: Date): SlotFrame[] {
     })
   }
 
-  // Sort chronologically
   frames.sort((a, b) => a.date.localeCompare(b.date))
   return frames
 }
@@ -224,13 +204,16 @@ Return one slot per entry. Match subreddit names exactly.`
   const parsed = completion.choices[0]?.message?.parsed
   if (!parsed) throw new Error('Failed to parse planner output')
 
-  // Merge AI content back into the frames
+  // Merge AI content back into frames — normalize r/ prefix and case before matching
   return frames.map(frame => {
-    const slot = parsed.slots.find(s => s.subreddit === frame.subreddit)
+    const normFrame = frame.subreddit.toLowerCase()
+    const slot = parsed.slots.find(s =>
+      s.subreddit.replace(/^r\//, '').toLowerCase() === normFrame
+    )
     return {
       ...frame,
       postType: slot?.postType ?? 'discussion',
-      suggestedTitle: slot?.suggestedTitle ?? `Post for r/${frame.subreddit}`,
+      suggestedTitle: slot?.suggestedTitle ?? '',
       angle: slot?.angle ?? '',
       titleFormula: slot?.titleFormula ?? 'none',
     }

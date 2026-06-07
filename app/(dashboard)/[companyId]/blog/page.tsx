@@ -1,7 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { BlogListClient } from '@/components/blog/BlogListClient'
 import { sortArticlesNewestFirst } from '@/lib/blog/article-sort'
-import { publishDueContent } from '@/lib/publishing/publish-due'
 
 interface Props {
   params: Promise<{ companyId: string }>
@@ -10,8 +9,6 @@ interface Props {
 export default async function BlogPage({ params }: Props) {
   const { companyId } = await params
   const supabase = await createClient()
-
-  await publishDueContent(supabase, { companyId }).catch(() => {})
 
   const { data: rawArticles } = await supabase
     .from('articles')

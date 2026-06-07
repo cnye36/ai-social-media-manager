@@ -347,6 +347,7 @@ function buildCreatePostArgs(
   if (has('mode')) args.mode = mode
   if (has('assets')) args.assets = assets
   if (organizationId && has('organizationId')) args.organizationId = organizationId
+  if (post.channel === 'facebook' && has('type')) args.type = 'post'
 
   if (threadMetadata) {
     // Always include thread metadata — required for multi-tweet X posts
@@ -368,6 +369,7 @@ function buildCreatePostArgs(
       schedulingType,
       mode,
       assets,
+      ...(post.channel === 'facebook' ? { type: 'post' } : {}),
       ...(organizationId ? { organizationId } : {}),
       ...(threadMetadata ? { metadata: threadMetadata } : {}),
       ...(scheduled ? { dueAt: scheduled } : {}),
@@ -406,6 +408,7 @@ function buildCreatePostInput(
     text: xThread ? xThread.text : postBodyForPublish(post.content),
     schedulingType: 'automatic',
     mode,
+    ...(post.channel === 'facebook' ? { type: 'post' } : {}),
     ...(assets.length ? { assets } : {}),
     ...(xThread?.metadata ? { metadata: xThread.metadata } : {}),
     ...(scheduled ? { dueAt: scheduled } : {}),

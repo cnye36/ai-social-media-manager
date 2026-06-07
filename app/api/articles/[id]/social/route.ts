@@ -3,6 +3,7 @@ import OpenAI from 'openai'
 import { createClient } from '@/lib/supabase/server'
 import { retrieve } from '@/lib/rag/retrieve'
 import { NO_EM_DASH_RULE, stripEmDashes } from '@/lib/content/no-em-dash'
+import { buildXVarietyBlock, pickXHookStyle } from '@/lib/content/x-variety'
 import type { Channel } from '@/types/database'
 
 export const maxDuration = 60
@@ -18,8 +19,8 @@ const CHANNEL_INSTRUCTIONS: Record<Channel, string> = {
 
   x: `Write a tweet promoting this article.
 - HARD LIMIT: 280 characters total
-- Lead with the most compelling takeaway or surprising stat from the article
-- Include 1 relevant hashtag
+- Lead with the most compelling takeaway or surprising stat — never open with "Most teams" or generic B2B setups
+- Hashtags: 0–1 max, specific to this article's angle — not a default brand keyword tag
 - Do NOT include a URL (it will be added separately)`,
 
   reddit: `Write a Reddit post to share this article authentically.
@@ -76,7 +77,7 @@ export async function POST(
     brand?.tone && `Brand tone: ${brand.tone}`,
     brand?.voice_notes && `Voice: ${brand.voice_notes}`,
     brand?.target_audience && `Audience: ${brand.target_audience}`,
-    brand?.keywords?.length && `Keywords: ${brand.keywords.join(', ')}`,
+    brand?.keywords?.length && `Brand themes (prose only, not default hashtags): ${brand.keywords.join(', ')}`,
   ].filter(Boolean).join('\n')
 
   const knowledgeContext = chunks.length
@@ -88,11 +89,16 @@ export async function POST(
       const systemPrompt = [CHANNEL_INSTRUCTIONS[channel], brandContext, knowledgeContext, NO_EM_DASH_RULE]
         .filter(Boolean)
         .join('\n\n')
+      const userContent =
+        channel === 'x'
+          ? `Article to promote:\n\n${articleContext}\n\n${buildXVarietyBlock(pickXHookStyle())}`
+          : `Article to promote:\n\n${articleContext}`
+
       const completion = await openai.chat.completions.create({
         model: 'gpt-5.4-mini',
         messages: [
           { role: 'system', content: systemPrompt },
-          { role: 'user', content: `Article to promote:\n\n${articleContext}` },
+          { role: 'user', content: userContent },
         ],
         max_completion_tokens: 600,
         temperature: 0.75,

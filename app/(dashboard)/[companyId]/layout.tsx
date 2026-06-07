@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { Sidebar } from '@/components/layout/Sidebar'
+import { publishDueContent } from '@/lib/publishing/publish-due'
 
 interface Props {
   children: React.ReactNode
@@ -13,6 +14,8 @@ export default async function DashboardLayout({ children, params }: Props) {
 
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
+
+  publishDueContent(supabase, { companyId }).catch(() => {})
 
   const { data: companies } = await supabase
     .from('companies')

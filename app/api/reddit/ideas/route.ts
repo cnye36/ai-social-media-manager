@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
   })
 
   const response = await openai.chat.completions.create({
-    model: 'gpt-5.4-mini',
+    model: 'gpt-5.4',
     messages: [{ role: 'user', content: prompt }],
     response_format: { type: 'json_object' },
     temperature: 0.75,
@@ -94,7 +94,7 @@ function buildPrompt(params: {
 
   lines.push(`You are a Reddit content strategist who deeply understands community culture and what gets upvoted vs removed.`)
   lines.push(``)
-  lines.push(`Generate 4 post ideas for r/${subreddit} that would genuinely resonate with the community.`)
+  lines.push(`Generate 6 post ideas for r/${subreddit} that would genuinely resonate with the community.`)
   lines.push(`Every idea must be safe to submit — if an angle would trigger removal or "submission not allowed", do not include it.`)
   lines.push(``)
   lines.push(subredditBlock)
@@ -128,7 +128,7 @@ function buildPrompt(params: {
 
   lines.push(``)
   lines.push(`## Output format`)
-  lines.push(`Return JSON with an "ideas" array of exactly 4 items:`)
+  lines.push(`Return JSON with an "ideas" array of exactly 6 items:`)
   lines.push(`{
   "ideas": [
     {
@@ -143,7 +143,7 @@ function buildPrompt(params: {
 }`)
   lines.push(``)
   lines.push(`Rules for ideas:`)
-  lines.push(`- All 4 ideas must have compliance "safe" — use "caution" only if you cannot produce 4 safe ideas; prefer replacing risky angles`)
+  lines.push(`- All 6 ideas must have compliance "safe" — use "caution" only if you cannot produce 6 safe ideas; prefer replacing risky angles`)
   lines.push(`- Never suggest workflow walkthroughs, product demos, or "here's what we built" posts unless the playbook explicitly allows it`)
   lines.push(`- Never suggest ordered field matching ("email first, then phone"), if/then create-or-update logic, or step-by-step dedupe pipelines — r/automation automod blocks these even in discussion posts`)
   lines.push(`- Prefer questions, lessons learned, failures, and debates over announcements`)

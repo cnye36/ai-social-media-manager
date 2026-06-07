@@ -11,6 +11,7 @@ import { stripEmDashes } from '@/lib/content/no-em-dash'
 import { formatRedditMarkdown, parseRedditPost, type RedditPostContent } from '@/lib/reddit/parse'
 import { buildSubredditPromptBlock, loadSubredditConfig } from '@/lib/reddit/subreddit-config'
 import { splitImagePromptFromText } from '@/lib/generate/image-prompt'
+import { buildXVarietyBlock, pickXHookStyle } from '@/lib/content/x-variety'
 
 const agentBuilders: Record<Channel, (p: Parameters<typeof buildLinkedInAgent>[0]) => ReturnType<typeof buildLinkedInAgent>> = {
   linkedin: buildLinkedInAgent,
@@ -54,6 +55,13 @@ async function prepareAgent(request: GenerateRequest) {
   }
 
   return { agent: agentBuilders[channel](agentParams), channel }
+}
+
+function buildGenerationPrompt(request: GenerateRequest, channel: Channel): string {
+  const format = channel === 'x' && request.threadMode ? 'thread' : 'post'
+  const base = `Write a ${channel} ${format} about: ${request.topic}`
+  if (channel !== 'x') return base
+  return `${base}\n\n${buildXVarietyBlock(pickXHookStyle())}`
 }
 
 function applyRedditDisclosurePreference(
@@ -140,11 +148,9 @@ function parseXContent(raw: string): { content: string; contentVariants: Record<
 }
 
 export async function generatePost(request: GenerateRequest): Promise<GeneratedPost> {
-  const { topic } = request
   const { agent, channel } = await prepareAgent(request)
 
-  const format = channel === 'x' && request.threadMode ? 'thread' : 'post'
-  const result = await run(agent, `Write a ${channel} ${format} about: ${topic}`)
+  const result = await run(agent, buildGenerationPrompt(request, channel))
   const rawOutput = result.finalOutput ?? ''
 
   // Parse channel-specific formats
@@ -178,9 +184,8 @@ export async function generatePost(request: GenerateRequest): Promise<GeneratedP
 
 // Returns a ReadableStream<string> of text tokens for streaming responses
 export async function generatePostReadableStream(request: GenerateRequest): Promise<ReadableStream<string>> {
-  const { topic } = request
   const { agent, channel } = await prepareAgent(request)
-  const streamedResult = await run(agent, `Write a ${channel} post about: ${topic}`, { stream: true })
+  const streamedResult = await run(agent, buildGenerationPrompt(request, channel), { stream: true })
   // Cast needed due to ReadableStream type mismatch between SDK and Web APIs
   return streamedResult.toTextStream() as unknown as ReadableStream<string>
 }

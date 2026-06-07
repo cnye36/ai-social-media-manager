@@ -55,7 +55,7 @@ BRAND PROFILE:
 - Tone: ${brand.tone}
 - Voice: ${brand.voice_notes || 'Not specified — use the tone as a guide.'}
 - Target audience: ${brand.target_audience || 'General business audience'}
-- Always weave in: ${brand.keywords?.length ? brand.keywords.join(', ') : 'No specific keywords required'}
+- Brand themes (weave naturally into the copy${channelName === 'x' ? ' — do NOT default to these as hashtags' : ''}): ${brand.keywords?.length ? brand.keywords.join(', ') : 'No specific themes required'}
 - Never say or imply: ${brand.avoid_phrases?.length ? brand.avoid_phrases.join(', ') : 'Nothing restricted'}
 - Brand colors (for image prompts): ${JSON.stringify(brand.color_palette || {})}
 ${brand.channel_overrides?.[channelName as keyof typeof brand.channel_overrides]

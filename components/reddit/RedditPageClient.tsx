@@ -773,12 +773,207 @@ function nextMondayISO(): string {
   return d.toISOString().slice(0, 10)
 }
 
+// ─── Planner slot card with inline generation ─────────────────────────────────
+
+interface InlinePost {
+  title: string
+  body: string
+  subreddit: string
+  disclosure: string | null
+}
+
+function PlannerSlotCard({
+  slot,
+  companyId,
+}: {
+  slot: PlannerSlot
+  companyId: string
+}) {
+  const [generating, setGenerating] = useState(false)
+  const [genError, setGenError] = useState<string | null>(null)
+  const [post, setPost] = useState<InlinePost | null>(null)
+  const [editTitle, setEditTitle] = useState('')
+  const [editBody, setEditBody] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+
+  async function generate() {
+    setGenerating(true)
+    setGenError(null)
+    setPost(null)
+    setSaved(false)
+    try {
+      const res = await fetch('/api/generate/content', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          companyId,
+          channel: 'reddit',
+          topic: slot.suggestedTitle,
+          contentGoal: 'engagement',
+          postLength: 'medium',
+          additionalContext: `Target subreddit: r/${slot.subreddit}\nPost type: ${slot.postType}\nAngle: ${slot.angle}`,
+          stream: false,
+          subreddit: slot.subreddit,
+        }),
+      })
+      const result = await res.json() as { contentVariants?: Record<string, unknown>; content?: string; error?: string }
+      if (!res.ok || result.error) throw new Error(result.error ?? 'Generation failed')
+
+      const reddit = result.contentVariants?.reddit as { title?: string; body?: string; subreddit?: string; disclosure?: string | null } | undefined
+      if (reddit?.title && reddit?.body) {
+        const p: InlinePost = {
+          title: reddit.title,
+          body: reddit.body,
+          subreddit: reddit.subreddit?.replace(/^r\//, '') ?? slot.subreddit,
+          disclosure: reddit.disclosure ?? null,
+        }
+        setPost(p)
+        setEditTitle(p.title)
+        setEditBody(p.body)
+      } else {
+        throw new Error('Could not parse generated post')
+      }
+    } catch (e) {
+      setGenError(e instanceof Error ? e.message : 'Something went wrong')
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  async function saveDraft() {
+    if (!editTitle.trim() || !editBody.trim()) return
+    setSaving(true)
+    try {
+      const content = `TITLE: ${editTitle.trim()}\nSUBREDDIT: r/${post?.subreddit ?? slot.subreddit}\n\n${editBody.trim()}`
+      await fetch('/api/posts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          company_id: companyId,
+          channel: 'reddit',
+          content,
+          status: 'draft',
+          content_variants: { reddit: { title: editTitle.trim(), body: editBody.trim(), subreddit: post?.subreddit ?? slot.subreddit, disclosure: post?.disclosure ?? null } },
+        }),
+      })
+      setSaved(true)
+    } catch {
+      setGenError('Failed to save draft')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="bg-zinc-800/50 border border-zinc-700/50 rounded-xl overflow-hidden">
+      {/* Slot header */}
+      <div className="p-4 space-y-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="px-2.5 py-1 bg-orange-500/15 text-orange-300 border border-orange-500/20 rounded-full text-xs font-semibold">
+            r/{slot.subreddit}
+          </span>
+          <span className={cn(
+            'px-2.5 py-1 rounded-full text-xs font-medium border',
+            POST_TYPE_COLORS[slot.postType] ?? 'bg-zinc-700 text-zinc-300 border-zinc-600'
+          )}>
+            {slot.postType}
+          </span>
+          <span className="flex items-center gap-1 text-zinc-500 text-xs ml-auto">
+            <Clock className="w-3 h-3" />{slot.timeWindow}
+          </span>
+        </div>
+
+        {slot.suggestedTitle ? (
+          <p className="text-white text-sm font-medium leading-snug">{slot.suggestedTitle}</p>
+        ) : (
+          <p className="text-zinc-500 text-sm italic">No title generated — try regenerating the plan</p>
+        )}
+
+        <p className="text-zinc-400 text-xs leading-relaxed">{slot.angle}</p>
+
+        <div className="flex items-center justify-between">
+          {slot.titleFormula && slot.titleFormula !== 'none' && (
+            <span className="text-zinc-600 text-xs">formula: {slot.titleFormula}</span>
+          )}
+          <Button
+            size="sm"
+            onClick={generate}
+            disabled={generating}
+            className={cn(
+              'text-xs ml-auto',
+              post ? 'bg-zinc-700 hover:bg-zinc-600 text-zinc-300' : 'bg-orange-600 hover:bg-orange-500 text-white'
+            )}
+          >
+            {generating
+              ? <><Loader2 className="w-3 h-3 mr-1.5 animate-spin" />Writing...</>
+              : post
+                ? <><RefreshCw className="w-3 h-3 mr-1.5" />Regenerate</>
+                : <><Sparkles className="w-3 h-3 mr-1.5" />Generate post</>}
+          </Button>
+        </div>
+
+        {genError && (
+          <p className="text-red-400 text-xs flex items-center gap-1.5">
+            <AlertTriangle className="w-3.5 h-3.5" />{genError}
+          </p>
+        )}
+      </div>
+
+      {/* Inline generated post */}
+      {post && (
+        <div className="border-t border-zinc-700 bg-zinc-900/60 p-4 space-y-3">
+          <p className="text-zinc-500 text-[11px] uppercase tracking-widest font-medium">Generated post</p>
+
+          <div>
+            <label className="text-xs text-zinc-500 block mb-1">Title</label>
+            <input
+              value={editTitle}
+              onChange={e => setEditTitle(e.target.value)}
+              className="w-full bg-zinc-800 border border-zinc-700 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-orange-500"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs text-zinc-500 block mb-1">Body</label>
+            <textarea
+              value={editBody}
+              onChange={e => setEditBody(e.target.value)}
+              rows={8}
+              className="w-full bg-zinc-800 border border-zinc-700 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-orange-500 resize-y font-mono leading-relaxed"
+            />
+          </div>
+
+          {post.disclosure && (
+            <p className="text-zinc-500 text-xs">Disclosure: {post.disclosure}</p>
+          )}
+
+          <div className="flex items-center gap-2">
+            {saved ? (
+              <span className="flex items-center gap-1.5 text-emerald-400 text-xs font-medium">
+                <CircleCheck className="w-4 h-4" />Saved as draft
+              </span>
+            ) : (
+              <Button
+                size="sm"
+                onClick={saveDraft}
+                disabled={saving}
+                className="bg-emerald-700 hover:bg-emerald-600 text-white text-xs"
+              >
+                {saving ? <><Loader2 className="w-3 h-3 mr-1.5 animate-spin" />Saving...</> : <><Check className="w-3 h-3 mr-1.5" />Save as draft</>}
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function PlannerTab({
   companyId,
-  onUseIdea,
 }: {
   companyId: string
-  onUseIdea: (topic: string, subreddit: string) => void
 }) {
   const [monitors, setMonitors] = useState<RedditMonitor[]>([])
   const [selectedSubs, setSelectedSubs] = useState<string[]>([])
@@ -794,7 +989,6 @@ function PlannerTab({
       .then(r => r.json())
       .then((data: RedditMonitor[]) => {
         setMonitors(data)
-        // Pre-select all monitored subs
         const allSubs = [...new Set(data.flatMap(m => m.subreddits))]
         setSelectedSubs(allSubs)
       })
@@ -844,8 +1038,7 @@ function PlannerTab({
     }
   }
 
-  // Group slots by day for the calendar view
-  const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+  const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
   const slotsByDay = useMemo(() => {
     const map: Record<string, PlannerSlot[]> = {}
     for (const slot of slots) {
@@ -862,7 +1055,7 @@ function PlannerTab({
         <div>
           <h2 className="text-white font-semibold text-sm mb-1">Weekly Reddit Planner</h2>
           <p className="text-zinc-500 text-xs">
-            Pick your subreddits, choose a week, and get a full posting schedule with AI-generated titles timed for peak engagement.
+            Pick your subreddits and week. AI assigns each sub to its optimal posting day and time, then generates ready-to-use titles. Click &quot;Generate post&quot; to write the full post inline.
           </p>
         </div>
 
@@ -884,20 +1077,19 @@ function PlannerTab({
                 r/{sub}
               </button>
             ))}
+            {selectedSubs.filter(s => !allAvailableSubs.includes(s)).map(sub => (
+              <span
+                key={sub}
+                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium border bg-orange-600/20 border-orange-500/40 text-orange-300"
+              >
+                r/{sub}
+                <button onClick={() => setSelectedSubs(p => p.filter(s => s !== sub))} className="hover:text-white">
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            ))}
           </div>
-          {/* Selected extras not in monitors */}
-          {selectedSubs.filter(s => !allAvailableSubs.includes(s)).map(sub => (
-            <span
-              key={sub}
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium border bg-orange-600/20 border-orange-500/40 text-orange-300 mr-2 mb-2"
-            >
-              r/{sub}
-              <button onClick={() => setSelectedSubs(p => p.filter(s => s !== sub))} className="hover:text-white">
-                <X className="w-3 h-3" />
-              </button>
-            </span>
-          ))}
-          <div className="flex gap-2 mt-2">
+          <div className="flex gap-2">
             <input
               value={customSubInput}
               onChange={e => setCustomSubInput(e.target.value)}
@@ -912,7 +1104,6 @@ function PlannerTab({
         </div>
 
         <div className="grid grid-cols-2 gap-4">
-          {/* Week picker */}
           <div>
             <label className="text-xs text-zinc-400 font-medium block mb-1.5">Week starting</label>
             <input
@@ -922,8 +1113,6 @@ function PlannerTab({
               className="w-full bg-zinc-800 border border-zinc-700 text-white text-xs rounded-lg px-3 py-2 focus:outline-none focus:border-zinc-500"
             />
           </div>
-
-          {/* Topic focus */}
           <div>
             <label className="text-xs text-zinc-400 font-medium block mb-1.5">
               Weekly theme <span className="text-zinc-600">(optional)</span>
@@ -954,7 +1143,7 @@ function PlannerTab({
         </Button>
       </div>
 
-      {/* Results — weekly schedule */}
+      {/* Results */}
       {slots.length > 0 && (
         <div className="space-y-3">
           <div className="flex items-center justify-between">
@@ -964,9 +1153,8 @@ function PlannerTab({
             <span className="text-zinc-500 text-xs">{slots.length} posts planned</span>
           </div>
 
-          {/* Day columns */}
-          <div className="grid grid-cols-1 gap-3">
-            {days.filter(d => slotsByDay[d]?.length).map(day => (
+          <div className="space-y-3">
+            {DAYS.filter(d => slotsByDay[d]?.length).map(day => (
               <div key={day} className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
                 <div className="px-4 py-2.5 border-b border-zinc-800 flex items-center gap-2">
                   <span className="text-white text-sm font-semibold">{day}</span>
@@ -976,46 +1164,7 @@ function PlannerTab({
                 </div>
                 <div className="p-3 space-y-3">
                   {slotsByDay[day].map((slot, i) => (
-                    <div key={i} className="bg-zinc-800/50 border border-zinc-700/50 rounded-xl p-4 space-y-3">
-                      {/* Header row */}
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="px-2.5 py-1 bg-orange-500/15 text-orange-300 border border-orange-500/20 rounded-full text-xs font-semibold">
-                          r/{slot.subreddit}
-                        </span>
-                        <span className={cn(
-                          'px-2.5 py-1 rounded-full text-xs font-medium border',
-                          POST_TYPE_COLORS[slot.postType] ?? 'bg-zinc-700 text-zinc-300 border-zinc-600'
-                        )}>
-                          {slot.postType}
-                        </span>
-                        <span className="flex items-center gap-1 text-zinc-500 text-xs ml-auto">
-                          <Clock className="w-3 h-3" />{slot.timeWindow}
-                        </span>
-                      </div>
-
-                      {/* Title */}
-                      <p className="text-white text-sm font-medium leading-snug">{slot.suggestedTitle}</p>
-
-                      {/* Angle */}
-                      <p className="text-zinc-400 text-xs leading-relaxed">{slot.angle}</p>
-
-                      {/* Formula tag + action */}
-                      <div className="flex items-center justify-between">
-                        {slot.titleFormula && slot.titleFormula !== 'none' && (
-                          <span className="text-zinc-600 text-xs">
-                            formula: {slot.titleFormula}
-                          </span>
-                        )}
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => onUseIdea(slot.suggestedTitle, slot.subreddit)}
-                          className="border-zinc-600 text-zinc-300 hover:text-white text-xs ml-auto"
-                        >
-                          <Sparkles className="w-3 h-3 mr-1.5" />Generate post
-                        </Button>
-                      </div>
-                    </div>
+                    <PlannerSlotCard key={i} slot={slot} companyId={companyId} />
                   ))}
                 </div>
               </div>
@@ -2935,7 +3084,7 @@ export function RedditPageClient({ companyId }: RedditPageClientProps) {
 
         {/* Tab content */}
         {tab === 'planner' && (
-          <PlannerTab companyId={companyId} onUseIdea={handleUseIdea} />
+          <PlannerTab companyId={companyId} />
         )}
         {tab === 'ideas' && (
           <IdeasTab companyId={companyId} onUseIdea={handleUseIdea} />

@@ -2,7 +2,6 @@ import { createClient } from '@/lib/supabase/server'
 import { ContentCalendar } from '@/components/calendar/ContentCalendar'
 import { calendarSortKey, filterPostsForCalendar } from '@/lib/calendar-items'
 import { calendarDisplayAt } from '@/lib/content-status'
-import { publishDueContent } from '@/lib/publishing/publish-due'
 import { startOfMonth, endOfMonth, subMonths, addMonths } from 'date-fns'
 
 interface Props {
@@ -16,22 +15,17 @@ export default async function CalendarPage({ params }: Props) {
   const rangeStart = startOfMonth(subMonths(new Date(), 1))
   const rangeEnd = endOfMonth(addMonths(new Date(), 1))
 
-  // Run publish check in parallel with data fetches — calendar shows both
-  // scheduled and published, so stale status within the same render is fine.
-  const [, [{ data: rawPosts }, { data: rawArticles }]] = await Promise.all([
-    publishDueContent(supabase, { companyId }).catch(() => {}),
-    Promise.all([
-      supabase
-        .from('posts')
-        .select('*')
-        .eq('company_id', companyId)
-        .in('status', ['scheduled', 'published']),
-      supabase
-        .from('articles')
-        .select('*')
-        .eq('company_id', companyId)
-        .in('status', ['scheduled', 'published']),
-    ]),
+  const [{ data: rawPosts }, { data: rawArticles }] = await Promise.all([
+    supabase
+      .from('posts')
+      .select('*')
+      .eq('company_id', companyId)
+      .in('status', ['scheduled', 'published']),
+    supabase
+      .from('articles')
+      .select('*')
+      .eq('company_id', companyId)
+      .in('status', ['scheduled', 'published']),
   ])
 
   const posts = filterPostsForCalendar(rawPosts ?? [], rangeStart, rangeEnd)
