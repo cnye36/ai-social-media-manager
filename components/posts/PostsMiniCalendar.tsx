@@ -6,9 +6,10 @@ import {
   eachDayOfInterval, format, isSameMonth, isToday,
   addMonths, subMonths, isSameDay,
 } from 'date-fns'
-import { ChevronLeft, ChevronRight, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, X, User, Building2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog'
+import { PostVoiceBadge } from '@/components/posts/PostVoiceBadge'
 import { calendarDisplayAt } from '@/lib/content-status'
 import { postBodyForPublish } from '@/lib/generate/image-prompt'
 import type { Post } from '@/types/database'
@@ -113,7 +114,8 @@ export function PostsMiniCalendar({ posts, onEdit, chipBg, chipText, chipIcon }:
                     )}
                   >
                     {chipIcon}
-                    <span className="text-[9px] truncate leading-tight">
+                    <PostVoiceBadge post={post} size="compact" />
+                    <span className="text-[9px] truncate leading-tight min-w-0">
                       <span className="font-medium mr-0.5">{format(time, 'h:mma')}</span>
                       {postBodyForPublish(post.content).slice(0, 15)}
                     </span>
@@ -131,6 +133,18 @@ export function PostsMiniCalendar({ posts, onEdit, chipBg, chipText, chipIcon }:
             </div>
           )
         })}
+      </div>
+
+      {/* Legend */}
+      <div className="flex items-center gap-4 pt-1">
+        <div className="flex items-center gap-1.5">
+          <User className="w-3 h-3 text-blue-300" />
+          <span className="text-xs text-zinc-500">Personal</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <Building2 className="w-3 h-3 text-violet-300" />
+          <span className="text-xs text-zinc-500">Business</span>
+        </div>
       </div>
 
       {/* Overflow dialog */}
@@ -159,7 +173,10 @@ export function PostsMiniCalendar({ posts, onEdit, chipBg, chipText, chipIcon }:
                   {chipIcon}
                 </span>
                 <div className="flex-1 min-w-0">
-                  <p className="text-[10px] text-zinc-500 mb-0.5">{format(time, 'h:mm a')}</p>
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    <p className="text-[10px] text-zinc-500">{format(time, 'h:mm a')}</p>
+                    <PostVoiceBadge post={post} size="default" />
+                  </div>
                   <p className="text-xs text-zinc-300 line-clamp-2">{postBodyForPublish(post.content)}</p>
                 </div>
               </button>

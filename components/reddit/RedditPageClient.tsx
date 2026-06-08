@@ -223,10 +223,10 @@ function FormattingRibbon({ textareaRef, value, setValue }: {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface ReplyVariant {
-  approach: 'direct' | 'constraint' | 'experience' | 'contrarian'
-  label: string
-  text: string
+interface ReplyPair {
+  short: string
+  long: string
+  angle: string
 }
 
 // ─── Opportunity card ─────────────────────────────────────────────────────────
@@ -248,19 +248,7 @@ function formatPostedAt(iso: string): string {
   return `${relative} · ${absolute}`
 }
 
-const APPROACH_COLORS: Record<ReplyVariant['approach'], string> = {
-  direct: 'border-blue-500/30 bg-blue-500/5',
-  constraint: 'border-violet-500/30 bg-violet-500/5',
-  experience: 'border-emerald-500/30 bg-emerald-500/5',
-  contrarian: 'border-amber-500/30 bg-amber-500/5',
-}
 
-const APPROACH_LABEL_COLORS: Record<ReplyVariant['approach'], string> = {
-  direct: 'text-blue-400 bg-blue-500/10 border-blue-500/20',
-  constraint: 'text-violet-400 bg-violet-500/10 border-violet-500/20',
-  experience: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
-  contrarian: 'text-amber-400 bg-amber-500/10 border-amber-500/20',
-}
 
 function OpportunityCard({
   opp,
@@ -273,8 +261,8 @@ function OpportunityCard({
 }) {
   const [expanded, setExpanded] = useState(false)
   const [drafting, setDrafting] = useState(false)
-  const [variants, setVariants] = useState<ReplyVariant[]>([])
-  const [selectedVariant, setSelectedVariant] = useState<ReplyVariant | null>(null)
+  const [replyPair, setReplyPair] = useState<ReplyPair | null>(null)
+  const [selectedLength, setSelectedLength] = useState<'short' | 'long'>('short')
   const [editingReply, setEditingReply] = useState(false)
   const [replyText, setReplyText] = useState(opp.draft_reply ?? '')
   const [draftContext, setDraftContext] = useState('')
@@ -293,8 +281,8 @@ function OpportunityCard({
   async function handleDraft() {
     setDrafting(true)
     setDraftError(null)
-    setVariants([])
-    setSelectedVariant(null)
+    setReplyPair(null)
+    setEditingReply(false)
     try {
       const res = await fetch(`/api/reddit/opportunities/${opp.id}/draft-reply`, {
         method: 'POST',
@@ -305,9 +293,11 @@ function OpportunityCard({
         }),
       })
       if (res.ok) {
-        const { draft_replies } = await res.json() as { draft_replies: ReplyVariant[] }
-        setVariants(draft_replies ?? [])
-        setEditingReply(false)
+        const pair = await res.json() as ReplyPair
+        setReplyPair(pair)
+        setSelectedLength('short')
+        // Auto-save the short version as the working draft
+        await persistDraft(pair.short)
       } else {
         const body = await res.json().catch(() => ({}))
         setDraftError(typeof body.error === 'string' ? body.error : 'Failed to draft reply')
@@ -317,16 +307,20 @@ function OpportunityCard({
     }
   }
 
-  async function selectVariant(variant: ReplyVariant) {
-    setSelectedVariant(variant)
-    setReplyText(variant.text)
-    // Persist the selected variant as the draft
+  async function persistDraft(text: string) {
     const res = await fetch(`/api/reddit/opportunities/${opp.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ draft_reply: variant.text }),
+      body: JSON.stringify({ draft_reply: text }),
     })
-    if (res.ok) onUpdate({ id: opp.id, draft_reply: variant.text })
+    if (res.ok) onUpdate({ id: opp.id, draft_reply: text })
+  }
+
+  async function selectLength(length: 'short' | 'long') {
+    if (!replyPair) return
+    setSelectedLength(length)
+    setReplyText(replyPair[length])
+    await persistDraft(replyPair[length])
   }
 
   async function updateStatus(status: RedditOpportunity['status']) {
@@ -346,8 +340,7 @@ function OpportunityCard({
           draft_reply: data.draft_reply,
         })
         if (status === 'replied') {
-          setVariants([])
-          setSelectedVariant(null)
+          setReplyPair(null)
         }
       } else {
         const body = await res.json().catch(() => ({}))
@@ -490,62 +483,85 @@ function OpportunityCard({
               </p>
             )}
 
-            <Button
-              size="sm"
-              onClick={handleDraft}
-              disabled={drafting}
-              className="bg-violet-600 hover:bg-violet-500 text-white w-full"
-            >
-              {drafting
-                ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Generating 4 reply options…</>
-                : <><Sparkles className="w-3.5 h-3.5" /> {variants.length > 0 || opp.draft_reply ? 'Regenerate replies' : 'Generate reply options'}</>
-              }
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                onClick={handleDraft}
+                disabled={drafting}
+                className="bg-violet-600 hover:bg-violet-500 text-white flex-1"
+              >
+                {drafting
+                  ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Writing reply…</>
+                  : <><Sparkles className="w-3.5 h-3.5" /> {replyPair || opp.draft_reply ? 'Generate reply' : 'Generate reply'}</>
+                }
+              </Button>
+              {(replyPair || opp.draft_reply) && !drafting && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleDraft}
+                  disabled={drafting}
+                  title="Try a different angle"
+                  className="border-zinc-700 text-zinc-400 hover:text-white hover:border-zinc-500"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span className="ml-1.5">Redo</span>
+                </Button>
+              )}
+            </div>
 
-            {/* Variant cards — shown after AI generates options */}
-            {variants.length > 0 && (
+            {/* Short / Long toggle — shown after generation */}
+            {replyPair && !editingReply && (
               <div className="space-y-2">
-                <p className="text-[11px] text-zinc-500">
-                  Pick the approach that fits best — click to select:
-                </p>
-                {variants.map(variant => {
-                  const isSelected = selectedVariant?.approach === variant.approach
-                  return (
-                    <div
-                      key={variant.approach}
+                <div className="flex items-center gap-2">
+                  <div className="flex rounded-lg border border-zinc-700 overflow-hidden">
+                    <button
+                      onClick={() => selectLength('short')}
                       className={cn(
-                        'rounded-lg border p-3 transition-all cursor-pointer',
-                        isSelected
-                          ? APPROACH_COLORS[variant.approach]
-                          : 'border-zinc-700 bg-zinc-800/40 hover:border-zinc-600'
+                        'px-3 py-1.5 text-xs font-medium transition-colors',
+                        selectedLength === 'short'
+                          ? 'bg-violet-600 text-white'
+                          : 'bg-zinc-800 text-zinc-400 hover:text-white'
                       )}
-                      onClick={() => selectVariant(variant)}
                     >
-                      <div className="flex items-center justify-between mb-2">
-                        <span className={cn(
-                          'text-[10px] px-1.5 py-0.5 rounded border font-medium',
-                          APPROACH_LABEL_COLORS[variant.approach]
-                        )}>
-                          {variant.label}
-                        </span>
-                        {isSelected && (
-                          <span className="flex items-center gap-1 text-[11px] text-emerald-400">
-                            <Check className="w-3 h-3" /> Selected
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-xs text-zinc-300 leading-relaxed whitespace-pre-wrap">{variant.text}</p>
-                    </div>
-                  )
-                })}
+                      Short
+                    </button>
+                    <button
+                      onClick={() => selectLength('long')}
+                      className={cn(
+                        'px-3 py-1.5 text-xs font-medium transition-colors border-l border-zinc-700',
+                        selectedLength === 'long'
+                          ? 'bg-violet-600 text-white'
+                          : 'bg-zinc-800 text-zinc-400 hover:text-white'
+                      )}
+                    >
+                      Long
+                    </button>
+                  </div>
+                  <button
+                    onClick={() => {
+                      const text = replyPair[selectedLength]
+                      setEditingReply(true)
+                      setReplyText(text)
+                    }}
+                    className="flex items-center gap-1 text-[11px] text-zinc-500 hover:text-white transition-colors ml-auto"
+                  >
+                    <Pencil className="w-3 h-3" /> Edit
+                  </button>
+                </div>
+                <div className="bg-zinc-800/60 border border-zinc-700 rounded-lg p-3">
+                  <p className="text-xs text-zinc-300 leading-relaxed whitespace-pre-wrap">
+                    {replyPair[selectedLength]}
+                  </p>
+                </div>
               </div>
             )}
 
-            {/* Saved draft (when no variants showing or after selection) */}
-            {opp.draft_reply && variants.length === 0 && (
+            {/* Saved draft — shown when no pair is active */}
+            {opp.draft_reply && !replyPair && (
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <p className="text-[10px] text-zinc-600 uppercase tracking-widest">Selected reply</p>
+                  <p className="text-[10px] text-zinc-600 uppercase tracking-widest">Draft reply</p>
                   {!editingReply && (
                     <button
                       onClick={() => { setEditingReply(true); setReplyText(opp.draft_reply ?? '') }}
@@ -576,17 +592,18 @@ function OpportunityCard({
               </div>
             )}
 
-            {/* After selecting a variant, allow editing it */}
-            {selectedVariant && variants.length > 0 && (
-              <div className="space-y-2 pt-1 border-t border-zinc-800">
-                <div className="flex items-center justify-between">
-                  <p className="text-[11px] text-zinc-500">Edit before posting</p>
-                  <button
-                    onClick={() => { setEditingReply(true); setReplyText(selectedVariant.text) }}
-                    className="flex items-center gap-1 text-[11px] text-zinc-500 hover:text-white transition-colors"
-                  >
-                    <Pencil className="w-3 h-3" /> Edit
-                  </button>
+            {/* Edit mode when pair is showing */}
+            {replyPair && editingReply && (
+              <div className="space-y-2">
+                <textarea
+                  value={replyText}
+                  onChange={e => setReplyText(e.target.value)}
+                  rows={6}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2.5 text-sm text-zinc-200 leading-relaxed resize-none focus:outline-none focus:ring-1 focus:ring-violet-500"
+                />
+                <div className="flex gap-2">
+                  <Button size="sm" onClick={saveReplyEdit} className="bg-violet-600 hover:bg-violet-500">Save</Button>
+                  <Button size="sm" variant="ghost" onClick={() => setEditingReply(false)}>Cancel</Button>
                 </div>
               </div>
             )}
@@ -606,7 +623,7 @@ function OpportunityCard({
                 </p>
               )}
               <div className="flex items-center gap-2 flex-wrap">
-                {(opp.draft_reply || selectedVariant) && (
+                {(opp.draft_reply || replyPair) && (
                   <Button
                     size="sm"
                     onClick={copyReply}

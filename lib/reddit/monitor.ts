@@ -169,11 +169,30 @@ export async function runMonitors(companyId?: string): Promise<{
   }
 }
 
-export interface ReplyVariant {
-  approach: 'direct' | 'constraint' | 'experience' | 'contrarian'
-  label: string
-  text: string
+export interface ReplyPair {
+  short: string
+  long: string
+  angle: string
 }
+
+const REPLY_ANGLES = [
+  {
+    name: 'direct',
+    instruction: 'Lead immediately with the single most useful thing you can say. Be concrete and specific. End with a sharp, specific question about their situation — not "what do you think?" but something that shows you understand the space.',
+  },
+  {
+    name: 'experience',
+    instruction: 'Lead with bounded personal experience — be specific ("In my experience with X...", "Last time I dealt with this..."). Include one concrete detail like a metric, timeline, or failure. End with something you never fully solved or a follow-up you\'d genuinely want to know.',
+  },
+  {
+    name: 'contrarian',
+    instruction: 'Challenge the premise or reframe the problem entirely. A negative recommendation is fine. End by putting the question back to them — challenge them to defend their assumption or share context that would change your answer.',
+  },
+  {
+    name: 'teaching',
+    instruction: 'Share a framework or mental model for thinking about this. Make it concrete and actionable, not generic. End with a specific question that tests whether your framework actually applies to their situation.',
+  },
+]
 
 /** Shared helper that loads opportunity + subreddit config for drafting. */
 async function loadReplyContext(opportunityId: string, companyId: string) {
@@ -203,97 +222,77 @@ async function loadReplyContext(opportunityId: string, companyId: string) {
   }
 }
 
-export async function draftReplyVariants(
+export async function draftReplyPair(
   opportunityId: string,
   companyId: string,
   additionalContext?: string,
-): Promise<ReplyVariant[]> {
-  const { supabase, opp, brand, companyName, subConfig } = await loadReplyContext(opportunityId, companyId)
+): Promise<ReplyPair> {
+  const { opp, brand, companyName, subConfig } = await loadReplyContext(opportunityId, companyId)
   const stackLine = preferredStackGuidance(brand)
   const contextNote = additionalContext?.trim()
+  const angle = REPLY_ANGLES[Math.floor(Math.random() * REPLY_ANGLES.length)]
 
-  const contextLines: string[] = [
+  const systemPrompt = [
     `You are a genuine Reddit user participating in r/${opp.subreddit}.`,
     `You may work at ${companyName}, but you are replying as a helpful community member first.`,
-    brand?.voice_notes ? `Voice (subtle): ${brand.voice_notes}` : '',
+    brand?.voice_notes ? `Voice/personality: ${brand.voice_notes}` : '',
     brand?.tone ? `Tone: ${brand.tone}` : '',
     stackLine ?? '',
     subConfig?.rules_text ? `Subreddit rules:\n${subConfig.rules_text}` : '',
     subConfig?.posting_guidance ? `Subreddit playbook:\n${subConfig.posting_guidance}` : '',
     subConfig?.notes ? `Notes on this subreddit:\n${subConfig.notes}` : '',
-  ].filter(Boolean)
-
-  const systemPrompt = [
-    ...contextLines,
     '',
-    'Generate 4 distinctly different replies to the post below. Each must take a different approach in length, structure, and angle.',
+    `Your angle for this reply: ${angle.instruction}`,
     '',
-    'APPROACH DEFINITIONS:',
-    '- direct: Short (2-4 sentences). Lead immediately with the most useful thing you can say. One honest caveat. End with a SHARP, SPECIFIC question that only someone who actually knows this area would ask — not "what do you think?" but "are you seeing X or more like Y?" or "what does your [specific thing] look like?"',
-    '- constraint: Start with "it depends" and name the EXACT dependency that flips the advice. Give conditional guidance. End with a clarifying question that sounds like it comes from lived experience with this problem — something that would genuinely change your recommendation if they answered it differently.',
-    '- experience: Lead with bounded personal experience — be specific ("In SaaS with sub-100 customers...", "Last time I dealt with X..."). Include one concrete detail (a metric, a timeline, a failure). Leave one thread open at the end: something you never fully solved, or a follow-up you\'d want to know ("I never landed on a clean answer for X — curious what you\'re seeing").',
-    '- contrarian: Challenge the premise or reframe the problem entirely. A negative recommendation is fine ("I\'d hold off on X until..."). End by putting the question back to them: challenge them to defend their assumption or share the context you need to know if the reframe applies ("what\'s making you think X is actually the bottleneck here?").',
+    'Write TWO versions of the same reply — same angle, same voice, different length:',
+    '- short: 2-4 sentences. Tight. No filler. Every word earns its place.',
+    '- long: Same angle but fully developed. Add a concrete example, a nuance, or the reasoning behind your take. Still feels human, not an essay.',
     '',
-    'ENGAGEMENT HOOK RULE (mandatory for every reply):',
-    'Every reply MUST end with either:',
-    '(a) A specific open-ended question about THEIR situation — not generic. "What does your [X] look like?" "Are you seeing [specific pattern] or more [alternative]?" "How long have you been hitting this?" These feel like natural follow-ups from someone who has been in the weeds.',
-    '(b) A statement that reveals something incomplete or unresolved — invites them to fill in the gap. "I never found a clean answer to the [X] part" or "the approach breaks down when [specific condition] — haven\'t solved that one yet".',
-    'Dead-end replies that just answer the question and stop get ignored. The goal is to start a thread, not close one.',
-    '',
-    'ALL replies must:',
-    '- Be conversational and first-person',
-    '- NOT start with "Great question!" or any sycophantic opener',
-    '- NOT name any company, product URL, or use marketing language',
-    '- Have meaningfully different lengths and structures from each other',
-    '- Feel like they come from different kinds of practitioners, not the same voice',
+    'Rules for both:',
+    '- Conversational and first-person',
+    '- Never start with "Great question!" or any sycophantic opener',
+    '- Never name the company, product, or URL (unless user instructions say otherwise)',
+    '- Must end with a specific open-ended question about THEIR situation, or a statement that leaves a thread open',
     `- ${NO_EM_DASH_INSTRUCTION}`,
-    contextNote ? `- Also follow these user instructions: ${contextNote}` : '',
+    contextNote ? `- User instructions (follow closely, override defaults if they conflict): ${contextNote}` : '',
     '',
     'Return JSON only:',
-    `{
-  "replies": [
-    { "approach": "direct", "label": "Direct & specific", "text": "..." },
-    { "approach": "constraint", "label": "Constraint-first", "text": "..." },
-    { "approach": "experience", "label": "Lived experience", "text": "..." },
-    { "approach": "contrarian", "label": "Unexpected angle", "text": "..." }
-  ]
-}`,
+    `{"angle":"${angle.name}","short":"...","long":"..."}`,
   ].filter(Boolean).join('\n')
 
   const userPrompt = [
     `Post title: ${opp.title}`,
     `Post body:\n${opp.selftext || '(no body text)'}`,
     '',
-    'Write 4 reply variants (JSON only):',
+    'Write your reply pair (JSON only):',
   ].join('\n')
 
   const { OpenAI } = await import('openai')
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
   const completion = await openai.chat.completions.create({
-    model: 'gpt-5.4-mini',
+    model: 'gpt-5.4',
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },
     ],
     response_format: { type: 'json_object' },
-    temperature: 0.85,
-    max_completion_tokens: 1200,
+    temperature: 0.8,
+    max_completion_tokens: 900,
   })
 
   const raw = completion.choices[0]?.message?.content ?? '{}'
-  let variants: ReplyVariant[] = []
   try {
-    const parsed = JSON.parse(raw) as { replies?: ReplyVariant[] }
-    variants = (parsed.replies ?? []).map(v => ({
-      ...v,
-      text: stripEmDashes(v.text ?? ''),
-    }))
+    const parsed = JSON.parse(raw) as { short?: string; long?: string; angle?: string }
+    if (!parsed.short || !parsed.long) throw new Error('Missing short or long')
+    return {
+      short: stripEmDashes(parsed.short.trim()),
+      long: stripEmDashes(parsed.long.trim()),
+      angle: parsed.angle ?? angle.name,
+    }
   } catch {
-    throw new Error('Failed to parse reply variants')
+    throw new Error('Failed to parse reply pair')
   }
-
-  return variants
 }
 
 export async function draftReply(
