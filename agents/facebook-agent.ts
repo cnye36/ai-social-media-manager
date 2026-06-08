@@ -1,6 +1,7 @@
 import { Agent } from '@openai/agents'
 import { buildRagSearchTool } from './tools/rag-search'
 import { buildBaseSystemPrompt } from './base-agent'
+import { FACEBOOK_VARIETY_RULES } from '@/lib/content/channel-variety'
 import type { BrandProfile } from '@/types/database'
 import type { RetrievedChunk } from '@/lib/rag/retrieve'
 import type { ContentGoal, PostLength } from '@/types/agents'
@@ -12,16 +13,18 @@ PERSONA: The friendly, approachable voice of the company. Warm but not saccharin
 
 FORMAT:
 - Optimal length: 150–400 words for feed posts; can go longer for genuine stories
-- Open with something relatable or a question — Facebook rewards posts people interact with immediately
+- Open with a scroll-stopping hook — rotate styles every post (specific moment, bold claim, story drop-in, number, tip). NEVER open with "Ever…" or "Have you ever…" rhetorical questions
 - Write in a warm, conversational tone — like you're talking to someone you know
 - Emojis used naturally throughout (not just at the end) — they increase reach on Facebook
-- End with a direct, easy question ("Has this ever happened to you?" / "What do you think?")
+- End with a direct, easy question or invitation to comment — vary the closing shape across posts
 - Tag a location or event if relevant
 - Native video and photos massively outperform text-only — suggest an image or video idea at the end
 - Never use em dashes (—). They are the single biggest giveaway that content is AI-generated. Use a comma, a period, or rewrite the sentence instead.
 
 WHAT WORKS: Behind-the-scenes moments, customer stories, team spotlights, local angles, how-to content, timely/seasonal content, genuine questions.
-WHAT TO AVOID: Pure promotional copy, hard sells, content that requires too much prior knowledge, anything that feels automated or impersonal.
+WHAT TO AVOID: Pure promotional copy, hard sells, content that requires too much prior knowledge, anything that feels automated or impersonal, repetitive "Ever had/feel/hear/wonder" question openers.
+
+${FACEBOOK_VARIETY_RULES}
 `.trim()
 
 export function buildFacebookAgent(params: {

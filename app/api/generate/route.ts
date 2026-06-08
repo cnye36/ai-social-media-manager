@@ -3,7 +3,8 @@ import OpenAI from 'openai'
 import { createClient } from '@/lib/supabase/server'
 import { retrieve } from '@/lib/rag/retrieve'
 import { NO_EM_DASH_RULE, stripEmDashes } from '@/lib/content/no-em-dash'
-import { buildXVarietyBlock, pickXHookStyle } from '@/lib/content/x-variety'
+import { buildChannelVarietyBlock } from '@/lib/content/channel-variety'
+import { fetchRecentChannelPosts } from '@/lib/content/recent-posts'
 import type { Channel } from '@/types/database'
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
@@ -34,7 +35,8 @@ const CHANNEL_INSTRUCTIONS: Record<Channel, string> = {
   facebook: `You are a Facebook content specialist. Write an engaging Facebook post.
 - Tone: Friendly, approachable, story-driven
 - Length: 100–400 characters
-- End with a question or call-to-action
+- NEVER open with "Ever…", "Have you ever…", or similar rhetorical questions — rotate hook styles (story, bold claim, specific moment, tip)
+- End with a question or call-to-action — vary the closing shape across posts
 - At most 2 emojis if they feel natural
 - Write as a brand speaking warmly to its community`,
 }
@@ -81,7 +83,10 @@ export async function POST(request: Request) {
 
   const results = await Promise.allSettled(
     channels.map(async (channel) => {
-      const override = brand?.channel_overrides?.[channel]
+      const [override, recentPosts] = await Promise.all([
+        Promise.resolve(brand?.channel_overrides?.[channel]),
+        fetchRecentChannelPosts(supabase, companyId, channel),
+      ])
       const overrideContext = [
         override?.tone && `Channel-specific tone: ${override.tone}`,
         override?.voice_notes && `Channel voice notes: ${override.voice_notes}`,
@@ -99,10 +104,7 @@ export async function POST(request: Request) {
         .filter(Boolean)
         .join('\n\n')
 
-      const userContent =
-        channel === 'x'
-          ? `Write a ${channel} post about: ${topic}\n\n${buildXVarietyBlock(pickXHookStyle())}`
-          : `Write a ${channel} post about: ${topic}`
+      const userContent = `Write a ${channel} post about: ${topic}\n\n${buildChannelVarietyBlock(channel, recentPosts)}`
 
       const completion = await openai.chat.completions.create({
         model: 'gpt-5.4-mini',

@@ -1,4 +1,5 @@
-import type { BrandProfile, Company, Post } from '@/types/database'
+import type { BrandProfile, Company, Post, Channel } from '@/types/database'
+import { extractOpeningLine } from '@/lib/content/recent-posts'
 
 /** One-line instruction for agents when a preferred stack is configured. */
 export function preferredStackGuidance(brand: BrandProfile | null): string | null {
@@ -45,10 +46,27 @@ export function summarizePastPosts(posts: Post[], limit = 40): string {
     return 'No scheduled or published posts yet — infer recurring themes from brand profile and company knowledge.'
   }
 
-  return posts.slice(0, limit).map(p => {
-    const when = p.scheduled_for ?? p.published_at ?? p.created_at
-    const date = when ? new Date(when).toISOString().slice(0, 16) : 'unknown'
-    const preview = p.content.replace(/\s+/g, ' ').slice(0, 200)
-    return `- [${p.status}] ${p.channel} @ ${date}: ${preview}`
-  }).join('\n')
+  const sliced = posts.slice(0, limit)
+  const byChannel = new Map<Channel, Post[]>()
+
+  for (const post of sliced) {
+    const list = byChannel.get(post.channel) ?? []
+    list.push(post)
+    byChannel.set(post.channel, list)
+  }
+
+  const channelSections = [...byChannel.entries()].map(([channel, channelPosts]) => {
+    const lines = channelPosts.slice(0, 5).map(p => {
+      const when = p.scheduled_for ?? p.published_at ?? p.created_at
+      const date = when ? new Date(when).toISOString().slice(0, 10) : 'unknown'
+      const opener = extractOpeningLine(p.content)
+      return `  - [${p.status}] ${date}: opens with "${opener.slice(0, 80)}${opener.length > 80 ? '…' : ''}"`
+    })
+    return `${channel.toUpperCase()} (do not plan topics that would repeat these openers back-to-back):\n${lines.join('\n')}`
+  })
+
+  return [
+    'Recent posts grouped by channel — vary hooks and angles so planned slots do not clone these:',
+    channelSections.join('\n\n'),
+  ].join('\n\n')
 }

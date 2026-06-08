@@ -11,7 +11,9 @@ import { stripEmDashes } from '@/lib/content/no-em-dash'
 import { formatRedditMarkdown, parseRedditPost, type RedditPostContent } from '@/lib/reddit/parse'
 import { buildSubredditPromptBlock, loadSubredditConfig } from '@/lib/reddit/subreddit-config'
 import { splitImagePromptFromText } from '@/lib/generate/image-prompt'
-import { buildXVarietyBlock, pickXHookStyle } from '@/lib/content/x-variety'
+import { buildChannelVarietyBlock } from '@/lib/content/channel-variety'
+import { fetchRecentChannelPosts } from '@/lib/content/recent-posts'
+import type { Post } from '@/types/database'
 
 const agentBuilders: Record<Channel, (p: Parameters<typeof buildLinkedInAgent>[0]) => ReturnType<typeof buildLinkedInAgent>> = {
   linkedin: buildLinkedInAgent,
@@ -24,13 +26,14 @@ async function prepareAgent(request: GenerateRequest) {
   const { companyId, channel, topic, contentGoal, postLength, additionalContext, subreddit } = request
   const supabase = await createClient()
 
-  const [companyResult, brandResult, knowledgeChunks, subredditConfig] = await Promise.all([
+  const [companyResult, brandResult, knowledgeChunks, subredditConfig, recentPosts] = await Promise.all([
     supabase.from('companies').select('name').eq('id', companyId).single(),
     supabase.from('brand_profiles').select('*').eq('company_id', companyId).single(),
     retrieve(companyId, topic, 5, 0.35),
     channel === 'reddit' && subreddit
       ? loadSubredditConfig(supabase, companyId, subreddit)
       : Promise.resolve(null),
+    fetchRecentChannelPosts(supabase, companyId, channel),
   ])
 
   const subredditContext =
@@ -54,14 +57,17 @@ async function prepareAgent(request: GenerateRequest) {
     targetSubreddit: subreddit?.replace(/^r\//, ''),
   }
 
-  return { agent: agentBuilders[channel](agentParams), channel }
+  return { agent: agentBuilders[channel](agentParams), channel, recentPosts }
 }
 
-function buildGenerationPrompt(request: GenerateRequest, channel: Channel): string {
+function buildGenerationPrompt(
+  request: GenerateRequest,
+  channel: Channel,
+  recentPosts: Post[],
+): string {
   const format = channel === 'x' && request.threadMode ? 'thread' : 'post'
   const base = `Write a ${channel} ${format} about: ${request.topic}`
-  if (channel !== 'x') return base
-  return `${base}\n\n${buildXVarietyBlock(pickXHookStyle())}`
+  return `${base}\n\n${buildChannelVarietyBlock(channel, recentPosts)}`
 }
 
 function applyRedditDisclosurePreference(
@@ -148,9 +154,9 @@ function parseXContent(raw: string): { content: string; contentVariants: Record<
 }
 
 export async function generatePost(request: GenerateRequest): Promise<GeneratedPost> {
-  const { agent, channel } = await prepareAgent(request)
+  const { agent, channel, recentPosts } = await prepareAgent(request)
 
-  const result = await run(agent, buildGenerationPrompt(request, channel))
+  const result = await run(agent, buildGenerationPrompt(request, channel, recentPosts))
   const rawOutput = result.finalOutput ?? ''
 
   // Parse channel-specific formats
@@ -184,8 +190,8 @@ export async function generatePost(request: GenerateRequest): Promise<GeneratedP
 
 // Returns a ReadableStream<string> of text tokens for streaming responses
 export async function generatePostReadableStream(request: GenerateRequest): Promise<ReadableStream<string>> {
-  const { agent, channel } = await prepareAgent(request)
-  const streamedResult = await run(agent, buildGenerationPrompt(request, channel), { stream: true })
+  const { agent, channel, recentPosts } = await prepareAgent(request)
+  const streamedResult = await run(agent, buildGenerationPrompt(request, channel, recentPosts), { stream: true })
   // Cast needed due to ReadableStream type mismatch between SDK and Web APIs
   return streamedResult.toTextStream() as unknown as ReadableStream<string>
 }

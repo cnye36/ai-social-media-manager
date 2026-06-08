@@ -3,8 +3,11 @@ import OpenAI from 'openai'
 import { createClient } from '@/lib/supabase/server'
 import { retrieve } from '@/lib/rag/retrieve'
 import { normalizeContentGoal } from '@/lib/content/content-goal'
+import { buildIdeasRecentPostsSection, fetchRecentPostsByChannels } from '@/lib/content/recent-posts'
 import type { ContentGoal } from '@/types/agents'
 import type { Channel } from '@/types/database'
+
+const IDEA_CHANNELS: Channel[] = ['linkedin', 'x', 'reddit', 'facebook']
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
@@ -35,9 +38,10 @@ export async function POST(req: Request) {
     .single()
   if (!company) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
-  const [{ data: brand }, chunks] = await Promise.all([
+  const [{ data: brand }, chunks, recentByChannel] = await Promise.all([
     supabase.from('brand_profiles').select('tone, target_audience, keywords, voice_notes').eq('company_id', companyId).maybeSingle(),
     retrieve(companyId, 'products services features value proposition blog posts topics expertise', 12, 0.3).catch(() => [] as Awaited<ReturnType<typeof retrieve>>),
+    fetchRecentPostsByChannels(supabase, companyId, IDEA_CHANNELS),
   ])
 
   const brandContext = [
@@ -51,12 +55,16 @@ export async function POST(req: Request) {
     ? chunks.map(c => (c.title ? `[${c.title}]\n${c.content}` : c.content)).join('\n\n---\n\n')
     : 'No knowledge base content available yet.'
 
+  const recentPostsContext = buildIdeasRecentPostsSection(recentByChannel)
+
   const prompt = voice === 'personal'
     ? `You are a content strategist helping the founder/owner/developer behind ${company.name} build their personal brand on social media.
 
 ${brandContext ? `What they are building (for context only — use this to ground the ideas in their real work):\n${brandContext}\n` : ''}
 Knowledge about what they are building:
 ${knowledgeContext}
+
+${recentPostsContext}
 
 Generate exactly ${count} diverse, specific personal post ideas. These are for the INDIVIDUAL's personal profile, not a company page. Requirements:
 - Write ideas from the founder/owner/developer's first-person perspective — "I" voice, personal experience
@@ -88,6 +96,8 @@ Return a JSON object with this exact shape:
 ${brandContext ? `Brand context:\n${brandContext}\n` : ''}
 Knowledge base excerpts:
 ${knowledgeContext}
+
+${recentPostsContext}
 
 Generate exactly ${count} diverse, specific post ideas for ${company.name}. Requirements:
 - Each idea must be rooted in the actual company content above, not generic advice

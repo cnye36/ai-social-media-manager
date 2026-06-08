@@ -1,6 +1,7 @@
 import { Agent } from '@openai/agents'
 import { buildRagSearchTool } from './tools/rag-search'
 import { buildBaseSystemPrompt } from './base-agent'
+import { LINKEDIN_VARIETY_RULES } from '@/lib/content/channel-variety'
 import type { BrandProfile } from '@/types/database'
 import type { RetrievedChunk } from '@/lib/rag/retrieve'
 import type { ContentGoal, PostLength } from '@/types/agents'
@@ -24,6 +25,8 @@ FORMAT:
 
 WHAT WORKS: Counterintuitive insights, lessons from failure, behind-the-scenes looks, concrete data, strong opinions backed by evidence.
 WHAT TO AVOID: Corporate jargon, passive voice, hollow superlatives ("thrilled", "honored", "incredibly proud").
+
+${LINKEDIN_VARIETY_RULES}
 `.trim()
 
 export function buildLinkedInAgent(params: {

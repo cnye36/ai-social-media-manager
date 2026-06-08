@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { NO_EM_DASH_INSTRUCTION, stripEmDashes } from '@/lib/content/no-em-dash'
 import { preferredStackGuidance } from '@/lib/content-planning/brand-context'
+import { buildIdeasRecentPostsSection, fetchRecentChannelPosts } from '@/lib/content/recent-posts'
 import { formatSubredditContextForPrompt } from '@/lib/reddit/posting-guidance'
 import { fetchTrendingPostTitles } from '@/lib/reddit/subreddit-meta'
 import type { BrandProfile } from '@/types/database'
@@ -32,7 +33,7 @@ export async function POST(req: NextRequest) {
 
   const cleanSub = subreddit.replace(/^r\//, '').toLowerCase()
 
-  const [configResult, companyResult, brandResult, trendingTitles] = await Promise.all([
+  const [configResult, companyResult, brandResult, trendingTitles, recentRedditPosts] = await Promise.all([
     supabase
       .from('reddit_subreddit_configs')
       .select('rules_text, notes, posting_guidance')
@@ -42,6 +43,7 @@ export async function POST(req: NextRequest) {
     supabase.from('companies').select('name').eq('id', companyId).single(),
     supabase.from('brand_profiles').select('*').eq('company_id', companyId).maybeSingle(),
     fetchTrendingPostTitles(cleanSub),
+    fetchRecentChannelPosts(supabase, companyId, 'reddit'),
   ])
 
   const subredditBlock = formatSubredditContextForPrompt({
@@ -58,6 +60,7 @@ export async function POST(req: NextRequest) {
     brand: brandResult.data as BrandProfile | null,
     trendingTitles,
     topicHint,
+    recentPostsContext: buildIdeasRecentPostsSection({ reddit: recentRedditPosts }),
   })
 
   const response = await openai.chat.completions.create({
@@ -88,8 +91,9 @@ function buildPrompt(params: {
   brand: BrandProfile | null
   trendingTitles: string[]
   topicHint?: string
+  recentPostsContext?: string
 }): string {
-  const { subreddit, subredditBlock, companyName, brand, trendingTitles, topicHint } = params
+  const { subreddit, subredditBlock, companyName, brand, trendingTitles, topicHint, recentPostsContext } = params
   const lines: string[] = []
 
   lines.push(`You are a Reddit content strategist who deeply understands community culture and what gets upvoted vs removed.`)
@@ -124,6 +128,11 @@ function buildPrompt(params: {
     lines.push(``)
     lines.push(`## Topic focus`)
     lines.push(`Ideas should relate to: ${topicHint.trim()}`)
+  }
+
+  if (recentPostsContext?.trim()) {
+    lines.push(``)
+    lines.push(`## ${recentPostsContext}`)
   }
 
   lines.push(``)
