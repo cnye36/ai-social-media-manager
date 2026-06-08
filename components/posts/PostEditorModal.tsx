@@ -258,6 +258,75 @@ export function PostEditorModal({
         <div className="flex-1 overflow-y-auto">
           {tab === 'post' ? (
             <div className="p-5 space-y-4">
+              {/* Status & scheduling */}
+              <div className="space-y-3 pb-4 border-b border-zinc-800">
+                <div className="space-y-2">
+                  <p className="text-[10px] text-zinc-600 uppercase tracking-widest">Status</p>
+                  <div className="flex gap-2">
+                    {STATUSES.map(s => (
+                      <button
+                        key={s}
+                        onClick={() => {
+                          const next = onStatusSelect(s, scheduledFor)
+                          setStatus(next.status)
+                          setScheduledFor(next.datetime)
+                        }}
+                        className={cn(
+                          'flex-1 py-1.5 rounded-lg text-xs font-medium capitalize transition-colors',
+                          status === s ? 'bg-violet-600 text-white' : 'bg-zinc-800 text-zinc-400 hover:text-white'
+                        )}
+                      >
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] text-zinc-600 uppercase tracking-widest flex items-center gap-1.5">
+                    <CalendarClock className="w-3.5 h-3.5" />
+                    {datetimeFieldLabel(status)}
+                  </label>
+                  <input
+                    type="datetime-local"
+                    value={scheduledFor}
+                    onChange={e => setScheduledFor(onDatetimeChange(e.target.value))}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-violet-500/60 [color-scheme:dark]"
+                  />
+                  {status === 'published' && (
+                    <p className="text-xs text-zinc-500">
+                      Backdating is fine — pick when this actually went live, then save.
+                    </p>
+                  )}
+                  {scheduledFor && status !== 'published' && (
+                    <button
+                      onClick={() => { setScheduledFor(''); setStatus('draft') }}
+                      className="text-xs text-zinc-600 hover:text-red-400 transition-colors"
+                    >
+                      Clear schedule
+                    </button>
+                  )}
+                </div>
+
+                {SOCIAL_CHANNELS.includes(channel) && status !== 'published' && (
+                  <SendToBufferButton
+                    postId={post.id}
+                    channel={channel}
+                    scheduledFor={post.scheduled_for ?? (scheduledFor ? new Date(scheduledFor).toISOString() : null)}
+                    bufferPostId={bufferPostId ?? post.buffer_post_id}
+                    onSuccess={p => {
+                      setBufferPostId(p.buffer_post_id ?? null)
+                      onUpdate?.({
+                        ...post,
+                        buffer_post_id: p.buffer_post_id ?? null,
+                        scheduled_for: p.scheduled_for ?? post.scheduled_for,
+                        status: post.status === 'draft' ? 'scheduled' : post.status,
+                      })
+                    }}
+                  />
+                )}
+              </div>
+
               {/* Live preview */}
               <div>
                 <p className="text-[10px] text-zinc-600 uppercase tracking-widest mb-2">Preview</p>
@@ -284,74 +353,6 @@ export function PostEditorModal({
                   </p>
                 )}
               </div>
-
-              {/* Status */}
-              <div className="space-y-2">
-                <p className="text-[10px] text-zinc-600 uppercase tracking-widest">Status</p>
-                <div className="flex gap-2">
-                  {STATUSES.map(s => (
-                    <button
-                      key={s}
-                      onClick={() => {
-                        const next = onStatusSelect(s, scheduledFor)
-                        setStatus(next.status)
-                        setScheduledFor(next.datetime)
-                      }}
-                      className={cn(
-                        'flex-1 py-1.5 rounded-lg text-xs font-medium capitalize transition-colors',
-                        status === s ? 'bg-violet-600 text-white' : 'bg-zinc-800 text-zinc-400 hover:text-white'
-                      )}
-                    >
-                      {s}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Schedule */}
-              <div className="space-y-2">
-                <label className="text-[10px] text-zinc-600 uppercase tracking-widest flex items-center gap-1.5">
-                  <CalendarClock className="w-3.5 h-3.5" />
-                  {datetimeFieldLabel(status)}
-                </label>
-                <input
-                  type="datetime-local"
-                  value={scheduledFor}
-                  onChange={e => setScheduledFor(onDatetimeChange(e.target.value))}
-                  className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-violet-500/60 [color-scheme:dark]"
-                />
-                {status === 'published' && (
-                  <p className="text-xs text-zinc-500">
-                    Backdating is fine — pick when this actually went live, then save.
-                  </p>
-                )}
-                {scheduledFor && status !== 'published' && (
-                  <button
-                    onClick={() => { setScheduledFor(''); setStatus('draft') }}
-                    className="text-xs text-zinc-600 hover:text-red-400 transition-colors"
-                  >
-                    Clear schedule
-                  </button>
-                )}
-              </div>
-
-              {SOCIAL_CHANNELS.includes(channel) && status !== 'published' && (
-                <SendToBufferButton
-                  postId={post.id}
-                  channel={channel}
-                  scheduledFor={post.scheduled_for ?? (scheduledFor ? new Date(scheduledFor).toISOString() : null)}
-                  bufferPostId={bufferPostId ?? post.buffer_post_id}
-                  onSuccess={p => {
-                    setBufferPostId(p.buffer_post_id ?? null)
-                    onUpdate?.({
-                      ...post,
-                      buffer_post_id: p.buffer_post_id ?? null,
-                      scheduled_for: p.scheduled_for ?? post.scheduled_for,
-                      status: post.status === 'draft' ? 'scheduled' : post.status,
-                    })
-                  }}
-                />
-              )}
 
             </div>
           ) : (

@@ -269,82 +269,9 @@ export function PostPreview({
           )}
         </div>
 
-        {/* Content */}
-        <div className="p-5 space-y-2">
-          {isStreaming ? (
-            <pre className="whitespace-pre-wrap font-sans text-sm text-zinc-200 leading-relaxed">
-              {cleanContent}
-              <span className="inline-block w-0.5 h-4 bg-violet-400 animate-pulse ml-0.5 align-middle" />
-            </pre>
-          ) : viewMode === 'preview' && channel ? (
-            <ChannelPreview
-              channel={channel}
-              content={cleanContent}
-              mediaUrl={acceptedMedia?.url}
-              mediaAlt={acceptedMedia?.altText}
-            />
-          ) : (
-            <>
-              <div className="flex items-center gap-0.5 border border-zinc-800 rounded-lg p-1 w-fit">
-                {([
-                  { type: 'bold' as const, icon: <Bold className="w-3.5 h-3.5" />, title: 'Bold' },
-                  { type: 'italic' as const, icon: <Italic className="w-3.5 h-3.5" />, title: 'Italic' },
-                  { type: 'bullet' as const, icon: <List className="w-3.5 h-3.5" />, title: 'Bullet' },
-                ]).map(({ type, icon, title }) => (
-                  <button
-                    key={type}
-                    type="button"
-                    onMouseDown={e => { e.preventDefault(); applyFormatting(type) }}
-                    title={title}
-                    className="p-1.5 rounded text-zinc-500 hover:text-white hover:bg-zinc-800 transition-colors"
-                  >
-                    {icon}
-                  </button>
-                ))}
-              </div>
-              <textarea
-                ref={textareaRef}
-                value={cleanContent}
-                onChange={e => setEditedContent(e.target.value)}
-                className="w-full bg-transparent text-sm text-zinc-200 leading-relaxed resize-none focus:outline-none"
-                rows={Math.max(8, cleanContent.split('\n').length + 2)}
-              />
-            </>
-          )}
-        </div>
-
-        {/* Accepted media preview */}
-        {!isStreaming && acceptedMedia && (
-          <div className="px-5 pb-4 pt-0">
-            <div className="rounded-lg overflow-hidden border border-zinc-700">
-              <div className="px-3 py-1.5 bg-zinc-800 flex items-center justify-between">
-                <div className="flex items-center gap-1.5">
-                  <ImageIcon className="w-3 h-3 text-violet-400" />
-                  <span className="text-[10px] text-zinc-400 font-medium uppercase tracking-wide">
-                    Image attached
-                  </span>
-                </div>
-                <button
-                  onClick={() => setAcceptedMedia(null)}
-                  className="text-[10px] text-zinc-600 hover:text-red-400 transition-colors"
-                >
-                  Remove
-                </button>
-              </div>
-              <HoverDownloadImage
-                src={acceptedMedia.url}
-                alt={acceptedMedia.altText}
-                className="w-full object-contain max-h-48"
-                wrapperClassName="w-full"
-              />
-            </div>
-            <AltTextBox value={acceptedMedia.altText} className="mt-2" />
-          </div>
-        )}
-
         {/* Save / schedule / publish */}
         {postReady && (
-          <div className="px-5 pb-4 pt-0 space-y-3 border-t border-zinc-800/80">
+          <div className="px-5 py-3 space-y-3 border-b border-zinc-800/80">
             {saveState === 'draft' ? (
               <div className="flex items-center gap-3">
                 <span className="flex items-center gap-1.5 text-sm text-green-400">
@@ -441,6 +368,80 @@ export function PostPreview({
                 </Button>
               </div>
             )}
+            {saveError && <p className="text-xs text-red-400">{saveError}</p>}
+          </div>
+        )}
+
+        {/* Content */}
+        <div className="p-5 space-y-2">
+          {isStreaming ? (
+            <pre className="whitespace-pre-wrap font-sans text-sm text-zinc-200 leading-relaxed">
+              {cleanContent}
+              <span className="inline-block w-0.5 h-4 bg-violet-400 animate-pulse ml-0.5 align-middle" />
+            </pre>
+          ) : viewMode === 'preview' && channel ? (
+            <ChannelPreview
+              channel={channel}
+              content={cleanContent}
+              mediaUrl={acceptedMedia?.url}
+              mediaAlt={acceptedMedia?.altText}
+            />
+          ) : (
+            <>
+              <div className="flex items-center gap-0.5 border border-zinc-800 rounded-lg p-1 w-fit">
+                {([
+                  { type: 'bold' as const, icon: <Bold className="w-3.5 h-3.5" />, title: 'Bold' },
+                  { type: 'italic' as const, icon: <Italic className="w-3.5 h-3.5" />, title: 'Italic' },
+                  { type: 'bullet' as const, icon: <List className="w-3.5 h-3.5" />, title: 'Bullet' },
+                ]).map(({ type, icon, title }) => (
+                  <button
+                    key={type}
+                    type="button"
+                    onMouseDown={e => { e.preventDefault(); applyFormatting(type) }}
+                    title={title}
+                    className="p-1.5 rounded text-zinc-500 hover:text-white hover:bg-zinc-800 transition-colors"
+                  >
+                    {icon}
+                  </button>
+                ))}
+              </div>
+              <textarea
+                ref={textareaRef}
+                value={cleanContent}
+                onChange={e => setEditedContent(e.target.value)}
+                className="w-full bg-transparent text-sm text-zinc-200 leading-relaxed resize-none focus:outline-none"
+                rows={Math.max(8, cleanContent.split('\n').length + 2)}
+              />
+            </>
+          )}
+        </div>
+
+        {/* Accepted media preview */}
+        {!isStreaming && acceptedMedia && (
+          <div className="px-5 pb-4 pt-0">
+            <div className="rounded-lg overflow-hidden border border-zinc-700">
+              <div className="px-3 py-1.5 bg-zinc-800 flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <ImageIcon className="w-3 h-3 text-violet-400" />
+                  <span className="text-[10px] text-zinc-400 font-medium uppercase tracking-wide">
+                    Image attached
+                  </span>
+                </div>
+                <button
+                  onClick={() => setAcceptedMedia(null)}
+                  className="text-[10px] text-zinc-600 hover:text-red-400 transition-colors"
+                >
+                  Remove
+                </button>
+              </div>
+              <HoverDownloadImage
+                src={acceptedMedia.url}
+                alt={acceptedMedia.altText}
+                className="w-full object-contain max-h-48"
+                wrapperClassName="w-full"
+              />
+            </div>
+            <AltTextBox value={acceptedMedia.altText} className="mt-2" />
           </div>
         )}
 
@@ -451,11 +452,6 @@ export function PostPreview({
           </div>
         )}
 
-        {saveError && (
-          <div className="px-5 pb-3">
-            <p className="text-xs text-red-400">{saveError}</p>
-          </div>
-        )}
       </div>
 
       {postReady && channel && (

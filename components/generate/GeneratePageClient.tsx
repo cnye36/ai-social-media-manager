@@ -206,6 +206,97 @@ function MultiPostPreviewer({ posts, batchErrors, companyId, brandColors, onRese
           />
         ) : (
           <>
+        {activeSave === 'draft' ? (
+          <div className="flex items-center gap-3 pb-3 border-b border-zinc-800">
+            <span className="flex items-center gap-1.5 text-sm text-green-400">
+              <Check className="w-4 h-4" /> Saved as draft
+            </span>
+            <button
+              onClick={() => setSaveStates(prev => ({ ...prev, [activeIdx]: 'idle' }))}
+              className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
+            >
+              Edit again
+            </button>
+          </div>
+        ) : activeSave === 'scheduled' ? (
+          <div className="flex items-center gap-3 pb-3 border-b border-zinc-800">
+            <span className="flex items-center gap-1.5 text-sm text-yellow-400">
+              <CalendarClock className="w-4 h-4" /> Scheduled
+            </span>
+            <button
+              onClick={() => setSaveStates(prev => ({ ...prev, [activeIdx]: 'idle' }))}
+              className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
+            >
+              Edit again
+            </button>
+          </div>
+        ) : activeSave === 'published' ? (
+          <div className="flex items-center gap-3 pb-3 border-b border-zinc-800">
+            <span className="flex items-center gap-1.5 text-sm text-emerald-400">
+              <CircleCheck className="w-4 h-4" /> Marked as published
+            </span>
+            <button
+              onClick={() => setSaveStates(prev => ({ ...prev, [activeIdx]: 'idle' }))}
+              className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
+            >
+              Edit again
+            </button>
+          </div>
+        ) : activeSave === 'saving' ? (
+          <div className="flex items-center gap-2 text-sm text-zinc-500 pb-3 border-b border-zinc-800">
+            <Loader2 className="w-4 h-4 animate-spin" /> Saving…
+          </div>
+        ) : showSchedule === activeIdx ? (
+          <div className="space-y-2 pb-3 border-b border-zinc-800">
+            <p className="text-xs text-zinc-500">Pick a publish time</p>
+            <input
+              type="datetime-local"
+              value={scheduledFor}
+              onChange={e => setScheduledFor(e.target.value)}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-violet-500 [color-scheme:dark]"
+            />
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                onClick={() => savePost('scheduled', scheduledFor)}
+                disabled={!scheduledFor}
+              >
+                Confirm schedule
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => { setShowSchedule(null); setScheduledFor('') }}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-center gap-2 pb-3 border-b border-zinc-800">
+            <Button size="sm" onClick={() => savePost('draft')}>
+              Save as draft
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setShowSchedule(activeIdx)}>
+              <CalendarClock className="w-3.5 h-3.5" />
+              Schedule
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => savePost('published')}>
+              <CircleCheck className="w-3.5 h-3.5" />
+              Mark published
+            </Button>
+            <button
+              onClick={() => setEdits(prev => ({
+                ...prev,
+                [activeIdx]: splitImagePromptFromText(posts[activeIdx].content).content,
+              }))}
+              className="ml-auto text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
+            >
+              Discard edits
+            </button>
+          </div>
+        )}
+
         <div className="flex items-center gap-0.5 border border-zinc-800 rounded-lg p-1 w-fit">
           {([
             { type: 'bold' as const, icon: <Bold className="w-3.5 h-3.5" /> },
@@ -236,96 +327,6 @@ function MultiPostPreviewer({ posts, batchErrors, companyId, brandColors, onRese
           </p>
         )}
 
-        {activeSave === 'draft' ? (
-          <div className="flex items-center gap-3">
-            <span className="flex items-center gap-1.5 text-sm text-green-400">
-              <Check className="w-4 h-4" /> Saved as draft
-            </span>
-            <button
-              onClick={() => setSaveStates(prev => ({ ...prev, [activeIdx]: 'idle' }))}
-              className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
-            >
-              Edit again
-            </button>
-          </div>
-        ) : activeSave === 'scheduled' ? (
-          <div className="flex items-center gap-3">
-            <span className="flex items-center gap-1.5 text-sm text-yellow-400">
-              <CalendarClock className="w-4 h-4" /> Scheduled
-            </span>
-            <button
-              onClick={() => setSaveStates(prev => ({ ...prev, [activeIdx]: 'idle' }))}
-              className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
-            >
-              Edit again
-            </button>
-          </div>
-        ) : activeSave === 'published' ? (
-          <div className="flex items-center gap-3">
-            <span className="flex items-center gap-1.5 text-sm text-emerald-400">
-              <CircleCheck className="w-4 h-4" /> Marked as published
-            </span>
-            <button
-              onClick={() => setSaveStates(prev => ({ ...prev, [activeIdx]: 'idle' }))}
-              className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
-            >
-              Edit again
-            </button>
-          </div>
-        ) : activeSave === 'saving' ? (
-          <div className="flex items-center gap-2 text-sm text-zinc-500">
-            <Loader2 className="w-4 h-4 animate-spin" /> Saving…
-          </div>
-        ) : showSchedule === activeIdx ? (
-          <div className="space-y-2 pt-1 border-t border-zinc-800">
-            <p className="text-xs text-zinc-500">Pick a publish time</p>
-            <input
-              type="datetime-local"
-              value={scheduledFor}
-              onChange={e => setScheduledFor(e.target.value)}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-violet-500 [color-scheme:dark]"
-            />
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                onClick={() => savePost('scheduled', scheduledFor)}
-                disabled={!scheduledFor}
-              >
-                Confirm schedule
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => { setShowSchedule(null); setScheduledFor('') }}
-              >
-                Cancel
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-zinc-800">
-            <Button size="sm" onClick={() => savePost('draft')}>
-              Save as draft
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => setShowSchedule(activeIdx)}>
-              <CalendarClock className="w-3.5 h-3.5" />
-              Schedule
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => savePost('published')}>
-              <CircleCheck className="w-3.5 h-3.5" />
-              Mark published
-            </Button>
-            <button
-              onClick={() => setEdits(prev => ({
-                ...prev,
-                [activeIdx]: splitImagePromptFromText(posts[activeIdx].content).content,
-              }))}
-              className="ml-auto text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
-            >
-              Discard edits
-            </button>
-          </div>
-        )}
           </>
         )}
 

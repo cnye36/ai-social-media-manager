@@ -1,7 +1,9 @@
 'use client'
 
 import { useState, useRef } from 'react'
+import { format } from 'date-fns'
 import { Bold, Italic, List, ImageIcon, CalendarClock, Check, Loader2, CircleCheck, X, Eye, Pencil } from 'lucide-react'
+import { SendToBufferButton } from '@/components/posts/SendToBufferButton'
 import { buildStatusDatetimePayload } from '@/lib/content-status'
 import { threadMediaToPostItems } from '@/lib/posts/x-format'
 import { XThreadPreview } from '@/components/posts/ChannelPreview'
@@ -23,13 +25,14 @@ interface XThreadEditorProps {
   /** Hide top chrome when nested inside multi-channel tabs */
   embedded?: boolean
   voice?: 'personal' | 'company'
+  onSaved?: () => void
 }
 
 function mediaFromTweet(tweet: ThreadTweet): MediaItem | undefined {
   return tweet.media?.url ? tweet.media : undefined
 }
 
-export function XThreadEditor({ post, companyId, brandColors, embedded, voice = 'company' }: XThreadEditorProps) {
+export function XThreadEditor({ post, companyId, brandColors, embedded, voice = 'company', onSaved }: XThreadEditorProps) {
   const rawThread = (post.contentVariants?.thread ?? []) as ThreadTweet[]
   const [tweets, setTweets] = useState(() => rawThread.map(t => t.text))
   const [tweetMedia, setTweetMedia] = useState<Record<number, MediaItem>>(() => {
@@ -46,6 +49,8 @@ export function XThreadEditor({ post, companyId, brandColors, embedded, voice = 
   const [showSchedule, setShowSchedule] = useState(false)
   const [scheduledFor, setScheduledFor] = useState('')
   const [savedPostId, setSavedPostId] = useState<string | null>(null)
+  const [savedScheduledFor, setSavedScheduledFor] = useState<string | null>(null)
+  const [savedBufferPostId, setSavedBufferPostId] = useState<string | null>(null)
   const textareaRefs = useRef<(HTMLTextAreaElement | null)[]>([])
 
   const threadContent = tweets.join('\n\n---\n\n')
@@ -137,6 +142,8 @@ export function XThreadEditor({ post, companyId, brandColors, embedded, voice = 
         ...statusPayload,
       }
 
+      let saved: { id: string; scheduled_for?: string | null; buffer_post_id?: string | null }
+
       if (savedPostId) {
         const res = await fetch(`/api/posts/${savedPostId}`, {
           method: 'PATCH',
@@ -144,6 +151,7 @@ export function XThreadEditor({ post, companyId, brandColors, embedded, voice = 
           body: JSON.stringify(body),
         })
         if (!res.ok) throw new Error('update failed')
+        saved = await res.json() as typeof saved
       } else {
         const res = await fetch('/api/posts', {
           method: 'POST',
@@ -155,13 +163,16 @@ export function XThreadEditor({ post, companyId, brandColors, embedded, voice = 
           }),
         })
         if (!res.ok) throw new Error('save failed')
-        const created = await res.json() as { id: string }
-        setSavedPostId(created.id)
+        saved = await res.json() as typeof saved
+        setSavedPostId(saved.id)
       }
 
+      setSavedScheduledFor(saved.scheduled_for ?? null)
+      setSavedBufferPostId(saved.buffer_post_id ?? null)
       setSaveState(status === 'draft' ? 'draft' : status === 'scheduled' ? 'scheduled' : 'published')
       setShowSchedule(false)
       setScheduledFor('')
+      onSaved?.()
     } catch {
       setSaveState('idle')
     }
@@ -215,6 +226,104 @@ export function XThreadEditor({ post, companyId, brandColors, embedded, voice = 
           </button>
         </div>
       </div>
+
+      {saveState === 'draft' ? (
+        <div className="flex items-center gap-3 pb-3 border-b border-zinc-800">
+          <span className="flex items-center gap-1.5 text-sm text-green-400">
+            <Check className="w-4 h-4" /> Thread saved as draft
+          </span>
+          <button type="button" onClick={() => setSaveState('idle')} className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors">
+            Edit again
+          </button>
+        </div>
+      ) : saveState === 'scheduled' ? (
+        <div className="flex flex-wrap items-center gap-3 pb-3 border-b border-zinc-800">
+          <span className="flex items-center gap-1.5 text-sm text-yellow-400">
+            <CalendarClock className="w-4 h-4" />
+            Thread scheduled
+            {savedScheduledFor && (
+              <span className="text-zinc-400">
+                · {format(new Date(savedScheduledFor), 'MMM d · h:mm a')}
+              </span>
+            )}
+          </span>
+          {savedPostId && (
+            <SendToBufferButton
+              postId={savedPostId}
+              channel="x"
+              scheduledFor={savedScheduledFor}
+              bufferPostId={savedBufferPostId}
+              onSuccess={p => {
+                setSavedBufferPostId(p.buffer_post_id ?? null)
+                if (p.scheduled_for) setSavedScheduledFor(p.scheduled_for)
+              }}
+            />
+          )}
+          <button type="button" onClick={() => setSaveState('idle')} className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors">
+            Edit again
+          </button>
+        </div>
+      ) : saveState === 'published' ? (
+        <div className="flex items-center gap-3 pb-3 border-b border-zinc-800">
+          <span className="flex items-center gap-1.5 text-sm text-emerald-400">
+            <CircleCheck className="w-4 h-4" /> Thread marked published
+          </span>
+          <button type="button" onClick={() => setSaveState('idle')} className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors">
+            Edit again
+          </button>
+        </div>
+      ) : saveState === 'saving' ? (
+        <div className="flex items-center gap-2 text-sm text-zinc-500 pb-3 border-b border-zinc-800">
+          <Loader2 className="w-4 h-4 animate-spin" /> Saving…
+        </div>
+      ) : showSchedule ? (
+        <div className="space-y-2 pb-3 border-b border-zinc-800">
+          <p className="text-xs text-zinc-500">Pick a publish time</p>
+          <input
+            type="datetime-local"
+            value={scheduledFor}
+            onChange={e => setScheduledFor(e.target.value)}
+            className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-violet-500 [color-scheme:dark]"
+          />
+          <div className="flex gap-2">
+            <Button size="sm" onClick={() => saveThread('scheduled', scheduledFor)} disabled={!scheduledFor}>
+              Confirm schedule
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => { setShowSchedule(false); setScheduledFor('') }}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-center gap-2 pb-3 border-b border-zinc-800">
+          <Button size="sm" onClick={() => saveThread('draft')}>Save as draft</Button>
+          <Button size="sm" variant="outline" onClick={() => setShowSchedule(true)}>
+            <CalendarClock className="w-3.5 h-3.5" />
+            Schedule
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => saveThread('published')}>
+            <CircleCheck className="w-3.5 h-3.5" />
+            Mark published
+          </Button>
+          <button
+            type="button"
+            onClick={() => {
+              setTweets(rawThread.map(t => t.text))
+              setTweetMedia(() => {
+                const initial: Record<number, MediaItem> = {}
+                rawThread.forEach((t, idx) => {
+                  const media = mediaFromTweet(t)
+                  if (media) initial[idx] = media
+                })
+                return initial
+              })
+            }}
+            className="ml-auto text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
+          >
+            Discard edits
+          </button>
+        </div>
+      )}
 
       {viewMode === 'preview' ? (
         <XThreadPreview
@@ -314,86 +423,6 @@ export function XThreadEditor({ post, companyId, brandColors, embedded, voice = 
         })}
       </div>
         </>
-      )}
-
-      {saveState === 'draft' ? (
-        <div className="flex items-center gap-3 pt-1 border-t border-zinc-800">
-          <span className="flex items-center gap-1.5 text-sm text-green-400">
-            <Check className="w-4 h-4" /> Thread saved as draft
-          </span>
-          <button type="button" onClick={() => setSaveState('idle')} className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors">
-            Edit again
-          </button>
-        </div>
-      ) : saveState === 'scheduled' ? (
-        <div className="flex items-center gap-3 pt-1 border-t border-zinc-800">
-          <span className="flex items-center gap-1.5 text-sm text-yellow-400">
-            <CalendarClock className="w-4 h-4" /> Thread scheduled
-          </span>
-          <button type="button" onClick={() => setSaveState('idle')} className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors">
-            Edit again
-          </button>
-        </div>
-      ) : saveState === 'published' ? (
-        <div className="flex items-center gap-3 pt-1 border-t border-zinc-800">
-          <span className="flex items-center gap-1.5 text-sm text-emerald-400">
-            <CircleCheck className="w-4 h-4" /> Thread marked published
-          </span>
-          <button type="button" onClick={() => setSaveState('idle')} className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors">
-            Edit again
-          </button>
-        </div>
-      ) : saveState === 'saving' ? (
-        <div className="flex items-center gap-2 text-sm text-zinc-500">
-          <Loader2 className="w-4 h-4 animate-spin" /> Saving…
-        </div>
-      ) : showSchedule ? (
-        <div className="space-y-2 pt-1 border-t border-zinc-800">
-          <p className="text-xs text-zinc-500">Pick a publish time</p>
-          <input
-            type="datetime-local"
-            value={scheduledFor}
-            onChange={e => setScheduledFor(e.target.value)}
-            className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-violet-500 [color-scheme:dark]"
-          />
-          <div className="flex gap-2">
-            <Button size="sm" onClick={() => saveThread('scheduled', scheduledFor)} disabled={!scheduledFor}>
-              Confirm schedule
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => { setShowSchedule(false); setScheduledFor('') }}>
-              Cancel
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-zinc-800">
-          <Button size="sm" onClick={() => saveThread('draft')}>Save as draft</Button>
-          <Button size="sm" variant="outline" onClick={() => setShowSchedule(true)}>
-            <CalendarClock className="w-3.5 h-3.5" />
-            Schedule
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => saveThread('published')}>
-            <CircleCheck className="w-3.5 h-3.5" />
-            Mark published
-          </Button>
-          <button
-            type="button"
-            onClick={() => {
-              setTweets(rawThread.map(t => t.text))
-              setTweetMedia(() => {
-                const initial: Record<number, MediaItem> = {}
-                rawThread.forEach((t, idx) => {
-                  const media = mediaFromTweet(t)
-                  if (media) initial[idx] = media
-                })
-                return initial
-              })
-            }}
-            className="ml-auto text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
-          >
-            Discard edits
-          </button>
-        </div>
       )}
 
       {viewMode === 'edit' && (

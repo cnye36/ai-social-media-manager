@@ -7,9 +7,10 @@ import {
   eachDayOfInterval, format, isSameMonth, isToday,
   addMonths, subMonths, isSameDay,
 } from 'date-fns'
-import { ChevronLeft, ChevronRight, Plus, X, FileText } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, X, FileText, User, Building2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { PostEditorModal } from '@/components/posts/PostEditorModal'
+import { PostVoiceBadge } from '@/components/posts/PostVoiceBadge'
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { LinkedInIcon, XIcon, RedditIcon, FacebookIcon } from '@/components/ui/channel-icons'
 import { calendarDisplayAt } from '@/lib/content-status'
@@ -187,7 +188,8 @@ export function ContentCalendar({ posts: initialPosts, articles: initialArticles
                         )}
                       >
                         {chip.icon}
-                        <span className="text-[10px] truncate leading-tight">
+                        <PostVoiceBadge post={item.data} size="compact" />
+                        <span className="text-[10px] truncate leading-tight min-w-0">
                           <span className="font-medium mr-0.5">{timeStr}</span>
                           {item.data.content.slice(0, 20)}
                         </span>
@@ -240,6 +242,14 @@ export function ContentCalendar({ posts: initialPosts, articles: initialArticles
           </span>
           <span className="text-xs text-zinc-500">Blog article</span>
         </div>
+        <div className="flex items-center gap-1.5">
+          <User className="w-3 h-3 text-blue-300" />
+          <span className="text-xs text-zinc-500">Personal</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <Building2 className="w-3 h-3 text-violet-300" />
+          <span className="text-xs text-zinc-500">Business</span>
+        </div>
       </div>
 
       {/* Day overflow dialog */}
@@ -272,7 +282,10 @@ export function ContentCalendar({ posts: initialPosts, articles: initialArticles
                       {chip.icon} {item.data.channel}
                     </span>
                     <div className="flex-1 min-w-0">
-                      <p className="text-[10px] text-zinc-500 mb-0.5">{time}</p>
+                      <div className="flex items-center gap-1.5 mb-0.5">
+                        <p className="text-[10px] text-zinc-500">{time}</p>
+                        <PostVoiceBadge post={item.data} size="default" />
+                      </div>
                       <p className="text-xs text-zinc-300 line-clamp-2">{item.data.content}</p>
                     </div>
                   </button>
