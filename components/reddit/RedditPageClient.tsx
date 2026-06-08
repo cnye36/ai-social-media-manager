@@ -16,8 +16,12 @@ import { cn } from '@/lib/utils'
 import { buildStatusDatetimePayload, toDatetimeLocal } from '@/lib/content-status'
 import { formatRedditMarkdown, parseRedditPost, type RedditPostContent } from '@/lib/reddit/parse'
 import { lintRedditSubmission } from '@/lib/reddit/submission-lint'
+import { PostViewToggle } from '@/components/posts/PostViewToggle'
+import { PostsMiniCalendar } from '@/components/posts/PostsMiniCalendar'
+import { RedditIcon } from '@/components/ui/channel-icons'
 import type { ContentGoal, GeneratedPost, PostLength } from '@/types/agents'
 import type { Post } from '@/types/database'
+import type { PostView } from '@/components/posts/PostViewToggle'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -2828,6 +2832,7 @@ function HistoryTab({
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [statusFilter, setStatusFilter] = useState<string>('all')
+  const [view, setView] = useState<PostView>('list')
 
   useEffect(() => {
     const controller = new AbortController()
@@ -2870,7 +2875,10 @@ function HistoryTab({
         <p className="text-sm text-zinc-500">
           All Reddit posts across every status — drafts, scheduled, published, and archived.
         </p>
-        <span className="text-xs text-zinc-600">({posts.length} total)</span>
+        <div className="flex items-center gap-2">
+          <PostViewToggle view={view} onChange={setView} />
+          <span className="text-xs text-zinc-600">({posts.length} total)</span>
+        </div>
       </div>
 
       {/* Status filter pills */}
@@ -2906,6 +2914,51 @@ function HistoryTab({
           <p className="text-xs text-zinc-600 mt-1">
             {statusFilter === 'all' ? 'Generate a post to see it here' : 'Try a different status filter'}
           </p>
+        </div>
+      ) : view === 'calendar' ? (
+        <PostsMiniCalendar
+          posts={filtered}
+          onEdit={post => onContinueEditing(post)}
+          chipBg="bg-orange-500/15"
+          chipText="text-orange-300"
+          chipIcon={<RedditIcon className="w-2.5 h-2.5 shrink-0" />}
+        />
+      ) : view === 'grid' ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+          {filtered.map(post => {
+            const reddit = redditFromPost(post)
+            const title = reddit?.title ?? post.content.slice(0, 80)
+            const sub = reddit?.subreddit
+            const dateLabel = post.published_at
+              ? `Published ${formatDistanceToNow(new Date(post.published_at), { addSuffix: true })}`
+              : post.scheduled_for
+                ? `Scheduled ${format(new Date(post.scheduled_for), 'MMM d, h:mm a')}`
+                : `Created ${formatDistanceToNow(new Date(post.created_at), { addSuffix: true })}`
+            return (
+              <div key={post.id} className="group flex flex-col bg-zinc-900 border border-zinc-800 rounded-xl p-4 hover:border-zinc-700 transition-colors">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {sub && <span className="text-[10px] font-semibold text-orange-400/90">r/{sub}</span>}
+                    <span className={cn('text-[10px] font-medium px-1.5 py-0.5 rounded capitalize', STATUS_BADGE[post.status] ?? 'text-zinc-500 bg-zinc-800')}>
+                      {post.status}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                    {(post.status === 'draft' || post.status === 'scheduled') && (
+                      <button onClick={() => onContinueEditing(post)} className="p-1.5 rounded text-zinc-600 hover:text-zinc-300 hover:bg-zinc-800 transition-colors"><Pencil className="w-3.5 h-3.5" /></button>
+                    )}
+                    <button onClick={() => handleCopy(post)} className="p-1.5 rounded text-zinc-600 hover:text-zinc-300 hover:bg-zinc-800 transition-colors">
+                      {copiedId === post.id ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
+                    </button>
+                    <button onClick={() => handleDelete(post)} className="p-1.5 rounded text-zinc-600 hover:text-red-400 hover:bg-red-900/20 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
+                  </div>
+                </div>
+                <p className="text-sm font-semibold text-white leading-snug line-clamp-2 flex-1">{title}</p>
+                {reddit?.body && <p className="text-xs text-zinc-500 mt-1.5 line-clamp-2 leading-relaxed">{reddit.body}</p>}
+                <p className="text-[10px] text-zinc-600 mt-3">{dateLabel}</p>
+              </div>
+            )
+          })}
         </div>
       ) : (
         <div className="space-y-3">

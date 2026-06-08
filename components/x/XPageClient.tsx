@@ -8,6 +8,10 @@ import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { IdeaSpark } from '@/components/generate/IdeaSpark'
 import { PostPreview } from '@/components/generate/PostPreview'
+import { PostViewToggle } from '@/components/posts/PostViewToggle'
+import { PostGridView } from '@/components/posts/PostGridView'
+import { PostsMiniCalendar } from '@/components/posts/PostsMiniCalendar'
+import type { PostView } from '@/components/posts/PostViewToggle'
 import { XThreadEditor } from '@/components/generate/XThreadEditor'
 import { PostEditorModal } from '@/components/posts/PostEditorModal'
 import { cn } from '@/lib/utils'
@@ -80,6 +84,7 @@ function XHistory({ companyId, refreshKey }: XHistoryProps) {
   const [error, setError] = useState('')
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [view, setView] = useState<PostView>('list')
   const [editorPost, setEditorPost] = useState<Post | null>(null)
 
   const fetchPosts = useCallback(async () => {
@@ -147,14 +152,17 @@ function XHistory({ companyId, refreshKey }: XHistoryProps) {
           <h2 className="text-sm font-semibold text-zinc-300 uppercase tracking-wide">Recent X Posts</h2>
           {!loading && <span className="text-xs text-zinc-600">({posts.length})</span>}
         </div>
-        <button
-          onClick={fetchPosts}
-          disabled={loading}
-          className="flex items-center gap-1.5 text-xs text-zinc-600 hover:text-zinc-400 transition-colors disabled:opacity-40"
-        >
-          <RefreshCw className={cn('w-3 h-3', loading && 'animate-spin')} />
-          Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <PostViewToggle view={view} onChange={setView} />
+          <button
+            onClick={fetchPosts}
+            disabled={loading}
+            className="flex items-center gap-1.5 text-xs text-zinc-600 hover:text-zinc-400 transition-colors disabled:opacity-40"
+          >
+            <RefreshCw className={cn('w-3 h-3', loading && 'animate-spin')} />
+            Refresh
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -176,16 +184,14 @@ function XHistory({ companyId, refreshKey }: XHistoryProps) {
         </div>
       )}
 
-      {posts.length > 0 && (
+      {posts.length > 0 && view === 'list' && (
         <div className="space-y-2">
           {posts.map(post => {
             const postVoice = getVoice(post)
             const thread = isThread(post)
             const count = tweetCount(post)
             const body = postBodyForPublish(post.content)
-            const preview = body.length > 160
-              ? body.slice(0, 160).trimEnd() + '…'
-              : body
+            const preview = body.length > 160 ? body.slice(0, 160).trimEnd() + '…' : body
             const charCount = body.length
             const dateLabel = post.published_at
               ? `Published ${formatDistanceToNow(new Date(post.published_at), { addSuffix: true })}`
@@ -194,11 +200,7 @@ function XHistory({ companyId, refreshKey }: XHistoryProps) {
                 : `Created ${formatDistanceToNow(new Date(post.created_at), { addSuffix: true })}`
 
             return (
-              <div
-                key={post.id}
-                className="group flex items-start gap-4 px-4 py-3.5 bg-zinc-900 border border-zinc-800 rounded-xl hover:border-zinc-700 transition-colors"
-              >
-                {/* Voice indicator */}
+              <div key={post.id} className="group flex items-start gap-4 px-4 py-3.5 bg-zinc-900 border border-zinc-800 rounded-xl hover:border-zinc-700 transition-colors">
                 <div className="shrink-0 pt-0.5">
                   {postVoice === 'personal' ? (
                     <div title="Personal post" className="w-7 h-7 rounded-full bg-zinc-700/50 border border-zinc-600/50 flex items-center justify-center">
@@ -214,16 +216,12 @@ function XHistory({ companyId, refreshKey }: XHistoryProps) {
                     </div>
                   )}
                 </div>
-
-                {/* Content */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1.5 flex-wrap">
                     {postVoice && (
                       <span className={cn(
                         'text-[10px] font-medium px-1.5 py-0.5 rounded border capitalize',
-                        postVoice === 'personal'
-                          ? 'text-zinc-300 bg-zinc-800 border-zinc-600'
-                          : 'text-violet-400 bg-violet-900/20 border-violet-700/30'
+                        postVoice === 'personal' ? 'text-zinc-300 bg-zinc-800 border-zinc-600' : 'text-violet-400 bg-violet-900/20 border-violet-700/30'
                       )}>
                         {postVoice === 'personal' ? 'Personal' : 'Company'}
                       </span>
@@ -235,60 +233,70 @@ function XHistory({ companyId, refreshKey }: XHistoryProps) {
                       </span>
                     )}
                     {!thread && (
-                      <span className={cn(
-                        'text-[10px] font-medium px-1.5 py-0.5 rounded',
-                        charCount > 280 ? 'text-red-400 bg-red-900/20' : 'text-zinc-500 bg-zinc-800/60'
-                      )}>
+                      <span className={cn('text-[10px] font-medium px-1.5 py-0.5 rounded', charCount > 280 ? 'text-red-400 bg-red-900/20' : 'text-zinc-500 bg-zinc-800/60')}>
                         {charCount}/280
                       </span>
                     )}
-                    <span className={cn(
-                      'flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded capitalize',
-                      STATUS_STYLES[post.status]
-                    )}>
-                      {STATUS_ICONS[post.status]}
-                      {post.status}
+                    <span className={cn('flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded capitalize', STATUS_STYLES[post.status])}>
+                      {STATUS_ICONS[post.status]}{post.status}
                     </span>
                     <span className="text-[10px] text-zinc-600">{dateLabel}</span>
                   </div>
                   <p className="text-sm text-zinc-400 leading-relaxed line-clamp-2">{preview}</p>
                 </div>
-
-                {/* Actions */}
                 <div className="shrink-0 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button
-                    onClick={() => setEditorPost(post)}
-                    title="Edit post"
-                    className="p-1.5 rounded-lg text-zinc-600 hover:text-zinc-300 hover:bg-zinc-800 transition-colors"
-                  >
-                    <Pencil className="w-3.5 h-3.5" />
+                  <button onClick={() => setEditorPost(post)} title="Edit post" className="p-1.5 rounded-lg text-zinc-600 hover:text-zinc-300 hover:bg-zinc-800 transition-colors"><Pencil className="w-3.5 h-3.5" /></button>
+                  <button onClick={() => handleCopy(post)} title="Copy content" className="p-1.5 rounded-lg text-zinc-600 hover:text-zinc-300 hover:bg-zinc-800 transition-colors">
+                    {copiedId === post.id ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
                   </button>
-                  <button
-                    onClick={() => handleCopy(post)}
-                    title="Copy content"
-                    className="p-1.5 rounded-lg text-zinc-600 hover:text-zinc-300 hover:bg-zinc-800 transition-colors"
-                  >
-                    {copiedId === post.id
-                      ? <Check className="w-3.5 h-3.5 text-green-400" />
-                      : <Copy className="w-3.5 h-3.5" />
-                    }
-                  </button>
-                  <button
-                    onClick={() => handleDelete(post.id)}
-                    disabled={deletingId === post.id}
-                    title="Delete post"
-                    className="p-1.5 rounded-lg text-zinc-600 hover:text-red-400 hover:bg-red-900/20 transition-colors disabled:opacity-40"
-                  >
-                    {deletingId === post.id
-                      ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      : <Trash2 className="w-3.5 h-3.5" />
-                    }
+                  <button onClick={() => handleDelete(post.id)} disabled={deletingId === post.id} title="Delete post" className="p-1.5 rounded-lg text-zinc-600 hover:text-red-400 hover:bg-red-900/20 transition-colors disabled:opacity-40">
+                    {deletingId === post.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
                   </button>
                 </div>
               </div>
             )
           })}
         </div>
+      )}
+
+      {posts.length > 0 && view === 'grid' && (
+        <PostGridView
+          posts={posts}
+          copiedId={copiedId}
+          deletingId={deletingId}
+          onEdit={setEditorPost}
+          onCopy={handleCopy}
+          onDelete={handleDelete}
+          renderBadge={post => {
+            const v = getVoice(post)
+            const thread = isThread(post)
+            const count = tweetCount(post)
+            return (
+              <>
+                {v && (
+                  <span className={cn('text-[10px] font-medium px-1.5 py-0.5 rounded border capitalize', v === 'personal' ? 'text-zinc-300 bg-zinc-800 border-zinc-600' : 'text-violet-400 bg-violet-900/20 border-violet-700/30')}>
+                    {v === 'personal' ? 'Personal' : 'Company'}
+                  </span>
+                )}
+                {thread && (
+                  <span className="flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded border text-sky-400 bg-sky-900/20 border-sky-700/30">
+                    <GitBranch className="w-2.5 h-2.5" />Thread{count > 0 ? ` · ${count}` : ''}
+                  </span>
+                )}
+              </>
+            )
+          }}
+        />
+      )}
+
+      {posts.length > 0 && view === 'calendar' && (
+        <PostsMiniCalendar
+          posts={posts}
+          onEdit={post => setEditorPost(post)}
+          chipBg="bg-zinc-500/15"
+          chipText="text-zinc-300"
+          chipIcon={<XIcon className="w-2.5 h-2.5 shrink-0" />}
+        />
       )}
 
       {editorPost && (

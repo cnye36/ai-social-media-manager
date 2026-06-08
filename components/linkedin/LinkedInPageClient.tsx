@@ -11,6 +11,9 @@ import { IdeaSpark } from '@/components/generate/IdeaSpark'
 import { PostPreview } from '@/components/generate/PostPreview'
 import { MediaPanel } from '@/components/generate/MediaPanel'
 import { PostEditorModal } from '@/components/posts/PostEditorModal'
+import { PostViewToggle } from '@/components/posts/PostViewToggle'
+import { PostGridView } from '@/components/posts/PostGridView'
+import { PostsMiniCalendar } from '@/components/posts/PostsMiniCalendar'
 import { cn } from '@/lib/utils'
 import { format, formatDistanceToNow } from 'date-fns'
 import type { ContentGoal, PostLength } from '@/types/agents'
@@ -18,6 +21,7 @@ import type { Post, PostStatus } from '@/types/database'
 import type { PostIdea } from '@/app/api/generate/ideas/route'
 import { normalizeContentGoal } from '@/lib/content/content-goal'
 import { splitImagePromptFromText, postBodyForPublish } from '@/lib/generate/image-prompt'
+import type { PostView } from '@/components/posts/PostViewToggle'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -81,6 +85,7 @@ function LinkedInHistory({ companyId, refreshKey }: LinkedInHistoryProps) {
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [editorPost, setEditorPost] = useState<Post | null>(null)
+  const [view, setView] = useState<PostView>('list')
 
   const fetchPosts = useCallback(async () => {
     setLoading(true)
@@ -141,14 +146,17 @@ function LinkedInHistory({ companyId, refreshKey }: LinkedInHistoryProps) {
           </h2>
           {!loading && <span className="text-xs text-zinc-600">({posts.length})</span>}
         </div>
-        <button
-          onClick={fetchPosts}
-          disabled={loading}
-          className="flex items-center gap-1.5 text-xs text-zinc-600 hover:text-zinc-400 transition-colors disabled:opacity-40"
-        >
-          <RefreshCw className={cn('w-3 h-3', loading && 'animate-spin')} />
-          Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <PostViewToggle view={view} onChange={setView} />
+          <button
+            onClick={fetchPosts}
+            disabled={loading}
+            className="flex items-center gap-1.5 text-xs text-zinc-600 hover:text-zinc-400 transition-colors disabled:opacity-40"
+          >
+            <RefreshCw className={cn('w-3 h-3', loading && 'animate-spin')} />
+            Refresh
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -170,14 +178,12 @@ function LinkedInHistory({ companyId, refreshKey }: LinkedInHistoryProps) {
         </div>
       )}
 
-      {posts.length > 0 && (
+      {posts.length > 0 && view === 'list' && (
         <div className="space-y-2">
           {posts.map(post => {
             const postVoice = voice(post)
             const body = postBodyForPublish(post.content)
-            const preview = body.length > 160
-              ? body.slice(0, 160).trimEnd() + '…'
-              : body
+            const preview = body.length > 160 ? body.slice(0, 160).trimEnd() + '…' : body
             const dateLabel = post.published_at
               ? `Published ${formatDistanceToNow(new Date(post.published_at), { addSuffix: true })}`
               : post.scheduled_for
@@ -189,7 +195,6 @@ function LinkedInHistory({ companyId, refreshKey }: LinkedInHistoryProps) {
                 key={post.id}
                 className="group flex items-start gap-4 px-4 py-3.5 bg-zinc-900 border border-zinc-800 rounded-xl hover:border-zinc-700 transition-colors"
               >
-                {/* Voice indicator */}
                 <div className="shrink-0 pt-0.5">
                   {postVoice === 'personal' ? (
                     <div title="Personal post" className="w-7 h-7 rounded-full bg-blue-900/40 border border-blue-700/40 flex items-center justify-center">
@@ -205,8 +210,6 @@ function LinkedInHistory({ companyId, refreshKey }: LinkedInHistoryProps) {
                     </div>
                   )}
                 </div>
-
-                {/* Content */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1.5 flex-wrap">
                     {postVoice && (
@@ -230,42 +233,53 @@ function LinkedInHistory({ companyId, refreshKey }: LinkedInHistoryProps) {
                   </div>
                   <p className="text-sm text-zinc-400 leading-relaxed line-clamp-2">{preview}</p>
                 </div>
-
-                {/* Actions */}
                 <div className="shrink-0 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button
-                    onClick={() => setEditorPost(post)}
-                    title="Edit post"
-                    className="p-1.5 rounded-lg text-zinc-600 hover:text-zinc-300 hover:bg-zinc-800 transition-colors"
-                  >
+                  <button onClick={() => setEditorPost(post)} title="Edit post" className="p-1.5 rounded-lg text-zinc-600 hover:text-zinc-300 hover:bg-zinc-800 transition-colors">
                     <Pencil className="w-3.5 h-3.5" />
                   </button>
-                  <button
-                    onClick={() => handleCopy(post)}
-                    title="Copy content"
-                    className="p-1.5 rounded-lg text-zinc-600 hover:text-zinc-300 hover:bg-zinc-800 transition-colors"
-                  >
-                    {copiedId === post.id
-                      ? <Check className="w-3.5 h-3.5 text-green-400" />
-                      : <Copy className="w-3.5 h-3.5" />
-                    }
+                  <button onClick={() => handleCopy(post)} title="Copy content" className="p-1.5 rounded-lg text-zinc-600 hover:text-zinc-300 hover:bg-zinc-800 transition-colors">
+                    {copiedId === post.id ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
                   </button>
-                  <button
-                    onClick={() => handleDelete(post.id)}
-                    disabled={deletingId === post.id}
-                    title="Delete post"
-                    className="p-1.5 rounded-lg text-zinc-600 hover:text-red-400 hover:bg-red-900/20 transition-colors disabled:opacity-40"
-                  >
-                    {deletingId === post.id
-                      ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      : <Trash2 className="w-3.5 h-3.5" />
-                    }
+                  <button onClick={() => handleDelete(post.id)} disabled={deletingId === post.id} title="Delete post" className="p-1.5 rounded-lg text-zinc-600 hover:text-red-400 hover:bg-red-900/20 transition-colors disabled:opacity-40">
+                    {deletingId === post.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
                   </button>
                 </div>
               </div>
             )
           })}
         </div>
+      )}
+
+      {posts.length > 0 && view === 'grid' && (
+        <PostGridView
+          posts={posts}
+          copiedId={copiedId}
+          deletingId={deletingId}
+          onEdit={setEditorPost}
+          onCopy={handleCopy}
+          onDelete={handleDelete}
+          renderBadge={post => {
+            const v = voice(post)
+            return v ? (
+              <span className={cn(
+                'text-[10px] font-medium px-1.5 py-0.5 rounded border capitalize',
+                v === 'personal' ? 'text-blue-400 bg-blue-900/20 border-blue-700/30' : 'text-violet-400 bg-violet-900/20 border-violet-700/30'
+              )}>
+                {v === 'personal' ? 'Personal' : 'Company'}
+              </span>
+            ) : null
+          }}
+        />
+      )}
+
+      {posts.length > 0 && view === 'calendar' && (
+        <PostsMiniCalendar
+          posts={posts}
+          onEdit={post => setEditorPost(post)}
+          chipBg="bg-blue-500/15"
+          chipText="text-blue-300"
+          chipIcon={<LinkedInIcon className="w-2.5 h-2.5 shrink-0" />}
+        />
       )}
 
       {editorPost && (

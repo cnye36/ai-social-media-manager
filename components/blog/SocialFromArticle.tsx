@@ -26,10 +26,11 @@ interface Draft {
 interface SocialFromArticleProps {
   articleId: string
   companyId: string
+  defaultOpen?: boolean
 }
 
-export function SocialFromArticle({ articleId, companyId }: SocialFromArticleProps) {
-  const [open, setOpen] = useState(false)
+export function SocialFromArticle({ articleId, companyId, defaultOpen = false }: SocialFromArticleProps) {
+  const [open, setOpen] = useState(defaultOpen)
   const [selectedChannels, setSelectedChannels] = useState<Channel[]>(['linkedin', 'x'])
   const [generating, setGenerating] = useState(false)
   const [drafts, setDrafts] = useState<Draft[]>([])
