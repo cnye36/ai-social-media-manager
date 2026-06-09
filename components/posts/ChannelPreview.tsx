@@ -129,10 +129,12 @@ export function XThreadPreview({
   tweets,
   displayName = 'Company',
   handle = 'company',
+  activeTweetIndex,
 }: {
   tweets: XThreadPreviewTweet[]
   displayName?: string
   handle?: string
+  activeTweetIndex?: number
 }) {
   if (tweets.length === 0) {
     return (
@@ -154,7 +156,13 @@ export function XThreadPreview({
           )}
           <div className="space-y-4">
             {tweets.map((tweet, i) => (
-              <div key={i} className="flex gap-2.5 relative">
+              <div
+                key={i}
+                className={cn(
+                  'flex gap-2.5 relative rounded-lg px-1.5 py-1 -mx-1.5 transition-colors',
+                  activeTweetIndex === i && 'bg-violet-500/8 ring-1 ring-violet-500/25',
+                )}
+              >
                 <div className="w-10 shrink-0">
                   {i === 0 ? <XAvatar label={displayName} /> : <div className="h-1" />}
                 </div>

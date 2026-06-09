@@ -2,18 +2,29 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { format } from 'date-fns'
-import { Bold, Italic, List, Copy, Check, Trash2, CalendarClock, Image as ImageIcon, CheckCircle2 } from 'lucide-react'
+import {
+  Bold, Italic, List, Copy, Check, Trash2, CalendarClock,
+  Image as ImageIcon, CheckCircle2, ChevronDown, ChevronUp,
+  X as XIcon,
+} from 'lucide-react'
 import { SendToBufferButton } from '@/components/posts/SendToBufferButton'
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { AltTextBox } from '@/components/media/AltTextBox'
 import { MediaPanel } from '@/components/generate/MediaPanel'
-import { mediaItemFromResult } from '@/types/media'
-import { ChannelPreview } from '@/components/posts/ChannelPreview'
+import { mediaItemFromResult, type MediaResult } from '@/types/media'
+import { ChannelPreview, XThreadPreview } from '@/components/posts/ChannelPreview'
 import { cn } from '@/lib/utils'
-import type { Post, Channel, PostStatus } from '@/types/database'
+import type { Post, Channel, PostStatus, MediaItem } from '@/types/database'
+import type { ThreadTweet } from '@/types/agents'
 import { postBodyForPublish } from '@/lib/generate/image-prompt'
+import {
+  isXThreadPost,
+  parseThreadTweets,
+  threadMediaToPostItems,
+  X_THREAD_CONTENT_SEPARATOR,
+} from '@/lib/posts/x-format'
 import {
   buildStatusDatetimePayload,
   datetimeFieldLabel,
@@ -25,16 +36,15 @@ import {
 } from '@/lib/content-status'
 
 const SOCIAL_CHANNELS: Channel[] = ['linkedin', 'x', 'facebook']
-
-// ─── Formatting ribbon ───────────────────────────────────────────────────────
+const STATUSES: PostStatus[] = ['draft', 'scheduled', 'published', 'archived']
 
 function FormattingRibbon({ onFormat }: { onFormat: (type: 'bold' | 'italic' | 'bullet') => void }) {
   return (
     <div className="flex items-center gap-0.5 border border-zinc-800 rounded-lg p-1 w-fit">
       {([
-        { type: 'bold' as const, icon: <Bold className="w-3.5 h-3.5" />, title: 'Bold (**text**)' },
-        { type: 'italic' as const, icon: <Italic className="w-3.5 h-3.5" />, title: 'Italic (_text_)' },
-        { type: 'bullet' as const, icon: <List className="w-3.5 h-3.5" />, title: 'Bullet point' },
+        { type: 'bold' as const, icon: <Bold className="w-3.5 h-3.5" />, title: 'Bold' },
+        { type: 'italic' as const, icon: <Italic className="w-3.5 h-3.5" />, title: 'Italic' },
+        { type: 'bullet' as const, icon: <List className="w-3.5 h-3.5" />, title: 'Bullet' },
       ]).map(({ type, icon, title }) => (
         <button
           key={type}
@@ -50,10 +60,6 @@ function FormattingRibbon({ onFormat }: { onFormat: (type: 'bold' | 'italic' | '
   )
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-// ─── Modal ───────────────────────────────────────────────────────────────────
-
 interface PostEditorModalProps {
   post: Post | null
   open: boolean
@@ -64,13 +70,10 @@ interface PostEditorModalProps {
   brandColors?: { primary?: string; accent?: string }
 }
 
-type ModalTab = 'post' | 'media'
-const STATUSES: PostStatus[] = ['draft', 'scheduled', 'published', 'archived']
-
 export function PostEditorModal({
   post, open, onOpenChange, onUpdate, onDelete, companyId, brandColors,
 }: PostEditorModalProps) {
-  const [tab, setTab] = useState<ModalTab>('post')
+  // ─── Single-post state ─────────────────────────────────────────────────────
   const [content, setContent] = useState('')
   const [status, setStatus] = useState<PostStatus>('draft')
   const [scheduledFor, setScheduledFor] = useState('')
@@ -83,7 +86,18 @@ export function PostEditorModal({
   const [approveState, setApproveState] = useState<'idle' | 'sending' | 'done' | 'error'>('idle')
   const [approveError, setApproveError] = useState('')
   const [bufferPostId, setBufferPostId] = useState<string | null>(null)
+  const [showMedia, setShowMedia] = useState(false)
+
+  // ─── Thread state ──────────────────────────────────────────────────────────
+  const [rawParsedThread, setRawParsedThread] = useState<ThreadTweet[]>([])
+  const [threadTweets, setThreadTweets] = useState<string[]>([])
+  const [tweetMedia, setTweetMedia] = useState<Record<number, MediaItem>>({})
+  const [focusedTweetIdx, setFocusedTweetIdx] = useState(0)
+
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const threadTextareaRefs = useRef<(HTMLTextAreaElement | null)[]>([])
+
+  const isThread = post ? isXThreadPost(post) : false
 
   useEffect(() => {
     if (post && open) {
@@ -101,11 +115,21 @@ export function PostEditorModal({
       setApproveState('idle')
       setApproveError('')
       setBufferPostId(post.buffer_post_id)
-      setTab('post')
+      setShowMedia(false)
+
+      if (isXThreadPost(post)) {
+        const parsed = parseThreadTweets(post)
+        setRawParsedThread(parsed)
+        setThreadTweets(parsed.map(t => t.text))
+        const mediaMap: Record<number, MediaItem> = {}
+        parsed.forEach((t, i) => { if (t.media?.url) mediaMap[i] = t.media })
+        setTweetMedia(mediaMap)
+        setFocusedTweetIdx(0)
+      }
     }
   }, [post?.id, open])
 
-  function applyFormatting(type: 'bold' | 'italic' | 'bullet') {
+  function applyFormattingToSingle(type: 'bold' | 'italic' | 'bullet') {
     const ta = textareaRef.current
     if (!ta) return
     const start = ta.selectionStart
@@ -139,19 +163,72 @@ export function PostEditorModal({
     requestAnimationFrame(() => { ta.focus(); ta.setSelectionRange(newStart, newEnd) })
   }
 
+  function applyFormattingToThread(type: 'bold' | 'italic' | 'bullet') {
+    const ta = threadTextareaRefs.current[focusedTweetIdx]
+    if (!ta) return
+    const start = ta.selectionStart
+    const end = ta.selectionEnd
+    const val = threadTweets[focusedTweetIdx]
+    const before = val.slice(0, start)
+    const selected = val.slice(start, end)
+    const after = val.slice(end)
+    let next = val
+    let ns = start
+    let ne = end
+
+    if (type === 'bold') {
+      next = `${before}**${selected}**${after}`; ns = start + 2; ne = end + 2
+    } else if (type === 'italic') {
+      next = `${before}_${selected}_${after}`; ns = start + 1; ne = end + 1
+    } else {
+      if (selected) {
+        const bulleted = selected.split('\n').map(l => l.startsWith('• ') ? l : `• ${l}`).join('\n')
+        next = `${before}${bulleted}${after}`; ne = start + bulleted.length
+      } else {
+        const ls = before.lastIndexOf('\n') + 1
+        next = `${val.slice(0, ls)}• ${val.slice(ls)}`; ns = start + 2; ne = end + 2
+      }
+    }
+    setThreadTweets(prev => { const a = [...prev]; a[focusedTweetIdx] = next; return a })
+    requestAnimationFrame(() => { ta.focus(); ta.setSelectionRange(ns, ne) })
+  }
+
+  function buildUpdatedThread(): ThreadTweet[] {
+    return rawParsedThread.map((t, i) => {
+      const { media: _omit, ...base } = t
+      const updated = { ...base, text: threadTweets[i] ?? t.text }
+      const media = tweetMedia[i]
+      return media ? { ...updated, media } : updated
+    })
+  }
+
   async function handleSave() {
     if (!post) return
     setSaving(true); setSaveError('')
-    const mediaItems = pendingMediaItems ?? post.media_items
-    const statusPayload = buildStatusDatetimePayload(status, scheduledFor)
+
+    let bodyPayload: Record<string, unknown>
+
+    if (isThread) {
+      const updatedThread = buildUpdatedThread()
+      bodyPayload = {
+        content: threadTweets.join(X_THREAD_CONTENT_SEPARATOR),
+        content_variants: { thread: updatedThread },
+        media_items: threadMediaToPostItems(updatedThread),
+        ...buildStatusDatetimePayload(status, scheduledFor),
+      }
+    } else {
+      const mediaItems = pendingMediaItems ?? post.media_items
+      bodyPayload = {
+        content: postBodyForPublish(content),
+        ...buildStatusDatetimePayload(status, scheduledFor),
+        media_items: mediaItems,
+      }
+    }
+
     const res = await fetch(`/api/posts/${post.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        content: postBodyForPublish(content),
-        ...statusPayload,
-        media_items: mediaItems,
-      }),
+      body: JSON.stringify(bodyPayload),
     })
     if (res.ok) {
       const updated = await res.json() as Post
@@ -176,7 +253,8 @@ export function PostEditorModal({
   }
 
   async function handleCopy() {
-    await navigator.clipboard.writeText(content)
+    const text = isThread ? threadTweets.join('\n\n---\n\n') : content
+    await navigator.clipboard.writeText(text)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
@@ -185,8 +263,7 @@ export function PostEditorModal({
     if (!post) return
     setApproveState('sending')
     setApproveError('')
-    // Save any pending content changes first
-    if (content !== post.content) await handleSave()
+    if (!isThread && content !== post.content) await handleSave()
     const res = await fetch(`/api/posts/${post.id}/approve`, { method: 'POST' })
     if (res.ok) {
       const updated = await res.json() as Post
@@ -202,28 +279,115 @@ export function PostEditorModal({
     }
   }
 
+  async function handleMediaAccept(result: MediaResult) {
+    if (!post) return
+    const item = mediaItemFromResult(result)
+
+    if (isThread) {
+      setTweetMedia(prev => ({ ...prev, [focusedTweetIdx]: item }))
+      const updatedThread = rawParsedThread.map((t, i) => {
+        const { media: _omit, ...base } = t
+        const updated = { ...base, text: threadTweets[i] ?? t.text }
+        if (i === focusedTweetIdx) return { ...updated, media: item }
+        const existing = tweetMedia[i]
+        return existing ? { ...updated, media: existing } : updated
+      })
+      const res = await fetch(`/api/posts/${post.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content_variants: { thread: updatedThread },
+          media_items: threadMediaToPostItems(updatedThread),
+        }),
+      })
+      if (res.ok) onUpdate?.(await res.json() as Post)
+    } else {
+      const newItems: Post['media_items'] = [item]
+      setPendingMediaUrl(result.url)
+      setPendingMediaItems(newItems)
+      const res = await fetch(`/api/posts/${post.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ media_items: newItems }),
+      })
+      if (res.ok) {
+        onUpdate?.(await res.json() as Post)
+      } else {
+        setSaveError('Media saved locally but failed to persist — save the post to keep it')
+      }
+    }
+  }
+
+  async function removeTweetMedia(index: number) {
+    if (!post) return
+    setTweetMedia(prev => {
+      const next = { ...prev }
+      delete next[index]
+      return next
+    })
+    // Persist removal: rebuild thread without this tweet's media
+    const updatedThread = rawParsedThread.map((t, i) => {
+      const { media: _omit, ...base } = t
+      const updated = { ...base, text: threadTweets[i] ?? t.text }
+      if (i === index) return updated
+      const existing = tweetMedia[i]
+      return existing ? { ...updated, media: existing } : updated
+    })
+    const res = await fetch(`/api/posts/${post.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        content_variants: { thread: updatedThread },
+        media_items: threadMediaToPostItems(updatedThread),
+      }),
+    })
+    if (res.ok) onUpdate?.(await res.json() as Post)
+  }
+
   if (!post) return null
 
   const channel = post.channel as Channel
   const activeMediaItems = pendingMediaItems ?? post.media_items
-  const existingMediaUrl = activeMediaItems?.[0]?.url
-  const previewMediaUrl = pendingMediaUrl ?? existingMediaUrl
+  const previewMediaUrl = pendingMediaUrl ?? activeMediaItems?.[0]?.url
   const previewMediaAlt = activeMediaItems?.[0]?.alt_text
-  const hasMedia = !!activeMediaItems.length
+  const hasMedia = isThread
+    ? Object.keys(tweetMedia).length > 0
+    : !!activeMediaItems.length
+
+  const tweetLabel = (i: number) =>
+    i === 0 ? 'Hook' : i === threadTweets.length - 1 ? 'Close' : `Tweet ${i + 1}`
+
+  const previewTweets = threadTweets.map((text, i) => ({
+    text,
+    mediaUrl: tweetMedia[i]?.url,
+    mediaAlt: tweetMedia[i]?.alt_text ?? undefined,
+  }))
+
+  const mediaSuggestedPrompt = isThread
+    ? (rawParsedThread[focusedTweetIdx]?.imagePrompt ?? undefined)
+    : (typeof post.generation_params?.imagePrompt === 'string'
+        ? post.generation_params.imagePrompt
+        : undefined)
+
+  const mediaPostContent = isThread ? (threadTweets[focusedTweetIdx] ?? '') : content
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl p-0 overflow-hidden flex flex-col max-h-[90vh]">
+      <DialogContent className="max-w-5xl p-0 overflow-hidden flex flex-col h-[88vh]">
         <DialogTitle className="sr-only">Edit {channel} post</DialogTitle>
         <DialogDescription className="sr-only">
           Edit post content, preview, and media before publishing.
         </DialogDescription>
+
         {/* Header */}
-        <div className="flex items-center gap-3 px-5 py-4 border-b border-zinc-800 flex-shrink-0 pr-12">
+        <div className="flex items-center gap-3 px-5 py-3.5 border-b border-zinc-800 flex-shrink-0 pr-12">
           <Badge variant={channel}>{channel}</Badge>
           <span className="text-xs text-zinc-500">
             {format(new Date(post.created_at), 'MMM d, yyyy')}
           </span>
+          {isThread && (
+            <span className="text-xs text-zinc-500">· {threadTweets.length} tweets</span>
+          )}
           {post.scheduled_for && (
             <span className="text-xs text-yellow-500 flex items-center gap-1">
               <CalendarClock className="w-3 h-3" />
@@ -232,32 +396,13 @@ export function PostEditorModal({
           )}
         </div>
 
-        {/* Tab bar */}
-        <div className="flex border-b border-zinc-800 flex-shrink-0 px-5">
-          {(['post', 'media'] as ModalTab[]).map(t => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={cn(
-                'py-2.5 px-1 mr-6 text-sm font-medium border-b-2 -mb-px transition-colors capitalize flex items-center gap-1.5',
-                tab === t ? 'border-violet-500 text-white' : 'border-transparent text-zinc-500 hover:text-zinc-300'
-              )}
-            >
-              {t === 'media' ? (
-                <>
-                  <ImageIcon className="w-3.5 h-3.5" />
-                  Media
-                  {hasMedia && <span className="w-1.5 h-1.5 rounded-full bg-violet-400 flex-shrink-0" />}
-                </>
-              ) : 'Post'}
-            </button>
-          ))}
-        </div>
+        {/* Main body — split layout */}
+        <div className="flex flex-1 overflow-hidden min-h-0">
 
-        {/* Body */}
-        <div className="flex-1 overflow-y-auto">
-          {tab === 'post' ? (
+          {/* ── Left: Editor ──────────────────────────────────────────── */}
+          <div className="w-1/2 flex flex-col border-r border-zinc-800 overflow-y-auto">
             <div className="p-5 space-y-4">
+
               {/* Status & scheduling */}
               <div className="space-y-3 pb-4 border-b border-zinc-800">
                 <div className="space-y-2">
@@ -327,65 +472,153 @@ export function PostEditorModal({
                 )}
               </div>
 
-              {/* Live preview */}
-              <div>
-                <p className="text-[10px] text-zinc-600 uppercase tracking-widest mb-2">Preview</p>
-                <ChannelPreview channel={channel} content={content} mediaUrl={previewMediaUrl} mediaAlt={previewMediaAlt} />
-              </div>
-
-              {previewMediaAlt && (
-                <AltTextBox value={previewMediaAlt} label="Image alt text" />
-              )}
-
-              {/* Editor */}
-              <div className="space-y-2">
-                <FormattingRibbon onFormat={applyFormatting} />
-                <textarea
-                  ref={textareaRef}
-                  value={content}
-                  onChange={e => setContent(e.target.value)}
-                  rows={10}
-                  className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2.5 text-sm text-white leading-relaxed resize-none focus:outline-none focus:ring-1 focus:ring-violet-500/60"
-                />
-                {channel === 'x' && (
-                  <p className={cn('text-xs text-right', content.length > 280 ? 'text-red-400' : 'text-zinc-600')}>
-                    {content.length}/280
+              {/* Content editor */}
+              {isThread ? (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] text-zinc-600 uppercase tracking-widest">Thread Tweets</p>
+                    <FormattingRibbon onFormat={applyFormattingToThread} />
+                  </div>
+                  <p className="text-[10px] text-zinc-600">
+                    Click a tweet to select it, then use the media panel below to add an image.
                   </p>
-                )}
-              </div>
-
+                  <div className="space-y-2">
+                    {threadTweets.map((text, i) => {
+                      const attached = tweetMedia[i]
+                      const imageHint = rawParsedThread[i]?.imagePrompt
+                      const over = text.length > 280
+                      const isFocused = focusedTweetIdx === i
+                      return (
+                        <div
+                          key={i}
+                          className={cn(
+                            'rounded-lg border p-3 space-y-2 transition-all cursor-pointer',
+                            isFocused
+                              ? 'border-violet-500/60 bg-zinc-800/40'
+                              : 'border-zinc-800 bg-zinc-800/10 hover:border-zinc-700',
+                          )}
+                          onClick={() => setFocusedTweetIdx(i)}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wide">
+                              {tweetLabel(i)}
+                              {attached && (
+                                <span className="ml-2 normal-case text-violet-400/80 font-normal">· image</span>
+                              )}
+                            </span>
+                            <div className="flex items-center gap-2">
+                              {isFocused && (
+                                <span className="text-[10px] text-violet-400 font-medium">selected</span>
+                              )}
+                              <span className={cn('text-[11px] tabular-nums', over ? 'text-red-400 font-medium' : 'text-zinc-600')}>
+                                {text.length}/280
+                              </span>
+                            </div>
+                          </div>
+                          <textarea
+                            ref={el => { threadTextareaRefs.current[i] = el }}
+                            value={text}
+                            onChange={e => setThreadTweets(prev => { const a = [...prev]; a[i] = e.target.value; return a })}
+                            onFocus={() => setFocusedTweetIdx(i)}
+                            onClick={e => e.stopPropagation()}
+                            rows={3}
+                            className="w-full bg-transparent text-sm text-zinc-200 leading-relaxed resize-none focus:outline-none placeholder:text-zinc-600"
+                          />
+                          {attached && (
+                            <div className="rounded overflow-hidden border border-zinc-700 flex items-center gap-2 px-2 py-1.5 bg-zinc-800/60">
+                              <ImageIcon className="w-3 h-3 text-violet-400 shrink-0" />
+                              <span className="text-[10px] text-zinc-400 flex-1 truncate">{attached.alt_text || 'Image attached'}</span>
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={attached.url} alt="" className="w-8 h-8 object-cover rounded shrink-0" />
+                              <button
+                                type="button"
+                                onClick={e => { e.stopPropagation(); void removeTweetMedia(i) }}
+                                className="p-0.5 text-zinc-600 hover:text-red-400 transition-colors shrink-0"
+                                title="Remove image"
+                              >
+                                <XIcon className="w-3 h-3" />
+                              </button>
+                            </div>
+                          )}
+                          {imageHint && !attached && (
+                            <div className="flex items-start gap-1.5 text-[11px] text-amber-400/80 bg-amber-500/5 border border-amber-500/20 rounded px-2 py-1.5">
+                              <ImageIcon className="w-3 h-3 mt-0.5 shrink-0 text-amber-400" />
+                              <span className="leading-relaxed">{imageHint}</span>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <FormattingRibbon onFormat={applyFormattingToSingle} />
+                  <textarea
+                    ref={textareaRef}
+                    value={content}
+                    onChange={e => setContent(e.target.value)}
+                    rows={12}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2.5 text-sm text-white leading-relaxed resize-none focus:outline-none focus:ring-1 focus:ring-violet-500/60"
+                  />
+                  {channel === 'x' && (
+                    <p className={cn('text-xs text-right', content.length > 280 ? 'text-red-400' : 'text-zinc-600')}>
+                      {content.length}/280
+                    </p>
+                  )}
+                  {previewMediaAlt && <AltTextBox value={previewMediaAlt} label="Image alt text" />}
+                </div>
+              )}
             </div>
-          ) : (
+          </div>
+
+          {/* ── Right: Preview ────────────────────────────────────────── */}
+          <div className="w-1/2 flex flex-col overflow-y-auto">
             <div className="p-5">
+              <p className="text-[10px] text-zinc-600 uppercase tracking-widest mb-3">Preview</p>
+              {isThread ? (
+                <XThreadPreview
+                  tweets={previewTweets}
+                  activeTweetIndex={focusedTweetIdx}
+                />
+              ) : (
+                <ChannelPreview
+                  channel={channel}
+                  content={content}
+                  mediaUrl={previewMediaUrl}
+                  mediaAlt={previewMediaAlt}
+                />
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* ── Media section ─────────────────────────────────────────────── */}
+        <div className="border-t border-zinc-800 flex-shrink-0">
+          <button
+            type="button"
+            onClick={() => setShowMedia(!showMedia)}
+            className="w-full flex items-center justify-between px-5 py-3 text-sm text-zinc-400 hover:text-white transition-colors"
+          >
+            <span className="flex items-center gap-2">
+              <ImageIcon className="w-4 h-4" />
+              {isThread
+                ? `Add image to ${tweetLabel(focusedTweetIdx)}`
+                : 'Media'}
+              {hasMedia && <span className="w-1.5 h-1.5 rounded-full bg-violet-400 shrink-0" />}
+            </span>
+            {showMedia ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </button>
+          {showMedia && (
+            <div className="px-5 pb-5 max-h-[360px] overflow-y-auto border-t border-zinc-800/60">
               <MediaPanel
-                postContent={content}
+                postContent={mediaPostContent}
                 companyId={companyId}
                 channel={channel}
                 postId={post.id}
                 brandColors={brandColors}
-                suggestedPrompt={
-                  typeof post.generation_params?.imagePrompt === 'string'
-                    ? post.generation_params.imagePrompt
-                    : undefined
-                }
-                onAccept={async r => {
-                  const newItems: Post['media_items'] = [mediaItemFromResult(r)]
-                  setPendingMediaUrl(r.url)
-                  setPendingMediaItems(newItems)
-                  // Switch to Post tab immediately so the user sees the media attached
-                  setTab('post')
-                  const res = await fetch(`/api/posts/${post.id}`, {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ media_items: newItems }),
-                  })
-                  if (res.ok) {
-                    const updated = await res.json() as Post
-                    onUpdate?.(updated)
-                  } else {
-                    setSaveError('Media saved locally but failed to persist — save the post to keep it')
-                  }
-                }}
+                suggestedPrompt={mediaSuggestedPrompt}
+                onAccept={handleMediaAccept}
               />
             </div>
           )}
