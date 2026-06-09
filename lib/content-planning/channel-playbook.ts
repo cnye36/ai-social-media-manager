@@ -172,8 +172,11 @@ export function assignSlotTimes(
         : pb.bestHoursUtc
 
     const hour = hours[dayIndex % hours.length] ?? pb.bestHoursUtc[0]
+    // Randomize within the hour window: up to +55 min so any slot in a 2-hour
+    // best-time window (e.g. 9–11) lands somewhere natural rather than on the hour.
+    const jitterMinutes = Math.floor(Math.random() * 56) // 0–55 inclusive
     const scheduledFor = new Date(`${date}T00:00:00.000Z`)
-    scheduledFor.setUTCHours(hour, 0, 0, 0)
+    scheduledFor.setUTCHours(hour, jitterMinutes, 0, 0)
 
     return { slot, scheduledFor }
   })

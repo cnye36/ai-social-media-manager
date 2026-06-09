@@ -4,11 +4,12 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { format, parseISO } from 'date-fns'
 import {
-  ArrowLeft, CalendarClock, Loader2, PenLine, Sparkles, CheckCircle2, Eye,
+  ArrowLeft, CalendarClock, Loader2, PenLine, Sparkles, CheckCircle2, Eye, X as DismissIcon,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { PostEditorModal } from '@/components/posts/PostEditorModal'
+import { SendToBufferButton } from '@/components/posts/SendToBufferButton'
 import { LinkedInIcon, XIcon, RedditIcon, FacebookIcon } from '@/components/ui/channel-icons'
 import { cn } from '@/lib/utils'
 import { CHANNEL_PLAYBOOKS, isThreadSlot } from '@/lib/content-planning/channel-playbook'
@@ -172,6 +173,20 @@ export function PlanDetailClient({ companyId, initialPlan }: PlanDetailClientPro
     }
   }
 
+  async function skipSlot(slotId: string) {
+    const res = await fetch(`/api/content-plans/slots/${slotId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'skipped' }),
+    })
+    if (res.ok) {
+      setPlan(prev => ({
+        ...prev,
+        slots: prev.slots.map(s => s.id === slotId ? { ...s, status: 'skipped' as const } : s),
+      }))
+    }
+  }
+
   const pillars = plan.content_pillars ?? []
   const insights = Object.values(plan.posting_insights ?? {})
 
@@ -326,6 +341,8 @@ export function PlanDetailClient({ companyId, initialPlan }: PlanDetailClientPro
                   approving={approving === slot.id}
                   onEdit={() => post && openEditor(post)}
                   onApprove={() => approveSlot(slot)}
+                  onSkip={() => skipSlot(slot.id)}
+                  onPostUpdate={handlePostUpdate}
                 />
               )
             })}
@@ -349,6 +366,7 @@ export function PlanDetailClient({ companyId, initialPlan }: PlanDetailClientPro
                 slot={slot}
                 selected={selected.has(slot.id)}
                 onToggle={() => toggleSlot(slot.id)}
+                onSkip={() => skipSlot(slot.id)}
               />
             ))}
           </div>
@@ -366,6 +384,7 @@ export function PlanDetailClient({ companyId, initialPlan }: PlanDetailClientPro
               slot={slot}
               selected={selected.has(slot.id)}
               onToggle={() => toggleSlot(slot.id)}
+              onSkip={() => skipSlot(slot.id)}
             />
           ))}
         </div>
@@ -384,21 +403,28 @@ export function PlanDetailClient({ companyId, initialPlan }: PlanDetailClientPro
 
 // ─── Written slot row (for review/approval) ──────────────────────────────────
 
+const BUFFER_CHANNELS = new Set<Channel>(['linkedin', 'x', 'facebook'])
+
 function WrittenSlotRow({
   slot,
   post,
   approving,
   onEdit,
   onApprove,
+  onSkip,
+  onPostUpdate,
 }: {
   slot: ContentPlanSlot
   post?: Post
   approving: boolean
   onEdit: () => void
   onApprove: () => void
+  onSkip: () => void
+  onPostUpdate?: (post: Post) => void
 }) {
   const isScheduled = post?.status === 'scheduled'
   const contentPreview = post?.content ? postBodyForPublish(post.content) : undefined
+  const showBuffer = post && BUFFER_CHANNELS.has(slot.channel)
 
   return (
     <div className={cn(
@@ -434,7 +460,7 @@ function WrittenSlotRow({
         <p className="text-xs text-zinc-700 italic mb-3">Loading draft…</p>
       )}
 
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Button
           variant="secondary"
           size="sm"
@@ -459,6 +485,30 @@ function WrittenSlotRow({
             Approve &amp; schedule
           </Button>
         )}
+        {showBuffer && (
+          <SendToBufferButton
+            postId={post.id}
+            channel={slot.channel}
+            scheduledFor={post.scheduled_for ?? slot.scheduled_for}
+            bufferPostId={post.buffer_post_id ?? null}
+            onSuccess={update => {
+              onPostUpdate?.({
+                ...post,
+                buffer_post_id: update.buffer_post_id ?? null,
+                scheduled_for: update.scheduled_for ?? post.scheduled_for,
+              })
+            }}
+          />
+        )}
+        <button
+          type="button"
+          onClick={onSkip}
+          title="Dismiss this slot"
+          className="ml-auto flex items-center gap-1 text-xs text-zinc-600 hover:text-red-400 transition-colors"
+        >
+          <DismissIcon className="w-3.5 h-3.5" />
+          Dismiss
+        </button>
       </div>
     </div>
   )
@@ -470,10 +520,12 @@ function PlannedSlotRow({
   slot,
   selected,
   onToggle,
+  onSkip,
 }: {
   slot: ContentPlanSlot
   selected: boolean
   onToggle: () => void
+  onSkip: () => void
 }) {
   return (
     <div
@@ -517,6 +569,15 @@ function PlannedSlotRow({
         </p>
         {slot.notes && <p className="text-xs text-zinc-500 mt-1">{slot.notes}</p>}
       </div>
+
+      <button
+        type="button"
+        onClick={onSkip}
+        title="Dismiss this slot"
+        className="flex items-center gap-1 text-xs text-zinc-700 hover:text-red-400 transition-colors shrink-0 mt-0.5"
+      >
+        <DismissIcon className="w-3.5 h-3.5" />
+      </button>
     </div>
   )
 }
