@@ -41,14 +41,14 @@ export function Sidebar({ companies, currentCompanyId }: SidebarProps) {
   }
 
   return (
-    <aside className="flex flex-col w-60 min-h-screen bg-zinc-900 border-r border-zinc-800 px-3 py-4">
+    <aside className="sticky top-0 flex h-screen w-60 shrink-0 flex-col bg-zinc-900 border-r border-zinc-800 px-3 py-4">
       <div className="mb-6 px-2">
         <span className="text-lg font-bold text-white tracking-tight">SocialAI</span>
       </div>
 
       <CompanySwitcher companies={companies} currentCompanyId={currentCompanyId} />
 
-      <nav className="flex-1 mt-6 space-y-0.5">
+      <nav className="flex-1 mt-6 space-y-0.5 overflow-y-auto">
         {navItems.map(({ label, icon: Icon, href }) => {
           const fullHref = `/${currentCompanyId}${href}`
           const isActive = href === ''

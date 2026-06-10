@@ -169,7 +169,25 @@ LINKEDIN-SPECIFIC: Never exceed 3 slots in any 7-day window. Never 2 LinkedIn po
     endDate,
   )
 
-  const timedSlots = assignSlotTimes(normalizedSlots, postingInsights)
+  // Fetch already-scheduled posts in this date range so assignSlotTimes can avoid conflicts
+  const { data: existingInRange } = await supabase
+    .from('posts')
+    .select('channel, scheduled_for')
+    .eq('company_id', companyId)
+    .in('status', ['scheduled'])
+    .gte('scheduled_for', `${startDate}T00:00:00.000Z`)
+    .lte('scheduled_for', `${endDate}T23:59:59.999Z`)
+
+  const existingScheduled: Partial<Record<string, Date[]>> = {}
+  for (const p of existingInRange ?? []) {
+    if (!p.scheduled_for) continue
+    const ch = p.channel as string
+    const list = existingScheduled[ch] ?? []
+    list.push(new Date(p.scheduled_for))
+    existingScheduled[ch] = list
+  }
+
+  const timedSlots = assignSlotTimes(normalizedSlots, postingInsights, existingScheduled)
 
   const slotsToInsert = timedSlots.map(({ slot, scheduledFor }, index) => ({
     plan_id: planRow.id,

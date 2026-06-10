@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { format, parseISO } from 'date-fns'
 import {
-  ArrowLeft, CalendarClock, Loader2, PenLine, Sparkles, CheckCircle2, Eye, X as DismissIcon,
+  ArrowLeft, CalendarClock, Loader2, PenLine, Sparkles, CheckCircle2, Eye, X as DismissIcon, Trash2, RefreshCw,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -187,6 +187,36 @@ export function PlanDetailClient({ companyId, initialPlan }: PlanDetailClientPro
     }
   }
 
+  async function deleteSlotPost(slot: ContentPlanSlot) {
+    if (!slot.post_id) return
+    if (!confirm('Delete this draft? The slot will be reset so you can re-write it.')) return
+
+    const [deleteRes, slotRes] = await Promise.all([
+      fetch(`/api/posts/${slot.post_id}`, { method: 'DELETE' }),
+      fetch(`/api/content-plans/slots/${slot.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'planned', post_id: null }),
+      }),
+    ])
+
+    if (deleteRes.ok) {
+      setPosts(prev => {
+        const next = { ...prev }
+        if (slot.post_id) delete next[slot.post_id]
+        return next
+      })
+      if (slotRes.ok) {
+        setPlan(prev => ({
+          ...prev,
+          slots: prev.slots.map(s =>
+            s.id === slot.id ? { ...s, status: 'planned' as const, post_id: null } : s,
+          ),
+        }))
+      }
+    }
+  }
+
   const pillars = plan.content_pillars ?? []
   const insights = Object.values(plan.posting_insights ?? {})
 
@@ -342,6 +372,7 @@ export function PlanDetailClient({ companyId, initialPlan }: PlanDetailClientPro
                   onEdit={() => post && openEditor(post)}
                   onApprove={() => approveSlot(slot)}
                   onSkip={() => skipSlot(slot.id)}
+                  onDelete={() => deleteSlotPost(slot)}
                   onPostUpdate={handlePostUpdate}
                 />
               )
@@ -412,6 +443,7 @@ function WrittenSlotRow({
   onEdit,
   onApprove,
   onSkip,
+  onDelete,
   onPostUpdate,
 }: {
   slot: ContentPlanSlot
@@ -420,34 +452,60 @@ function WrittenSlotRow({
   onEdit: () => void
   onApprove: () => void
   onSkip: () => void
+  onDelete: () => void
   onPostUpdate?: (post: Post) => void
 }) {
   const isScheduled = post?.status === 'scheduled'
   const contentPreview = post?.content ? postBodyForPublish(post.content) : undefined
   const showBuffer = post && BUFFER_CHANNELS.has(slot.channel)
+  const scheduledTime = post?.scheduled_for ?? slot.scheduled_for
 
   return (
     <div className={cn(
       'rounded-xl border p-4 transition-colors',
       isScheduled ? 'border-green-500/30 bg-green-950/10' : 'border-zinc-800 bg-zinc-900/20',
     )}>
-      <div className="flex flex-wrap items-center gap-2 mb-2">
-        <span className="flex items-center gap-1 text-xs px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300">
-          {CHANNEL_ICON[slot.channel]}
-          {slot.channel}
-        </span>
-        <span className="text-xs text-zinc-500">
-          {format(parseISO(slot.scheduled_for), 'EEE MMM d · h:mm a')}
-        </span>
-        {isScheduled ? (
-          <span className="flex items-center gap-1 text-xs text-green-400 font-medium">
-            <CheckCircle2 className="w-3.5 h-3.5" />
-            Scheduled
+      <div className="flex items-start justify-between gap-2 mb-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="flex items-center gap-1 text-xs px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300">
+            {CHANNEL_ICON[slot.channel]}
+            {slot.channel}
           </span>
-        ) : (
-          <Badge variant="default" className="text-[10px]">Draft ready</Badge>
-        )}
-        {slot.pillar && <span className="text-[10px] text-zinc-600">{slot.pillar}</span>}
+          {isScheduled ? (
+            <span className="flex items-center gap-1 text-xs text-green-400 font-medium">
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              Scheduled
+            </span>
+          ) : (
+            <Badge variant="default" className="text-[10px]">Draft ready</Badge>
+          )}
+          {slot.pillar && <span className="text-[10px] text-zinc-600">{slot.pillar}</span>}
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          <button
+            type="button"
+            onClick={onSkip}
+            title="Dismiss slot"
+            className="flex items-center gap-1 text-xs text-zinc-600 hover:text-zinc-400 transition-colors p-1"
+          >
+            <DismissIcon className="w-3.5 h-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={onDelete}
+            title="Delete draft"
+            className="flex items-center gap-1 text-xs text-zinc-600 hover:text-red-400 transition-colors p-1"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-1.5 mb-1.5">
+        <CalendarClock className="w-3.5 h-3.5 text-violet-400 shrink-0" />
+        <span className="text-xs font-medium text-zinc-300">
+          Scheduled for: {format(parseISO(scheduledTime), 'EEE, MMM d yyyy · h:mm a')}
+        </span>
       </div>
 
       <p className="text-sm font-medium text-white mb-1">{slot.topic}</p>
@@ -500,16 +558,108 @@ function WrittenSlotRow({
             }}
           />
         )}
-        <button
-          type="button"
-          onClick={onSkip}
-          title="Dismiss this slot"
-          className="ml-auto flex items-center gap-1 text-xs text-zinc-600 hover:text-red-400 transition-colors"
-        >
-          <DismissIcon className="w-3.5 h-3.5" />
-          Dismiss
-        </button>
+        {post && (
+          <RemixButton postId={post.id} channel={slot.channel} companyId={post.company_id} />
+        )}
       </div>
+    </div>
+  )
+}
+
+// ─── Remix button ─────────────────────────────────────────────────────────────
+
+const ALL_CHANNELS: Channel[] = ['linkedin', 'x', 'facebook', 'reddit']
+const CHANNEL_LABELS: Record<Channel, string> = {
+  linkedin: 'LinkedIn',
+  x: 'X (Twitter)',
+  facebook: 'Facebook',
+  reddit: 'Reddit',
+}
+
+function RemixButton({
+  postId,
+  channel,
+  companyId,
+}: {
+  postId: string
+  channel: Channel
+  companyId: string
+}) {
+  const [open, setOpen] = useState(false)
+  const [remixing, setRemixing] = useState(false)
+  const [success, setSuccess] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [targetChannel, setTargetChannel] = useState<Channel>(
+    ALL_CHANNELS.find(c => c !== channel) ?? 'x',
+  )
+
+  async function handleRemix() {
+    setRemixing(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/posts/${postId}/remix`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetChannel }),
+      })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        throw new Error(d.error ?? 'Remix failed')
+      }
+      setSuccess(true)
+      setTimeout(() => { setOpen(false); setSuccess(false) }, 1800)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Remix failed')
+    } finally {
+      setRemixing(false)
+    }
+  }
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        title="Remix this post for another channel"
+        className="flex items-center gap-1 text-xs text-zinc-500 hover:text-violet-400 transition-colors"
+      >
+        <RefreshCw className="w-3.5 h-3.5" />
+        Remix
+      </button>
+    )
+  }
+
+  return (
+    <div className="flex items-center gap-2 text-xs">
+      <select
+        value={targetChannel}
+        onChange={e => setTargetChannel(e.target.value as Channel)}
+        disabled={remixing}
+        className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-zinc-300 text-xs"
+      >
+        {ALL_CHANNELS.map(ch => (
+          <option key={ch} value={ch}>
+            {CHANNEL_LABELS[ch]}{ch === channel ? ' (same)' : ''}
+          </option>
+        ))}
+      </select>
+      <Button size="sm" onClick={handleRemix} disabled={remixing} className="gap-1 h-6 px-2 text-xs">
+        {remixing
+          ? <Loader2 className="w-3 h-3 animate-spin" />
+          : success
+            ? <CheckCircle2 className="w-3 h-3" />
+            : <RefreshCw className="w-3 h-3" />
+        }
+        {success ? 'Created!' : remixing ? 'Remixing…' : 'Go'}
+      </Button>
+      <button
+        type="button"
+        onClick={() => { setOpen(false); setError(null) }}
+        className="text-zinc-600 hover:text-zinc-400"
+      >
+        <DismissIcon className="w-3.5 h-3.5" />
+      </button>
+      {error && <span className="text-red-400">{error}</span>}
     </div>
   )
 }

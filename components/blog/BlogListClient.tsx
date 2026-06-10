@@ -8,6 +8,9 @@ import { Plus, Loader2, CalendarClock, FileText } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { BlogIdeaSpark } from './BlogIdeaSpark'
+import { ArticleGridView } from './ArticleGridView'
+import { ArticlesMiniCalendar } from './ArticlesMiniCalendar'
+import { PostViewToggle, type PostView } from '@/components/posts/PostViewToggle'
 import { cn } from '@/lib/utils'
 import { sortArticlesNewestFirst } from '@/lib/blog/article-sort'
 import type { Article, ArticleStatus } from '@/types/database'
@@ -30,6 +33,7 @@ export function BlogListClient({ articles: initialArticles, companyId }: BlogLis
   const router = useRouter()
   const [articles, setArticles] = useState<Article[]>(initialArticles)
   const [statusFilter, setStatusFilter] = useState<ArticleStatus | 'all'>('all')
+  const [view, setView] = useState<PostView>('list')
   const [creating, setCreating] = useState(false)
   const [articleFormat, setArticleFormat] = useState<ArticleFormat>('blog_post')
 
@@ -96,15 +100,18 @@ export function BlogListClient({ articles: initialArticles, companyId }: BlogLis
           ))}
         </div>
 
-        <Button
-          size="sm"
-          onClick={() => createArticle()}
-          disabled={creating}
-          className="gap-1.5"
-        >
-          {creating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
-          New article
-        </Button>
+        <div className="flex items-center gap-2">
+          <PostViewToggle view={view} onChange={setView} />
+          <Button
+            size="sm"
+            onClick={() => createArticle()}
+            disabled={creating}
+            className="gap-1.5"
+          >
+            {creating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+            New article
+          </Button>
+        </div>
       </div>
 
       {/* Idea generator */}
@@ -133,6 +140,10 @@ export function BlogListClient({ articles: initialArticles, companyId }: BlogLis
             Generate an idea above or click &ldquo;New article&rdquo; to start writing.
           </p>
         </div>
+      ) : view === 'grid' ? (
+        <ArticleGridView articles={filtered} companyId={companyId} />
+      ) : view === 'calendar' ? (
+        <ArticlesMiniCalendar articles={filtered} companyId={companyId} />
       ) : (
         <div className="rounded-xl border border-zinc-800 overflow-hidden divide-y divide-zinc-800">
           {filtered.map(article => (

@@ -152,12 +152,22 @@ export interface PlannedSlotInput {
   notes: string | null
 }
 
-/** Stagger times when multiple slots share a channel + day (especially X). */
+/** Minimum gap in ms between posts on the same channel to prevent back-to-back publishing. */
+const MIN_CHANNEL_GAP_MS = 3 * 60 * 60 * 1000 // 3 hours
+
+/**
+ * Stagger times when multiple slots share a channel + day (especially X).
+ * Pass existingScheduled (UTC Dates keyed by channel) to avoid conflicts with
+ * posts that are already in the database.
+ */
 export function assignSlotTimes(
   slots: PlannedSlotInput[],
   insights: Record<string, { best_hours_utc: number[] }>,
+  existingScheduled: Partial<Record<string, Date[]>> = {},
 ): { slot: PlannedSlotInput; scheduledFor: Date }[] {
   const byChannelDay = new Map<string, number>()
+  // Track times we've just assigned in this batch to detect within-batch conflicts
+  const assignedByChannel = new Map<string, Date[]>()
 
   return slots.map(slot => {
     const date = slot.scheduled_date
@@ -171,12 +181,39 @@ export function assignSlotTimes(
         ? insights[slot.channel].best_hours_utc
         : pb.bestHoursUtc
 
-    const hour = hours[dayIndex % hours.length] ?? pb.bestHoursUtc[0]
-    // Randomize within the hour window: up to +55 min so any slot in a 2-hour
-    // best-time window (e.g. 9–11) lands somewhere natural rather than on the hour.
-    const jitterMinutes = Math.floor(Math.random() * 56) // 0–55 inclusive
-    const scheduledFor = new Date(`${date}T00:00:00.000Z`)
-    scheduledFor.setUTCHours(hour, jitterMinutes, 0, 0)
+    const existingForChannel = [
+      ...(existingScheduled[slot.channel] ?? []),
+      ...(assignedByChannel.get(slot.channel) ?? []),
+    ]
+
+    // Try each candidate hour until we find one that doesn't conflict
+    const jitterMinutes = Math.floor(Math.random() * 56)
+    let scheduledFor: Date | null = null
+
+    for (let attempt = 0; attempt < hours.length; attempt++) {
+      const hour = hours[(dayIndex + attempt) % hours.length]
+      const candidate = new Date(`${date}T00:00:00.000Z`)
+      candidate.setUTCHours(hour, jitterMinutes, 0, 0)
+
+      const conflicts = existingForChannel.some(
+        existing => Math.abs(existing.getTime() - candidate.getTime()) < MIN_CHANNEL_GAP_MS,
+      )
+
+      if (!conflicts) {
+        scheduledFor = candidate
+        break
+      }
+    }
+
+    // Fall back to primary hour if all hours conflict (still better than nothing)
+    if (!scheduledFor) {
+      const hour = hours[dayIndex % hours.length] ?? pb.bestHoursUtc[0]
+      scheduledFor = new Date(`${date}T00:00:00.000Z`)
+      scheduledFor.setUTCHours(hour, jitterMinutes, 0, 0)
+    }
+
+    const prev = assignedByChannel.get(slot.channel) ?? []
+    assignedByChannel.set(slot.channel, [...prev, scheduledFor])
 
     return { slot, scheduledFor }
   })

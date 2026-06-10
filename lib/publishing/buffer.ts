@@ -361,6 +361,11 @@ function buildCreatePostArgs(
     if (has('due_at')) args.due_at = scheduled
     if (has('scheduledAt')) args.scheduledAt = scheduled
     if (has('scheduled_at')) args.scheduled_at = scheduled
+    // If schema inspection missed all time fields, force dueAt (Buffer GraphQL standard)
+    // This prevents the scheduler silently falling back to Buffer's queue
+    if (!args.dueAt && !args.due_at && !args.scheduledAt && !args.scheduled_at) {
+      args.dueAt = scheduled
+    }
   }
 
   // Fallback when schema is missing — use Buffer GraphQL field names
