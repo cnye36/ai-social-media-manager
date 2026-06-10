@@ -690,6 +690,7 @@ function OpportunitiesTab({ companyId }: { companyId: string }) {
   const [opportunities, setOpportunities] = useState<RedditOpportunity[]>([])
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined)
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
 
   const fetchOpportunities = useCallback(async () => {
     setLoading(true)
@@ -702,6 +703,20 @@ function OpportunitiesTab({ companyId }: { companyId: string }) {
       setLoading(false)
     }
   }, [companyId, statusFilter])
+
+  async function handleRefresh() {
+    setRefreshing(true)
+    try {
+      await fetch('/api/reddit/opportunities/refresh-stats', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ companyId }),
+      })
+    } finally {
+      setRefreshing(false)
+    }
+    await fetchOpportunities()
+  }
 
   useEffect(() => { fetchOpportunities() }, [fetchOpportunities])
 
@@ -733,11 +748,12 @@ function OpportunitiesTab({ companyId }: { companyId: string }) {
           </button>
         ))}
         <button
-          onClick={fetchOpportunities}
-          className="ml-auto p-1.5 rounded-lg text-zinc-600 hover:text-zinc-300 hover:bg-zinc-800 transition-colors"
-          title="Refresh"
+          onClick={handleRefresh}
+          disabled={refreshing}
+          className="ml-auto p-1.5 rounded-lg text-zinc-600 hover:text-zinc-300 hover:bg-zinc-800 transition-colors disabled:opacity-50"
+          title="Refresh scores and pull latest stats from Reddit"
         >
-          <RefreshCw className="w-4 h-4" />
+          <RefreshCw className={cn('w-4 h-4', refreshing && 'animate-spin')} />
         </button>
       </div>
 
