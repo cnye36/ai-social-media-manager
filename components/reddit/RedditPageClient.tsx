@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils'
 import { buildStatusDatetimePayload, toDatetimeLocal } from '@/lib/content-status'
 import { formatRedditMarkdown, parseRedditPost, type RedditPostContent } from '@/lib/reddit/parse'
 import { lintRedditSubmission } from '@/lib/reddit/submission-lint'
+import { RedditPostBody } from '@/components/reddit/RedditPostBody'
 import { PostViewToggle } from '@/components/posts/PostViewToggle'
 import { PostsMiniCalendar } from '@/components/posts/PostsMiniCalendar'
 import { RedditIcon } from '@/components/ui/channel-icons'
@@ -390,8 +391,14 @@ function OpportunityCard({
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap mb-1.5">
               <span className="text-xs font-semibold text-orange-400">r/{opp.subreddit}</span>
-              <span className="text-[11px] text-zinc-600" title="When this was posted on Reddit">
-                u/{opp.author} · Posted {formatPostedAt(opp.posted_at)}
+              <span className="text-[11px] text-zinc-600">
+                u/{opp.author} · {formatPostedAt(opp.posted_at)}
+              </span>
+              <span className="flex items-center gap-0.5 text-[11px] text-zinc-500" title="Upvotes">
+                <ArrowUp className="w-3 h-3" />{opp.score}
+              </span>
+              <span className="flex items-center gap-0.5 text-[11px] text-zinc-500" title="Comments">
+                <MessageSquare className="w-3 h-3" />{opp.num_comments}
               </span>
               <span className={cn('text-[10px] px-1.5 py-0.5 rounded border font-medium', statusColors[opp.status])}>
                 {opp.status.replace('_', ' ')}
@@ -444,7 +451,7 @@ function OpportunityCard({
           {/* Post body */}
           {opp.selftext ? (
             <div className="bg-zinc-800/50 rounded-lg p-3">
-              <p className="text-xs text-zinc-400 leading-relaxed whitespace-pre-wrap line-clamp-6">{opp.selftext}</p>
+              <RedditPostBody selftext={opp.selftext} clampLines={8} />
             </div>
           ) : (
             <a
@@ -1206,6 +1213,13 @@ function MonitorsTab({ companyId }: { companyId: string }) {
   const [newKeywordTags, setNewKeywordTags] = useState<string[]>([])
   const [adding, setAdding] = useState(false)
   const [addError, setAddError] = useState('')
+  // edit state
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editSubreddits, setEditSubreddits] = useState<string[]>([])
+  const [editSubredditInput, setEditSubredditInput] = useState('')
+  const [editKeywords, setEditKeywords] = useState<string[]>([])
+  const [editKeywordInput, setEditKeywordInput] = useState('')
+  const [editSaving, setEditSaving] = useState(false)
 
   useEffect(() => {
     fetch(`/api/reddit/monitors?companyId=${companyId}`)
@@ -1307,6 +1321,48 @@ function MonitorsTab({ companyId }: { companyId: string }) {
     if (res.ok) setMonitors(prev => prev.filter(m => m.id !== id))
   }
 
+  function startEdit(monitor: RedditMonitor) {
+    setEditingId(monitor.id)
+    setEditSubreddits([...monitor.subreddits])
+    setEditSubredditInput('')
+    setEditKeywords([...monitor.keywords])
+    setEditKeywordInput('')
+  }
+
+  function cancelEdit() {
+    setEditingId(null)
+    setEditSubreddits([])
+    setEditKeywords([])
+    setEditSubredditInput('')
+    setEditKeywordInput('')
+  }
+
+  async function saveEdit(id: string) {
+    const pendingSub = editSubredditInput.replace(/^r\//, '').trim().toLowerCase()
+    const subreddits = pendingSub
+      ? [...new Set([...editSubreddits, pendingSub])]
+      : editSubreddits
+    if (!subreddits.length) return
+
+    const pendingKw = editKeywordInput.trim()
+    const keywords = pendingKw
+      ? [...new Set([...editKeywords, pendingKw])]
+      : editKeywords
+
+    setEditSaving(true)
+    const res = await fetch(`/api/reddit/monitors/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ subreddits, keywords }),
+    })
+    if (res.ok) {
+      const updated = await res.json() as RedditMonitor
+      setMonitors(prev => prev.map(m => m.id === id ? { ...m, subreddits: updated.subreddits, keywords: updated.keywords } : m))
+      cancelEdit()
+    }
+    setEditSaving(false)
+  }
+
   const canSubmit = newSubreddits.length > 0 || subredditInput.replace(/^r\//, '').trim().length > 0
 
   return (
@@ -1324,56 +1380,162 @@ function MonitorsTab({ companyId }: { companyId: string }) {
         </div>
       ) : (
         <div className="space-y-2">
-          {monitors.map(monitor => (
-            <div
-              key={monitor.id}
-              className={cn(
-                'flex items-start gap-3 p-4 rounded-xl border transition-all',
-                monitor.is_active ? 'border-zinc-700 bg-zinc-900' : 'border-zinc-800 bg-zinc-900/50 opacity-60'
-              )}
-            >
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center flex-wrap gap-1.5 mb-1.5">
-                  {(monitor.subreddits ?? []).map(sub => (
-                    <span key={sub} className="text-sm font-semibold text-orange-400">r/{sub}</span>
-                  ))}
-                  {monitor.last_checked_at && (
-                    <span className="text-[10px] text-zinc-600">
-                      · last checked {timeAgo(monitor.last_checked_at)}
-                    </span>
-                  )}
-                </div>
-                {monitor.keywords.length > 0 ? (
-                  <div className="flex flex-wrap gap-1">
-                    {monitor.keywords.map(kw => (
-                      <span key={kw} className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 border border-zinc-700">
-                        {kw}
-                      </span>
-                    ))}
+          {monitors.map(monitor => {
+            const isEditing = editingId === monitor.id
+            return (
+              <div
+                key={monitor.id}
+                className={cn(
+                  'p-4 rounded-xl border transition-all',
+                  monitor.is_active ? 'border-zinc-700 bg-zinc-900' : 'border-zinc-800 bg-zinc-900/50 opacity-60'
+                )}
+              >
+                {isEditing ? (
+                  /* ── inline edit form ── */
+                  <div className="space-y-3">
+                    <div className="space-y-1">
+                      <p className="text-[11px] text-zinc-500 uppercase tracking-wider">Subreddits</p>
+                      <div
+                        className="flex flex-wrap gap-1.5 min-h-[36px] w-full px-2 py-1.5 bg-zinc-800 border border-zinc-700 rounded-lg focus-within:ring-1 focus-within:ring-orange-500 cursor-text"
+                        onClick={e => (e.currentTarget.querySelector('input') as HTMLInputElement | null)?.focus()}
+                      >
+                        {editSubreddits.map(sub => (
+                          <span key={sub} className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded bg-orange-900/40 border border-orange-800/60 text-orange-300 text-xs font-medium">
+                            r/{sub}
+                            <button type="button" onClick={() => setEditSubreddits(prev => prev.filter(s => s !== sub))} className="text-orange-500 hover:text-orange-200">
+                              <X className="w-3 h-3" />
+                            </button>
+                          </span>
+                        ))}
+                        <input
+                          type="text"
+                          value={editSubredditInput}
+                          onChange={e => setEditSubredditInput(e.target.value.replace(/,/g, ''))}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter' || e.key === ',') {
+                              e.preventDefault()
+                              const sub = editSubredditInput.replace(/^r\//, '').trim().toLowerCase()
+                              if (sub && !editSubreddits.includes(sub)) setEditSubreddits(prev => [...prev, sub])
+                              setEditSubredditInput('')
+                            } else if (e.key === 'Backspace' && !editSubredditInput && editSubreddits.length > 0) {
+                              setEditSubreddits(prev => prev.slice(0, -1))
+                            }
+                          }}
+                          onBlur={() => {
+                            const sub = editSubredditInput.replace(/^r\//, '').trim().toLowerCase()
+                            if (sub && !editSubreddits.includes(sub)) setEditSubreddits(prev => [...prev, sub])
+                            setEditSubredditInput('')
+                          }}
+                          placeholder="add subreddit…"
+                          className="flex-1 min-w-[100px] bg-transparent text-sm text-white placeholder-zinc-600 focus:outline-none py-0.5 px-1"
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-[11px] text-zinc-500 uppercase tracking-wider">Keywords</p>
+                      <div
+                        className="flex flex-wrap gap-1.5 min-h-[36px] w-full px-2 py-1.5 bg-zinc-800 border border-zinc-700 rounded-lg focus-within:ring-1 focus-within:ring-orange-500 cursor-text"
+                        onClick={e => (e.currentTarget.querySelector('input') as HTMLInputElement | null)?.focus()}
+                      >
+                        {editKeywords.map(kw => (
+                          <span key={kw} className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded bg-zinc-700 border border-zinc-600 text-zinc-300 text-xs font-medium">
+                            {kw}
+                            <button type="button" onClick={() => setEditKeywords(prev => prev.filter(k => k !== kw))} className="text-zinc-400 hover:text-zinc-100">
+                              <X className="w-3 h-3" />
+                            </button>
+                          </span>
+                        ))}
+                        <input
+                          type="text"
+                          value={editKeywordInput}
+                          onChange={e => setEditKeywordInput(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault()
+                              const kw = editKeywordInput.trim()
+                              if (kw && !editKeywords.includes(kw)) setEditKeywords(prev => [...prev, kw])
+                              setEditKeywordInput('')
+                            } else if (e.key === 'Backspace' && !editKeywordInput && editKeywords.length > 0) {
+                              setEditKeywords(prev => prev.slice(0, -1))
+                            }
+                          }}
+                          onBlur={() => {
+                            const kw = editKeywordInput.trim()
+                            if (kw && !editKeywords.includes(kw)) setEditKeywords(prev => [...prev, kw])
+                            setEditKeywordInput('')
+                          }}
+                          placeholder="add keyword…"
+                          className="flex-1 min-w-[100px] bg-transparent text-sm text-white placeholder-zinc-600 focus:outline-none py-0.5 px-1"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 pt-1">
+                      <Button
+                        size="sm"
+                        onClick={() => saveEdit(monitor.id)}
+                        disabled={editSaving || editSubreddits.length === 0}
+                        className="bg-orange-600 hover:bg-orange-500 text-white"
+                      >
+                        {editSaving ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Saving…</> : 'Save'}
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={cancelEdit} className="text-zinc-400">Cancel</Button>
+                    </div>
                   </div>
                 ) : (
-                  <p className="text-[11px] text-zinc-600">No keywords — all new posts will match</p>
+                  /* ── read-only view ── */
+                  <div className="flex items-start gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center flex-wrap gap-1.5 mb-1.5">
+                        {(monitor.subreddits ?? []).map(sub => (
+                          <span key={sub} className="text-sm font-semibold text-orange-400">r/{sub}</span>
+                        ))}
+                        {monitor.last_checked_at && (
+                          <span className="text-[10px] text-zinc-600">
+                            · last checked {timeAgo(monitor.last_checked_at)}
+                          </span>
+                        )}
+                      </div>
+                      {monitor.keywords.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {monitor.keywords.map(kw => (
+                            <span key={kw} className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 border border-zinc-700">
+                              {kw}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-[11px] text-zinc-600">No keywords — all new posts will match</p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={() => startEdit(monitor)}
+                        title="Edit monitor"
+                        className="p-1 rounded text-zinc-600 hover:text-white hover:bg-zinc-800 transition-colors"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => toggleActive(monitor)}
+                        title={monitor.is_active ? 'Pause monitor' : 'Activate monitor'}
+                        className="text-zinc-500 hover:text-orange-400 transition-colors"
+                      >
+                        {monitor.is_active
+                          ? <ToggleRight className="w-5 h-5 text-orange-400" />
+                          : <ToggleLeft className="w-5 h-5" />}
+                      </button>
+                      <button
+                        onClick={() => deleteMonitor(monitor.id)}
+                        className="p-1 rounded text-zinc-600 hover:text-red-400 hover:bg-zinc-800 transition-colors"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
                 )}
               </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  onClick={() => toggleActive(monitor)}
-                  title={monitor.is_active ? 'Pause monitor' : 'Activate monitor'}
-                  className="text-zinc-500 hover:text-orange-400 transition-colors"
-                >
-                  {monitor.is_active
-                    ? <ToggleRight className="w-5 h-5 text-orange-400" />
-                    : <ToggleLeft className="w-5 h-5" />}
-                </button>
-                <button
-                  onClick={() => deleteMonitor(monitor.id)}
-                  className="p-1 rounded text-zinc-600 hover:text-red-400 hover:bg-zinc-800 transition-colors"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
 

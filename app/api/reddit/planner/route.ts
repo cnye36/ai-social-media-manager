@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { generateRedditWeeklyPlan } from '@/lib/reddit/planner'
+import { generateRedditWeeklyPlan, type ExistingCalendarPost } from '@/lib/reddit/planner'
+import { startOfWeek, addDays, format } from 'date-fns'
 import type { BrandProfile, Company } from '@/types/database'
 
 export async function POST(req: NextRequest) {
@@ -20,7 +21,13 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  const [{ data: company }, { data: brand }, { data: configs }] = await Promise.all([
+  // Derive the Mon–Sun window for the target week
+  const monday = startOfWeek(new Date(weekStart), { weekStartsOn: 1 })
+  const sunday = addDays(monday, 6)
+  const weekFrom = format(monday, "yyyy-MM-dd'T'00:00:00xxx")
+  const weekTo   = format(sunday, "yyyy-MM-dd'T'23:59:59xxx")
+
+  const [{ data: company }, { data: brand }, { data: configs }, { data: calPosts }] = await Promise.all([
     supabase.from('companies').select('*').eq('id', companyId).single(),
     supabase.from('brand_profiles').select('*').eq('company_id', companyId).maybeSingle(),
     supabase
@@ -28,6 +35,13 @@ export async function POST(req: NextRequest) {
       .select('subreddit, posting_guidance, notes')
       .eq('company_id', companyId)
       .in('subreddit', subreddits),
+    supabase
+      .from('posts')
+      .select('channel, scheduled_for, content')
+      .eq('company_id', companyId)
+      .in('status', ['draft', 'scheduled'])
+      .gte('scheduled_for', weekFrom)
+      .lte('scheduled_for', weekTo),
   ])
 
   if (!company) {
@@ -39,6 +53,12 @@ export async function POST(req: NextRequest) {
     subredditConfigs[cfg.subreddit] = { posting_guidance: cfg.posting_guidance, notes: cfg.notes }
   }
 
+  const existingPosts: ExistingCalendarPost[] = (calPosts ?? []).map(p => ({
+    date: format(new Date(p.scheduled_for!), 'yyyy-MM-dd'),
+    channel: p.channel as string,
+    contentSnippet: (p.content as string).slice(0, 120).replace(/\s+/g, ' ').trim(),
+  }))
+
   try {
     const slots = await generateRedditWeeklyPlan({
       subreddits,
@@ -47,6 +67,7 @@ export async function POST(req: NextRequest) {
       company: company as Company,
       brand: brand as BrandProfile | null,
       subredditConfigs,
+      existingPosts,
     })
     return NextResponse.json({ slots })
   } catch (err) {

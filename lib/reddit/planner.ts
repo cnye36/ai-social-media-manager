@@ -5,6 +5,12 @@ import { addDays, format, startOfWeek } from 'date-fns'
 import { buildBrandContext } from '@/lib/content-planning/brand-context'
 import type { BrandProfile, Company } from '@/types/database'
 
+export interface ExistingCalendarPost {
+  date: string          // YYYY-MM-DD
+  channel: string       // linkedin | x | reddit | facebook
+  contentSnippet: string
+}
+
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
 // ─── Timing intelligence ───────────────────────────────────────────────────────
@@ -60,12 +66,26 @@ interface SlotFrame {
   timeWindow: string
 }
 
-function buildSlotFrames(subreddits: string[], weekStart: Date): SlotFrame[] {
+function buildSlotFrames(
+  subreddits: string[],
+  weekStart: Date,
+  existingPosts: ExistingCalendarPost[],
+): SlotFrame[] {
   const monday = startOfWeek(weekStart, { weekStartsOn: 1 })
   const frames: SlotFrame[] = []
 
-  // Track how many posts are already scheduled on each day so subs spread across the week
+  // Pre-seed day occupancy from posts already on the calendar so new Reddit
+  // slots land on lighter days rather than piling onto busy ones.
   const dayOccupancy: Record<number, number> = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 }
+  for (const post of existingPosts) {
+    const postDate = new Date(post.date + 'T12:00:00')
+    // dayIndex 0=Mon … 6=Sun relative to the Monday of this week
+    const diffMs = postDate.getTime() - monday.getTime()
+    const diffDays = Math.round(diffMs / 86_400_000)
+    if (diffDays >= 0 && diffDays <= 6) {
+      dayOccupancy[diffDays] = (dayOccupancy[diffDays] ?? 0) + 1
+    }
+  }
 
   // Sort subs by engagement priority: AI → business → tech → general
   const sorted = [...subreddits].sort((a, b) => {
@@ -76,7 +96,7 @@ function buildSlotFrames(subreddits: string[], weekStart: Date): SlotFrame[] {
   for (const sub of sorted) {
     const { days, window } = TIMING[subCategory(sub)]
 
-    // Pick the preferred day with the fewest posts already assigned — spreads load across the week
+    // Pick the preferred day with the fewest posts already assigned
     let bestDay = days[0]
     let bestCount = Infinity
     for (const d of days) {
@@ -125,13 +145,14 @@ export async function generateRedditWeeklyPlan(params: {
   company: Company
   brand: BrandProfile | null
   subredditConfigs?: Record<string, { posting_guidance: string | null; notes: string | null }>
+  existingPosts?: ExistingCalendarPost[]
 }): Promise<PlannerSlot[]> {
-  const { subreddits, topicFocus, company, brand, subredditConfigs = {} } = params
+  const { subreddits, topicFocus, company, brand, subredditConfigs = {}, existingPosts = [] } = params
 
   if (subreddits.length === 0) throw new Error('No subreddits provided')
 
   const monday = startOfWeek(new Date(params.weekStart), { weekStartsOn: 1 })
-  const frames = buildSlotFrames(subreddits, monday)
+  const frames = buildSlotFrames(subreddits, monday, existingPosts)
 
   if (frames.length === 0) throw new Error('Could not assign subreddits to days')
 
@@ -152,6 +173,26 @@ export async function generateRedditWeeklyPlan(params: {
     `- r/${f.subreddit} on ${f.dayLabel} ${f.date} (best time: ${f.timeWindow})`
   ).join('\n')
 
+  // Build a human-readable summary of what's already on the calendar this week
+  const calendarSummaryLines: string[] = []
+  if (existingPosts.length > 0) {
+    const byDay: Record<string, ExistingCalendarPost[]> = {}
+    for (const p of existingPosts) {
+      ;(byDay[p.date] ??= []).push(p)
+    }
+    for (const date of Object.keys(byDay).sort()) {
+      const label = format(new Date(date + 'T12:00:00'), 'EEEE MMM d')
+      for (const p of byDay[date]) {
+        calendarSummaryLines.push(
+          `- ${label} [${p.channel}]: ${p.contentSnippet}${p.contentSnippet.length === 120 ? '…' : ''}`,
+        )
+      }
+    }
+  }
+  const calendarContext = calendarSummaryLines.length > 0
+    ? `EXISTING POSTS THIS WEEK (already scheduled/drafted — do NOT repeat their topics or angles):\n${calendarSummaryLines.join('\n')}`
+    : 'EXISTING POSTS THIS WEEK: none — this week\'s calendar is empty.'
+
   const systemPrompt = `You are a Reddit content strategist who writes for builders and founders.
 
 Your job: generate a specific, viral-ready post idea for each slot in the weekly schedule below.
@@ -161,6 +202,8 @@ ${brandContext}
 
 SUBREDDIT PLAYBOOKS:
 ${subContextLines}
+
+${calendarContext}
 
 VIRAL TITLE FORMULAS (use these, don't just describe content):
 - specificity: concrete number + outcome + timeframe. "grew X to Y in Z weeks" not "tips for growing X"
@@ -182,6 +225,7 @@ RULES:
 - Titles must be specific and compelling — never generic ("my thoughts on X")
 - No two slots on the same subreddit should have the same post type
 - Angles must be distinct — avoid using the same hook twice across the week
+- Do not repeat topics or angles from the existing posts listed above
 - Zero marketing language. Subreddit-specific tone matters. A tech sub gets different energy than r/startups.
 - Return exactly one slot object per entry in the assignment list, matching the subreddit field exactly.
 ${topicFocus ? `\nWEEKLY THEME: ${topicFocus} — weave this into titles/angles where it fits naturally, don't force it into every post.` : ''}`
