@@ -46,7 +46,7 @@ export const CHANNEL_PLAYBOOKS: Record<Channel, ChannelPlaybook> = {
     postsPerDay: { min: 2, max: 3 },
     formatMix: { single: 0.65, thread: 0.35 },
     bestDays: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
-    bestHoursUtc: [14, 17, 20],
+    bestHoursUtc: [9, 12, 15, 18, 21],
     schedulingNotes:
       '2–3 posts per day, 7 days/week. Stagger same-day posts by 4+ hours. ~35% threads, ~65% single tweets.',
     plannerRules: [
@@ -54,7 +54,7 @@ export const CHANNEL_PLAYBOOKS: Record<Channel, ChannelPlaybook> = {
       'FORMAT MIX: ~65% post_type "single" (one punchy tweet, post_length "short"). ~35% post_type "thread" (post_length "long", 3–7 tweets).',
       'THREADS: Use for tutorials, breakdowns, stories, or listicles. Singles for hot takes, questions, and quick tips.',
       'LENGTH: "short" for singles, "long" for threads — always match format.',
-      'TIMING: Spread 2–3 slots across 14:00, 17:00, 20:00 UTC (adjust using insights). Never stack at the same hour.',
+      'TIMING: Spread 2–3 slots across different parts of the day (morning, afternoon, evening UTC). Never stack at the same hour.',
       'GOALS: Heavy engagement + awareness. Avoid hard promotion more than 1–2× per week.',
       'Do NOT plan LinkedIn-style essays — X rewards brevity and personality.',
     ],
@@ -205,11 +205,20 @@ export function assignSlotTimes(
       }
     }
 
-    // Fall back to primary hour if all hours conflict (still better than nothing)
+    // Fall back: pick the hour furthest from any existing assignment to avoid visual clustering
     if (!scheduledFor) {
-      const hour = hours[dayIndex % hours.length] ?? pb.bestHoursUtc[0]
+      const allAssigned = existingForChannel
+      const bestHour = hours.reduce((best, h) => {
+        const minDist = allAssigned.length
+          ? Math.min(...allAssigned.map(d => Math.abs(d.getUTCHours() - h)))
+          : Infinity
+        const bestDist = allAssigned.length
+          ? Math.min(...allAssigned.map(d => Math.abs(d.getUTCHours() - best)))
+          : Infinity
+        return minDist > bestDist ? h : best
+      }, hours[dayIndex % hours.length] ?? pb.bestHoursUtc[0])
       scheduledFor = new Date(`${date}T00:00:00.000Z`)
-      scheduledFor.setUTCHours(hour, jitterMinutes, 0, 0)
+      scheduledFor.setUTCHours(bestHour, jitterMinutes, 0, 0)
     }
 
     const prev = assignedByChannel.get(slot.channel) ?? []

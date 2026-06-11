@@ -39,15 +39,25 @@ export async function POST(
     return NextResponse.json({ error: 'Auto-scheduling only applies to social channels' }, { status: 400 })
   }
 
-  const slot = await getNextAvailableSlot(post.company_id, post.channel as Channel)
-  if (!slot) {
-    return NextResponse.json(
-      { error: 'No schedule configured for this channel. Set up a posting schedule in Settings.' },
-      { status: 422 }
-    )
-  }
+  // Posts created from a content plan already have a jittered scheduled time — use it directly
+  const generationParams = post.generation_params as Record<string, unknown> | null
+  const plannedFor = generationParams?.planned_for
+  let scheduledFor: string
 
-  const scheduledFor = slot.toISOString()
+  if (typeof plannedFor === 'string') {
+    scheduledFor = plannedFor
+  } else {
+    const slot = await getNextAvailableSlot(post.company_id, post.channel as Channel)
+    if (!slot) {
+      return NextResponse.json(
+        { error: 'No schedule configured for this channel. Set up a posting schedule in Settings.' },
+        { status: 422 },
+      )
+    }
+    // Add random jitter so posts don't all land on the exact scheduled hour
+    const jitterMs = (1 + Math.floor(Math.random() * 57)) * 60_000
+    scheduledFor = new Date(slot.getTime() + jitterMs).toISOString()
+  }
 
   const { data: updated, error } = await supabase
     .from('posts')
