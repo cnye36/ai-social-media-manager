@@ -826,6 +826,52 @@ interface InlinePost {
   disclosure: string | null
 }
 
+// ─── Planner time helpers ─────────────────────────────────────────────────────
+
+/** Returns the UTC offset in hours for America/New_York on the given date. */
+function getETOffsetHours(date: Date): number {
+  const nyHour = parseInt(
+    new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York',
+      hour: 'numeric',
+      hour12: false,
+    }).format(date),
+    10,
+  )
+  // At noon UTC (12), NY is at 8 (EDT, -4) or 7 (EST, -5)
+  return nyHour - 12
+}
+
+/**
+ * Pick a random UTC ISO timestamp that falls within the planner slot's time window.
+ * e.g. "6–9 AM ET" on 2026-06-16 → something like 2026-06-16T11:23:00.000Z
+ */
+function pickScheduledFor(date: string, timeWindow: string): string {
+  const m = timeWindow.match(/(\d+)(?:[–\-](\d+))?\s*(AM|PM)/i)
+  let startHour = 9
+  let endHour = 12
+  if (m) {
+    startHour = parseInt(m[1], 10)
+    endHour   = m[2] ? parseInt(m[2], 10) : startHour + 1
+    const ampm = m[3].toUpperCase()
+    if (ampm === 'PM' && startHour !== 12) startHour += 12
+    if (ampm === 'PM' && endHour   !== 12) endHour   += 12
+    if (ampm === 'AM' && startHour === 12) startHour  = 0
+  }
+  // Spread minutes across the full window, avoiding exact :00
+  const spanMinutes = Math.max(60, (endHour - startHour) * 60)
+  const offset = Math.floor(Math.random() * (spanMinutes - 10)) + 5
+  const hour   = startHour + Math.floor(offset / 60)
+  const minute = offset % 60
+
+  // Convert ET → UTC using the DST-aware offset on this date
+  const proxyUTC    = new Date(`${date}T12:00:00.000Z`)
+  const offsetHours = getETOffsetHours(proxyUTC) // e.g. -4 (EDT) or -5 (EST)
+  const result = new Date(`${date}T00:00:00.000Z`)
+  result.setUTCHours(hour - offsetHours, minute, 0, 0)
+  return result.toISOString()
+}
+
 function PlannerSlotCard({
   slot,
   companyId,
@@ -839,13 +885,13 @@ function PlannerSlotCard({
   const [editTitle, setEditTitle] = useState('')
   const [editBody, setEditBody] = useState('')
   const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState(false)
+  const [scheduledFor, setScheduledFor] = useState<string | null>(null)
 
   async function generate() {
     setGenerating(true)
     setGenError(null)
     setPost(null)
-    setSaved(false)
+    setScheduledFor(null)
     try {
       const res = await fetch('/api/generate/content', {
         method: 'POST',
@@ -885,10 +931,11 @@ function PlannerSlotCard({
     }
   }
 
-  async function saveDraft() {
+  async function addToSchedule() {
     if (!editTitle.trim() || !editBody.trim()) return
     setSaving(true)
     try {
+      const sf = pickScheduledFor(slot.date, slot.timeWindow)
       const content = `TITLE: ${editTitle.trim()}\nSUBREDDIT: r/${post?.subreddit ?? slot.subreddit}\n\n${editBody.trim()}`
       await fetch('/api/posts', {
         method: 'POST',
@@ -897,13 +944,14 @@ function PlannerSlotCard({
           company_id: companyId,
           channel: 'reddit',
           content,
-          status: 'draft',
+          status: 'scheduled',
+          scheduled_for: sf,
           content_variants: { reddit: { title: editTitle.trim(), body: editBody.trim(), subreddit: post?.subreddit ?? slot.subreddit, disclosure: post?.disclosure ?? null } },
         }),
       })
-      setSaved(true)
+      setScheduledFor(sf)
     } catch {
-      setGenError('Failed to save draft')
+      setGenError('Failed to schedule post')
     } finally {
       setSaving(false)
     }
@@ -993,18 +1041,21 @@ function PlannerSlotCard({
           )}
 
           <div className="flex items-center gap-2">
-            {saved ? (
+            {scheduledFor ? (
               <span className="flex items-center gap-1.5 text-emerald-400 text-xs font-medium">
-                <CircleCheck className="w-4 h-4" />Saved as draft
+                <CircleCheck className="w-4 h-4" />
+                Scheduled for {format(new Date(scheduledFor), 'MMM d, h:mm a')}
               </span>
             ) : (
               <Button
                 size="sm"
-                onClick={saveDraft}
+                onClick={addToSchedule}
                 disabled={saving}
                 className="bg-emerald-700 hover:bg-emerald-600 text-white text-xs"
               >
-                {saving ? <><Loader2 className="w-3 h-3 mr-1.5 animate-spin" />Saving...</> : <><Check className="w-3 h-3 mr-1.5" />Save as draft</>}
+                {saving
+                  ? <><Loader2 className="w-3 h-3 mr-1.5 animate-spin" />Scheduling…</>
+                  : <><CalendarClock className="w-3 h-3 mr-1.5" />Add to schedule</>}
               </Button>
             )}
           </div>
