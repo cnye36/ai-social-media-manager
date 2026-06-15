@@ -4,8 +4,10 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { format, parseISO } from 'date-fns'
 import {
-  ArrowLeft, CalendarClock, Loader2, PenLine, Sparkles, CheckCircle2, Eye, X as DismissIcon, Trash2, RefreshCw,
+  ArrowLeft, CalendarClock, CalendarDays, List, Loader2, PenLine, Sparkles, CheckCircle2,
+  X as DismissIcon, Trash2, RefreshCw,
 } from 'lucide-react'
+import { PlanSlotsCalendar } from '@/components/planner/PlanSlotsCalendar'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { PostEditorModal } from '@/components/posts/PostEditorModal'
@@ -48,9 +50,13 @@ export function PlanDetailClient({ companyId, initialPlan }: PlanDetailClientPro
   const [editingPost, setEditingPost] = useState<Post | null>(null)
   const [editorOpen, setEditorOpen] = useState(false)
   const [approving, setApproving] = useState<string | null>(null)
+  const [scheduleView, setScheduleView] = useState<'list' | 'calendar'>('calendar')
 
   const plannedSlots = plan.slots.filter(s => s.status === 'planned')
   const writtenSlots = plan.slots.filter(s => s.status === 'written')
+  const activeSlots = plan.slots
+    .filter(s => s.status !== 'skipped')
+    .sort((a, b) => new Date(a.scheduled_for).getTime() - new Date(b.scheduled_for).getTime())
   const writtenCount = plan.slots.filter(s => s.status === 'written').length
 
   // Load posts for all written slots
@@ -145,6 +151,16 @@ export function PlanDetailClient({ companyId, initialPlan }: PlanDetailClientPro
   function openEditor(post: Post) {
     setEditingPost(post)
     setEditorOpen(true)
+  }
+
+  function handleSlotClick(slot: ContentPlanSlot, post?: Post) {
+    if (post) {
+      openEditor(post)
+      return
+    }
+    if (slot.status === 'planned') {
+      toggleSlot(slot.id)
+    }
   }
 
   function handlePostUpdate(updated: Post) {
@@ -344,80 +360,98 @@ export function PlanDetailClient({ companyId, initialPlan }: PlanDetailClientPro
       {writeProgress && <p className="text-sm text-violet-300">{writeProgress}</p>}
       {error && <p className="text-sm text-red-400">{error}</p>}
 
-      {/* Written drafts — approval section */}
-      {writtenSlots.length > 0 && (
+      {activeSlots.length > 0 && (
         <div>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-white">
-              Review drafts
-              <span className="ml-2 text-sm font-normal text-zinc-500">({writtenSlots.length} ready)</span>
-            </h2>
-            <Link href={`/${companyId}/calendar`} className="text-xs text-zinc-500 hover:text-zinc-300 flex items-center gap-1">
-              <CalendarClock className="w-3.5 h-3.5" />
-              Open calendar
-            </Link>
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+            <div>
+              <h2 className="text-lg font-semibold text-white">
+                Plan schedule
+                <span className="ml-2 text-sm font-normal text-zinc-500">
+                  ({activeSlots.length} slots
+                  {writtenSlots.length > 0 && ` · ${writtenSlots.length} ready to review`})
+                </span>
+              </h2>
+              <p className="text-xs text-zinc-600 mt-1">
+                Click a draft to view and edit. Click planned slots to select them for batch writing.
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center bg-zinc-800/60 border border-zinc-700/50 rounded-lg p-0.5 gap-0.5">
+                <button
+                  type="button"
+                  onClick={() => setScheduleView('list')}
+                  title="List"
+                  className={cn(
+                    'flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all',
+                    scheduleView === 'list'
+                      ? 'bg-zinc-700 text-white shadow-sm'
+                      : 'text-zinc-500 hover:text-zinc-300',
+                  )}
+                >
+                  <List className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">List</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setScheduleView('calendar')}
+                  title="Calendar"
+                  className={cn(
+                    'flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all',
+                    scheduleView === 'calendar'
+                      ? 'bg-zinc-700 text-white shadow-sm'
+                      : 'text-zinc-500 hover:text-zinc-300',
+                  )}
+                >
+                  <CalendarDays className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Calendar</span>
+                </button>
+              </div>
+              <Link href={`/${companyId}/calendar`} className="text-xs text-zinc-500 hover:text-zinc-300 flex items-center gap-1">
+                <CalendarClock className="w-3.5 h-3.5" />
+                Open calendar
+              </Link>
+            </div>
           </div>
-          <p className="text-xs text-zinc-600 mb-4">
-            Review and edit each draft, then approve the ones you want to schedule.
-          </p>
-          <div className="space-y-3">
-            {writtenSlots.map(slot => {
-              const post = slot.post_id ? posts[slot.post_id] : undefined
-              return (
-                <WrittenSlotRow
-                  key={slot.id}
-                  slot={slot}
-                  post={post}
-                  approving={approving === slot.id}
-                  onEdit={() => post && openEditor(post)}
-                  onApprove={() => approveSlot(slot)}
-                  onSkip={() => skipSlot(slot.id)}
-                  onDelete={() => deleteSlotPost(slot)}
-                  onPostUpdate={handlePostUpdate}
-                />
-              )
-            })}
-          </div>
-        </div>
-      )}
 
-      {/* Planned slots — selection section */}
-      {plannedSlots.length > 0 && (
-        <div>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-white">
-              Schedule slots
-              <span className="ml-2 text-sm font-normal text-zinc-500">({plannedSlots.length} planned)</span>
-            </h2>
-          </div>
-          <div className="space-y-2">
-            {plannedSlots.map(slot => (
-              <PlannedSlotRow
-                key={slot.id}
-                slot={slot}
-                selected={selected.has(slot.id)}
-                onToggle={() => toggleSlot(slot.id)}
-                onSkip={() => skipSlot(slot.id)}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {plannedSlots.length === 0 && writtenSlots.length === 0 && (
-        <div className="space-y-2">
-          <h2 className="text-lg font-semibold text-white mb-4">
-            All slots ({plan.slots.length})
-          </h2>
-          {plan.slots.map(slot => (
-            <PlannedSlotRow
-              key={slot.id}
-              slot={slot}
-              selected={selected.has(slot.id)}
-              onToggle={() => toggleSlot(slot.id)}
-              onSkip={() => skipSlot(slot.id)}
+          {scheduleView === 'calendar' ? (
+            <PlanSlotsCalendar
+              slots={plan.slots}
+              posts={posts}
+              selected={selected}
+              initialMonth={parseISO(plan.start_date)}
+              onSlotClick={handleSlotClick}
             />
-          ))}
+          ) : (
+            <div className="space-y-2">
+              {activeSlots.map(slot => {
+                if (slot.status === 'written') {
+                  const post = slot.post_id ? posts[slot.post_id] : undefined
+                  return (
+                    <WrittenSlotRow
+                      key={slot.id}
+                      slot={slot}
+                      post={post}
+                      approving={approving === slot.id}
+                      onOpen={() => post && openEditor(post)}
+                      onApprove={() => approveSlot(slot)}
+                      onSkip={() => skipSlot(slot.id)}
+                      onDelete={() => deleteSlotPost(slot)}
+                      onPostUpdate={handlePostUpdate}
+                    />
+                  )
+                }
+                return (
+                  <PlannedSlotRow
+                    key={slot.id}
+                    slot={slot}
+                    selected={selected.has(slot.id)}
+                    onToggle={() => toggleSlot(slot.id)}
+                    onSkip={() => skipSlot(slot.id)}
+                  />
+                )
+              })}
+            </div>
+          )}
         </div>
       )}
 
@@ -440,7 +474,7 @@ function WrittenSlotRow({
   slot,
   post,
   approving,
-  onEdit,
+  onOpen,
   onApprove,
   onSkip,
   onDelete,
@@ -449,7 +483,7 @@ function WrittenSlotRow({
   slot: ContentPlanSlot
   post?: Post
   approving: boolean
-  onEdit: () => void
+  onOpen: () => void
   onApprove: () => void
   onSkip: () => void
   onDelete: () => void
@@ -459,76 +493,83 @@ function WrittenSlotRow({
   const contentPreview = post?.content ? postBodyForPublish(post.content) : undefined
   const showBuffer = post && BUFFER_CHANNELS.has(slot.channel)
   const scheduledTime = post?.scheduled_for ?? slot.scheduled_for
+  const canOpen = !!post
 
   return (
     <div className={cn(
-      'rounded-xl border p-4 transition-colors',
+      'rounded-xl border transition-colors',
       isScheduled ? 'border-green-500/30 bg-green-950/10' : 'border-zinc-800 bg-zinc-900/20',
     )}>
-      <div className="flex items-start justify-between gap-2 mb-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="flex items-center gap-1 text-xs px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300">
-            {CHANNEL_ICON[slot.channel]}
-            {slot.channel}
-          </span>
-          {isScheduled ? (
-            <span className="flex items-center gap-1 text-xs text-green-400 font-medium">
-              <CheckCircle2 className="w-3.5 h-3.5" />
-              Scheduled
+      <div
+        role={canOpen ? 'button' : undefined}
+        tabIndex={canOpen ? 0 : undefined}
+        onClick={canOpen ? onOpen : undefined}
+        onKeyDown={canOpen ? e => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            onOpen()
+          }
+        } : undefined}
+        className={cn(
+          'p-4 pb-3 transition-colors',
+          canOpen && 'cursor-pointer hover:bg-zinc-800/30 rounded-t-xl',
+        )}
+      >
+        <div className="flex items-start justify-between gap-2 mb-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="flex items-center gap-1 text-xs px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300">
+              {CHANNEL_ICON[slot.channel]}
+              {slot.channel}
             </span>
-          ) : (
-            <Badge variant="default" className="text-[10px]">Draft ready</Badge>
-          )}
-          {slot.pillar && <span className="text-[10px] text-zinc-600">{slot.pillar}</span>}
+            {isScheduled ? (
+              <span className="flex items-center gap-1 text-xs text-green-400 font-medium">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                Scheduled
+              </span>
+            ) : (
+              <Badge variant="default" className="text-[10px]">Draft ready</Badge>
+            )}
+            {slot.pillar && <span className="text-[10px] text-zinc-600">{slot.pillar}</span>}
+          </div>
+          <div className="flex items-center gap-1 shrink-0">
+            <button
+              type="button"
+              onClick={e => { e.stopPropagation(); onSkip() }}
+              title="Dismiss slot"
+              className="flex items-center gap-1 text-xs text-zinc-600 hover:text-zinc-400 transition-colors p-1"
+            >
+              <DismissIcon className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={e => { e.stopPropagation(); onDelete() }}
+              title="Delete draft"
+              className="flex items-center gap-1 text-xs text-zinc-600 hover:text-red-400 transition-colors p-1"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
-        <div className="flex items-center gap-1 shrink-0">
-          <button
-            type="button"
-            onClick={onSkip}
-            title="Dismiss slot"
-            className="flex items-center gap-1 text-xs text-zinc-600 hover:text-zinc-400 transition-colors p-1"
-          >
-            <DismissIcon className="w-3.5 h-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={onDelete}
-            title="Delete draft"
-            className="flex items-center gap-1 text-xs text-zinc-600 hover:text-red-400 transition-colors p-1"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-          </button>
+
+        <div className="flex items-center gap-1.5 mb-1.5">
+          <CalendarClock className="w-3.5 h-3.5 text-violet-400 shrink-0" />
+          <span className="text-xs font-medium text-zinc-300">
+            Scheduled for: {format(parseISO(scheduledTime), 'EEE, MMM d yyyy · h:mm a')}
+          </span>
         </div>
+
+        <p className="text-sm font-medium text-white mb-1">{slot.topic}</p>
+
+        {contentPreview ? (
+          <p className="text-xs text-zinc-500 leading-relaxed line-clamp-2">
+            {contentPreview}
+          </p>
+        ) : (
+          <p className="text-xs text-zinc-700 italic">Loading draft…</p>
+        )}
       </div>
 
-      <div className="flex items-center gap-1.5 mb-1.5">
-        <CalendarClock className="w-3.5 h-3.5 text-violet-400 shrink-0" />
-        <span className="text-xs font-medium text-zinc-300">
-          Scheduled for: {format(parseISO(scheduledTime), 'EEE, MMM d yyyy · h:mm a')}
-        </span>
-      </div>
-
-      <p className="text-sm font-medium text-white mb-1">{slot.topic}</p>
-
-      {contentPreview ? (
-        <p className="text-xs text-zinc-500 leading-relaxed line-clamp-2 mb-3">
-          {contentPreview}
-        </p>
-      ) : (
-        <p className="text-xs text-zinc-700 italic mb-3">Loading draft…</p>
-      )}
-
-      <div className="flex flex-wrap items-center gap-2">
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={onEdit}
-          disabled={!post}
-          className="gap-1.5"
-        >
-          <Eye className="w-3.5 h-3.5" />
-          View &amp; edit
-        </Button>
+      <div className="flex flex-wrap items-center gap-2 px-4 pb-4">
         {!isScheduled && (
           <Button
             size="sm"
@@ -691,7 +732,11 @@ function PlannedSlotRow({
         className="mt-1 rounded border-zinc-600"
       />
 
-      <div className="flex-1 min-w-0">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex-1 min-w-0 text-left cursor-pointer"
+      >
         <div className="flex flex-wrap items-center gap-2 mb-1">
           <span className={cn('flex items-center gap-1 text-xs px-1.5 py-0.5 rounded', 'bg-zinc-800 text-zinc-300')}>
             {CHANNEL_ICON[slot.channel]}
@@ -718,7 +763,7 @@ function PlannedSlotRow({
           {slot.post_type} · {slot.content_goal} · {slot.post_length}
         </p>
         {slot.notes && <p className="text-xs text-zinc-500 mt-1">{slot.notes}</p>}
-      </div>
+      </button>
 
       <button
         type="button"
