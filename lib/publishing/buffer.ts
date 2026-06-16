@@ -474,7 +474,7 @@ export async function fetchBufferProfilesWithOrganization(
   const data = await bufferGraphql<{ channels: Array<Record<string, string>> }>(
     accessToken,
     `
-      query GetChannels($orgId: String!) {
+      query GetChannels($orgId: OrganizationID!) {
         channels(input: { organizationId: $orgId }) {
           id
           name

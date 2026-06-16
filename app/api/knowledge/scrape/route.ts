@@ -1,11 +1,11 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { scrapeWebsite } from '@/lib/rag/scraper'
 import { ingestPages } from '@/lib/rag/ingest'
 
 // Allow up to 60s on Vercel Hobby; upgrade to Pro for longer crawls
-export const maxDuration = 60
+export const maxDuration = 120
 
 export async function POST(request: Request) {
   const supabase = await createClient()
@@ -49,9 +49,9 @@ export async function POST(request: Request) {
 
   if (jobError) return NextResponse.json({ error: jobError.message }, { status: 500 })
 
-  // Run the scrape (async — response returns after job starts)
-  // We do this in a non-blocking way and return the job ID immediately
-  runScrapeJob(job.id, companyId, normalizedUrl)
+  // Run the scrape after the response is sent — `after` keeps the function
+  // instance alive on Vercel so the crawl isn't cut off mid-batch
+  after(() => runScrapeJob(job.id, companyId, normalizedUrl))
 
   return NextResponse.json({ jobId: job.id }, { status: 202 })
 }
