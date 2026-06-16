@@ -103,23 +103,24 @@ export interface XThreadBufferPayload {
 
 /**
  * Build Buffer CreatePostInput fields for an X thread.
- * First tweet → top-level `text` + `assets`; follow-ups → metadata.twitter.thread.
+ * Buffer requires every tweet (including the first) in metadata.twitter.thread;
+ * top-level `text` + `assets` must mirror the first thread entry.
+ * @see https://developers.buffer.com/examples/create-threaded-post
  */
 export function buildXThreadBufferPayload(post: Post): XThreadBufferPayload | null {
   const tweets = parseThreadTweets(post)
   if (tweets.length < 2) return null
 
-  const [first, ...rest] = tweets
+  const thread = tweets.map(t => ({
+    text: t.text,
+    assets: mediaToBufferAssets(t.media),
+  }))
+
   return {
-    text: first.text,
-    assets: mediaToBufferAssets(first.media),
+    text: thread[0].text,
+    assets: thread[0].assets,
     metadata: {
-      twitter: {
-        thread: rest.map(t => ({
-          text: t.text,
-          assets: mediaToBufferAssets(t.media),
-        })),
-      },
+      twitter: { thread },
     },
   }
 }

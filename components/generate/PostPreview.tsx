@@ -188,13 +188,18 @@ export function PostPreview({
     setAcceptedMedia(media)
     setViewMode('preview')  // jump to preview so user sees the result immediately
     if (savedPostId) {
-      await fetch(`/api/posts/${savedPostId}`, {
+      const res = await fetch(`/api/posts/${savedPostId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           media_items: [mediaItemFromResult(media)],
         }),
       })
+      if (res.ok) {
+        onSaved?.()
+      } else {
+        setSaveError('Image assigned locally but failed to save — use Save to persist it')
+      }
     }
   }
 

@@ -106,7 +106,7 @@ export function XThreadEditor({ post, companyId, brandColors, embedded, voice = 
         text: tweets[i] ?? t.text,
         ...(i === focusedIdx ? { media: item } : tweetMedia[i] ? { media: tweetMedia[i] } : {}),
       }))
-      await fetch(`/api/posts/${savedPostId}`, {
+      const res = await fetch(`/api/posts/${savedPostId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -114,6 +114,9 @@ export function XThreadEditor({ post, companyId, brandColors, embedded, voice = 
           media_items: threadMediaToPostItems(updatedThread),
         }),
       })
+      if (res.ok) {
+        onSaved?.()
+      }
     }
   }
 
