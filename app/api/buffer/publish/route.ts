@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
     const bufferUpdates = await scheduleViaBufferIfConnected(post as Post)
     if (!bufferUpdates.buffer_post_id) {
       return NextResponse.json(
-        { error: `No Buffer profile connected for ${post.channel}` },
+        { error: 'Buffer is not connected for this company.' },
         { status: 400 },
       )
     }

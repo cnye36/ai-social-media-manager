@@ -23,7 +23,7 @@ export async function fillBufferQueues(companyId?: string): Promise<FillResult> 
   // Get all companies that have a Buffer integration
   let integrationsQuery = supabase
     .from('buffer_integrations')
-    .select('company_id, access_token, organization_id, profiles')
+    .select('company_id, access_token, profiles')
 
   if (companyId) integrationsQuery = integrationsQuery.eq('company_id', companyId)
 
@@ -39,8 +39,7 @@ export async function fillBufferQueues(companyId?: string): Promise<FillResult> 
     const profiles = (integration.profiles ?? []) as Array<{ channel: Channel; id: string }>
 
     for (const channel of BUFFER_CHANNELS) {
-      const hasProfile = profiles.some(p => p.channel === channel)
-      if (!hasProfile) continue
+      if (profiles.length > 0 && !profiles.some(p => p.channel === channel)) continue
 
       const key = `${cid}:${channel}`
 
@@ -104,14 +103,17 @@ export async function getBufferQueueStatus(companyId: string): Promise<
   const supabase = createAdminClient()
   const now = new Date().toISOString()
 
-  const integration = await getBufferIntegration(companyId)
-  const profiles = (integration?.profiles ?? []) as Array<{ channel: Channel }>
-  const connectedChannels = new Set(profiles.map(p => p.channel))
-
   const result = {} as Record<Channel, { inQueue: number; pending: number; limit: number }>
 
-  for (const channel of BUFFER_CHANNELS) {
-    if (!connectedChannels.has(channel)) continue
+  const integration = await getBufferIntegration(companyId)
+  if (!integration) return result
+
+  const storedChannels = new Set((integration.profiles ?? []).map(p => p.channel))
+  const channelsToReport = storedChannels.size > 0
+    ? BUFFER_CHANNELS.filter(ch => storedChannels.has(ch))
+    : BUFFER_CHANNELS
+
+  for (const channel of channelsToReport) {
 
     const [{ count: inQueue }, { count: pending }] = await Promise.all([
       supabase

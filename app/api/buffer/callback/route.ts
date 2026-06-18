@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { fetchBufferProfilesWithOrganization } from '@/lib/publishing/buffer'
+import { connectBufferMcp } from '@/lib/publishing/buffer'
 
 // GET /api/buffer/callback?code=xxx&state=companyId
 export async function GET(req: NextRequest) {
@@ -31,12 +31,11 @@ export async function GET(req: NextRequest) {
     const tokenData = await tokenRes.json() as { access_token?: string; error?: string }
     if (!tokenData.access_token) throw new Error(tokenData.error ?? 'Token exchange failed')
 
-    const bufferResult = await fetchBufferProfilesWithOrganization(tokenData.access_token)
+    const bufferResult = await connectBufferMcp(tokenData.access_token)
 
     await supabase.from('buffer_integrations').upsert({
       company_id: companyId,
       access_token: tokenData.access_token,
-      ...(bufferResult.organizationId ? { organization_id: bufferResult.organizationId } : {}),
       profiles: bufferResult.profiles,
       connected_at: new Date().toISOString(),
     })

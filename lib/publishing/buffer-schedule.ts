@@ -18,9 +18,6 @@ export async function scheduleViaBufferIfConnected(post: Post): Promise<Record<s
   const integration = await getBufferIntegration(post.company_id)
   if (!integration) return {}
 
-  const hasProfile = integration.profiles.some(profile => profile.channel === post.channel)
-  if (!hasProfile) return {}
-
   const result = await publishViaBuffer(post, { requireCustomSchedule: true })
   if (!result.platformPostId) {
     throw new Error('Buffer accepted the request but did not return a post id. Check Buffer before retrying.')

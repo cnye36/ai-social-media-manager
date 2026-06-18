@@ -5,8 +5,13 @@ import type { Post, Channel, BufferProfile } from '@/types/database'
 import type { PublishResult } from './types'
 
 const BUFFER_MCP = 'https://mcp.buffer.com/mcp'
-const BUFFER_GRAPHQL = 'https://api.buffer.com'
 const MCP_VERSION = '2024-11-05'
+
+const CHANNEL_LIST_TOOLS = [
+  'list_channels', 'get_channels', 'channels',
+  'list_profiles', 'get_profiles', 'profiles',
+]
+const CREATE_POST_TOOLS = ['create_post', 'createPost', 'add_post', 'create_update']
 
 export const SERVICE_TO_CHANNEL: Record<string, Channel> = {
   twitter:           'x',
@@ -33,14 +38,8 @@ interface McpEnvelope<T = unknown> {
   error?: { code: number; message: string }
 }
 
-interface GraphqlEnvelope<T = unknown> {
-  data?: T
-  errors?: Array<{ message?: string; extensions?: { retryAfter?: number; code?: string } }>
-}
-
-export interface BufferProfilesResult {
+export interface BufferConnectResult {
   profiles: BufferProfile[]
-  organizationId?: string
 }
 
 async function mcpFetch<T>(
@@ -134,35 +133,6 @@ async function callTool(
   return extractContent(result)
 }
 
-async function bufferGraphql<T>(
-  token: string,
-  query: string,
-  variables?: Record<string, unknown>
-): Promise<T> {
-  const res = await fetch(BUFFER_GRAPHQL, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ query, variables }),
-  })
-
-  const envelope = await res.json().catch(async () => ({
-    errors: [{ message: await res.text() }],
-  })) as GraphqlEnvelope<T>
-
-  if (!res.ok || envelope.errors?.length) {
-    const first = envelope.errors?.[0]
-    const retryAfter = first?.extensions?.retryAfter
-    const wait = retryAfter ? ` Try again in ${Math.ceil(retryAfter / 60)} minutes.` : ''
-    throw new Error(`Buffer API${res.ok ? '' : ` (${res.status})`}: ${first?.message ?? res.statusText}${wait}`)
-  }
-
-  if (!envelope.data) throw new Error('Buffer API returned no data')
-  return envelope.data
-}
-
 function schemaRequires(schema: McpTool['inputSchema'] | undefined, key: string): boolean {
   return schema?.required?.includes(key) ?? false
 }
@@ -254,7 +224,7 @@ async function discoverOrganizationIds(
   return [...ids]
 }
 
-function buildChannelArgs(schema: McpTool['inputSchema'] | undefined, organizationId?: string): Record<string, unknown> {
+function buildChannelArgs(schema: McpTool['inputSchema'] | undefined, organizationId?: string): Record<string, unknown> | null {
   const props = schema?.properties ?? {}
   const args: Record<string, unknown> = {}
 
@@ -268,9 +238,7 @@ function buildChannelArgs(schema: McpTool['inputSchema'] | undefined, organizati
     !organizationId &&
     (schemaRequires(schema, 'organizationId') || schemaRequires(schema, 'organization_id'))
   ) {
-    throw new Error(
-      'Buffer requires an organization ID for this API key, but none could be detected. Recreate the MCP key in Buffer and try again.'
-    )
+    return null
   }
 
   return args
@@ -309,11 +277,10 @@ function parseBufferProfiles(data: unknown): BufferProfile[] {
   return profiles
 }
 
-/** Map our post to Buffer MCP `create_post` args (GraphQL CreatePostInput). */
+/** Map our post to Buffer MCP `create_post` args. */
 function buildCreatePostArgs(
   post: Post,
   profile: { id: string },
-  organizationId: string | null | undefined,
   schema?: McpTool['inputSchema']
 ): Record<string, unknown> {
   const props = schema?.properties ?? {}
@@ -346,7 +313,6 @@ function buildCreatePostArgs(
   if (has('scheduling_type')) args.scheduling_type = schedulingType
   if (has('mode')) args.mode = mode
   if (has('assets')) args.assets = assets
-  if (organizationId && has('organizationId')) args.organizationId = organizationId
 
   // Facebook requires type inside metadata.facebook.type (PostInputMetaData → FacebookPostMetadataInput)
   if (post.channel === 'facebook') {
@@ -361,14 +327,13 @@ function buildCreatePostArgs(
     if (has('due_at')) args.due_at = scheduled
     if (has('scheduledAt')) args.scheduledAt = scheduled
     if (has('scheduled_at')) args.scheduled_at = scheduled
-    // If schema inspection missed all time fields, force dueAt (Buffer GraphQL standard)
-    // This prevents the scheduler silently falling back to Buffer's queue
+    // If schema inspection missed all time fields, force dueAt
     if (!args.dueAt && !args.due_at && !args.scheduledAt && !args.scheduled_at) {
       args.dueAt = scheduled
     }
   }
 
-  // Fallback when schema is missing — use Buffer GraphQL field names
+  // Fallback when schema is missing
   if (!Object.keys(args).length) {
     return {
       channelId: profile.id,
@@ -379,7 +344,6 @@ function buildCreatePostArgs(
       ...(post.channel === 'facebook'
         ? { metadata: { facebook: { type: 'post' } } }
         : threadMetadata ? { metadata: threadMetadata } : {}),
-      ...(organizationId ? { organizationId } : {}),
       ...(scheduled ? { dueAt: scheduled } : {}),
     }
   }
@@ -432,68 +396,74 @@ function parseBufferPostMeta(data: unknown): { postId?: string; dueAt?: string }
   return visit(data)
 }
 
-async function fetchBufferPostDueAt(
+async function fetchProfilesFromMcp(
   token: string,
-  bufferPostId: string,
   tools: McpTool[],
   sessionId?: string
-): Promise<string | undefined> {
-  const getTool = pickTool(tools, ['get_post', 'getPost', 'post', 'fetch_post', 'get_update'])
-  if (!getTool) return undefined
+): Promise<BufferProfile[]> {
+  const channelTool = pickTool(tools, CHANNEL_LIST_TOOLS)
+  if (!channelTool) return []
 
-  const props = getTool.inputSchema?.properties ?? {}
-  const args: Record<string, unknown> = {}
-  if ('postId' in props) args.postId = bufferPostId
-  if ('post_id' in props) args.post_id = bufferPostId
-  if ('id' in props) args.id = bufferPostId
-  if (!Object.keys(args).length) args.id = bufferPostId
+  const tryList = async (organizationId?: string): Promise<BufferProfile[]> => {
+    const args = buildChannelArgs(channelTool.inputSchema, organizationId)
+    if (args === null) return []
+    const data = await callTool(token, channelTool.name, args, sessionId)
+    return parseBufferProfiles(data)
+  }
 
-  const data = await callTool(token, getTool.name, args, sessionId)
-  return parseBufferPostMeta(data).dueAt
+  try {
+    const profiles = await tryList()
+    if (profiles.length) return profiles
+  } catch {
+    // Channel listing may require org context; try discovery next.
+  }
+
+  const orgIds = await discoverOrganizationIds(token, tools, sessionId)
+  for (const orgId of orgIds) {
+    try {
+      const profiles = await tryList(orgId)
+      if (profiles.length) return profiles
+    } catch {
+      // Try the next discovered organization.
+    }
+  }
+
+  return []
+}
+
+async function resolveBufferProfile(
+  integration: { access_token: string; profiles: BufferProfile[] },
+  channel: Channel,
+  sessionId: string | undefined,
+  tools: McpTool[]
+): Promise<BufferProfile> {
+  const stored = integration.profiles.find(p => p.channel === channel)
+  if (stored) return stored
+
+  const profiles = await fetchProfilesFromMcp(integration.access_token, tools, sessionId)
+  const profile = profiles.find(p => p.channel === channel)
+  if (!profile) {
+    throw new Error(
+      `No Buffer profile for channel "${channel}". Connect that channel in your Buffer workspace.`
+    )
+  }
+  return profile
 }
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
-export async function fetchBufferProfiles(
-  accessToken: string,
-  organizationId?: string
-): Promise<BufferProfile[]> {
-  return (await fetchBufferProfilesWithOrganization(accessToken, organizationId)).profiles
-}
+/** Validate an MCP API key and optionally discover connected channels. */
+export async function connectBufferMcp(accessToken: string): Promise<BufferConnectResult> {
+  const sessionId = await initSession(accessToken)
+  const tools = await listTools(accessToken, sessionId)
 
-export async function fetchBufferProfilesWithOrganization(
-  accessToken: string,
-  organizationId?: string
-): Promise<BufferProfilesResult> {
-  if (!organizationId) {
-    throw new Error(
-      'Buffer organization ID is required. Copy it from Buffer Settings > API and paste it with the API key.'
-    )
+  const createTool = pickTool(tools, CREATE_POST_TOOLS)
+  if (!createTool) {
+    throw new Error('Buffer MCP connected but create_post is unavailable. Check your API key.')
   }
 
-  const data = await bufferGraphql<{ channels: Array<Record<string, string>> }>(
-    accessToken,
-    `
-      query GetChannels($orgId: OrganizationID!) {
-        channels(input: { organizationId: $orgId }) {
-          id
-          name
-          displayName
-          service
-          avatar
-          isQueuePaused
-        }
-      }
-    `,
-    { orgId: organizationId }
-  )
-
-  const profiles = parseBufferProfiles(data)
-  if (profiles.length) return { profiles, organizationId }
-
-  throw new Error(
-    `No supported profiles found. Raw channels response: ${JSON.stringify(data.channels ?? []).slice(0, 600)}`
-  )
+  const profiles = await fetchProfilesFromMcp(accessToken, tools, sessionId)
+  return { profiles }
 }
 
 export async function getBufferIntegration(companyId: string) {
@@ -503,7 +473,7 @@ export async function getBufferIntegration(companyId: string) {
     .select('*')
     .eq('company_id', companyId)
     .maybeSingle()
-  return data as { access_token: string; organization_id: string | null; profiles: BufferProfile[] } | null
+  return data as { access_token: string; profiles: BufferProfile[] } | null
 }
 
 export async function publishViaBuffer(
@@ -513,13 +483,6 @@ export async function publishViaBuffer(
   const integration = await getBufferIntegration(post.company_id)
   if (!integration) throw new Error('No Buffer integration configured for this company')
 
-  const profile = integration.profiles.find(p => p.channel === post.channel)
-  if (!profile) {
-    throw new Error(
-      `No Buffer profile for channel "${post.channel}". Connect a ${post.channel} account in Settings > Connections.`
-    )
-  }
-
   if (options?.requireCustomSchedule && !post.scheduled_for) {
     throw new Error('Set a publish date and time before sending to Buffer.')
   }
@@ -527,10 +490,11 @@ export async function publishViaBuffer(
   const token = integration.access_token
   const sessionId = await initSession(token)
   const tools = await listTools(token, sessionId)
-  const createTool = pickTool(tools, ['create_post', 'createPost', 'add_post', 'create_update'])
+  const createTool = pickTool(tools, CREATE_POST_TOOLS)
   if (!createTool) throw new Error('Buffer MCP does not expose a create_post tool')
 
-  const args = buildCreatePostArgs(post, profile, integration.organization_id, createTool.inputSchema)
+  const profile = await resolveBufferProfile(integration, post.channel, sessionId, tools)
+  const args = buildCreatePostArgs(post, profile, createTool.inputSchema)
   const data = await callTool(token, createTool.name, args, sessionId)
   const { postId, dueAt } = parseBufferPostMeta(data)
 

@@ -2,41 +2,16 @@
 
 import { useState, useEffect } from 'react'
 import { Check, Link2, Link2Off, RefreshCw, AlertCircle, ExternalLink } from 'lucide-react'
-import { LinkedInIcon, XIcon, FacebookIcon } from '@/components/ui/channel-icons'
 import { Button } from '@/components/ui/button'
-import { cn } from '@/lib/utils'
-import { bufferDaysCoverage } from '@/lib/scheduling/defaults'
-import type { BufferProfile, Channel } from '@/types/database'
-
-interface QueueStatus {
-  inQueue: number
-  pending: number
-  limit: number
-}
-
-const SERVICE_ICONS: Record<string, React.ReactNode> = {
-  twitter:  <XIcon className="w-4 h-4" />,
-  linkedin: <LinkedInIcon className="w-4 h-4" />,
-  facebook: <FacebookIcon className="w-4 h-4" />,
-}
-
-const SERVICE_COLORS: Record<string, string> = {
-  twitter:  'border-zinc-500/30 bg-zinc-500/5',
-  linkedin: 'border-blue-500/30 bg-blue-500/5',
-  facebook: 'border-blue-400/30 bg-blue-400/5',
-}
 
 interface Integration {
   id: string
-  profiles: BufferProfile[]
   connected_at: string
 }
 
 export function BufferConnect({ companyId }: { companyId: string }) {
   const [integration, setIntegration] = useState<Integration | null | undefined>(undefined)
-  const [queueStatus, setQueueStatus] = useState<Partial<Record<Channel, QueueStatus>>>({})
   const [token, setToken] = useState('')
-  const [organizationId, setOrganizationId] = useState('')
   const [showReconnect, setShowReconnect] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -44,15 +19,7 @@ export function BufferConnect({ companyId }: { companyId: string }) {
   useEffect(() => {
     fetch(`/api/buffer?companyId=${companyId}`)
       .then(r => r.json())
-      .then(d => {
-        setIntegration(d as Integration | null)
-        if (d) {
-          fetch(`/api/buffer/queue-status?companyId=${companyId}`)
-            .then(r => r.json())
-            .then(q => setQueueStatus(q as Partial<Record<Channel, QueueStatus>>))
-            .catch(() => {})
-        }
-      })
+      .then(d => setIntegration(d as Integration | null))
       .catch(() => setIntegration(null))
   }, [companyId])
 
@@ -66,18 +33,16 @@ export function BufferConnect({ companyId }: { companyId: string }) {
       body: JSON.stringify({
         companyId,
         accessToken: token.trim(),
-        organizationId: organizationId.trim() || undefined,
       }),
     })
-    const data = await res.json() as { profiles?: BufferProfile[]; error?: string }
+    const data = await res.json() as { error?: string }
     setLoading(false)
     if (!res.ok) {
       setError(data.error ?? 'Connection failed')
       return
     }
-    setIntegration({ id: '', profiles: data.profiles ?? [], connected_at: new Date().toISOString() })
+    setIntegration({ id: '', connected_at: new Date().toISOString() })
     setToken('')
-    setOrganizationId('')
     setShowReconnect(false)
   }
 
@@ -87,7 +52,6 @@ export function BufferConnect({ companyId }: { companyId: string }) {
     await fetch(`/api/buffer?companyId=${companyId}`, { method: 'DELETE' })
     setIntegration(null)
     setToken('')
-    setOrganizationId('')
     setShowReconnect(false)
     setLoading(false)
   }
@@ -98,7 +62,6 @@ export function BufferConnect({ companyId }: { companyId: string }) {
 
   return (
     <div className="space-y-4">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-lg bg-[#e8f5e8] flex items-center justify-center flex-shrink-0">
@@ -121,42 +84,9 @@ export function BufferConnect({ companyId }: { companyId: string }) {
         )}
       </div>
 
-      {/* Connected state */}
       {integration && !showReconnect && (
         <div className="space-y-2">
-          <p className="text-xs text-zinc-500 uppercase tracking-wide font-medium">Connected channels</p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            {integration.profiles.map(profile => (
-              <div
-                key={profile.id}
-                className={cn(
-                  'flex items-center gap-3 px-3 py-2.5 rounded-lg border',
-                  SERVICE_COLORS[profile.service] ?? 'border-zinc-700 bg-zinc-800'
-                )}
-              >
-                <span className="text-zinc-400">{SERVICE_ICONS[profile.service]}</span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs font-medium text-white capitalize truncate">{profile.channel}</p>
-                  <p className="text-[11px] text-zinc-500 truncate">@{profile.service_username}</p>
-                  {queueStatus[profile.channel] && (
-                    <p className="text-[11px] text-zinc-500 mt-0.5">
-                      <span className="text-zinc-300">{queueStatus[profile.channel]!.inQueue}</span>
-                      /{queueStatus[profile.channel]!.limit} queued
-                      <span className="text-zinc-600 mx-1">·</span>
-                      ~{bufferDaysCoverage(profile.channel)}d coverage
-                      {queueStatus[profile.channel]!.pending > 0 && (
-                        <span className="text-violet-400 ml-1.5">
-                          +{queueStatus[profile.channel]!.pending} waiting
-                        </span>
-                      )}
-                    </p>
-                  )}
-                </div>
-                <Check className="w-3 h-3 text-green-400 flex-shrink-0" />
-              </div>
-            ))}
-          </div>
-          <p className="text-[11px] text-zinc-600 leading-relaxed pt-1">
+          <p className="text-[11px] text-zinc-600 leading-relaxed">
             Posts are only sent to Buffer when you click <span className="text-zinc-400">Send to Buffer</span> on a scheduled post.
             Your app schedule time is used — Buffer will not pick the next open slot.
           </p>
@@ -176,17 +106,16 @@ export function BufferConnect({ companyId }: { companyId: string }) {
         </div>
       )}
 
-      {/* Connect / reconnect form */}
       {(!integration || showReconnect) && (
         <div className="space-y-3">
           <div className="space-y-1.5">
-            <label className="text-xs text-zinc-400 font-medium">Buffer API key</label>
+            <label className="text-xs text-zinc-400 font-medium">Buffer MCP API key</label>
             <input
               type="password"
               value={token}
               onChange={e => setToken(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleConnect()}
-              placeholder="Paste your API key"
+              placeholder="Paste your MCP API key"
               className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-violet-500/60"
             />
             <p className="text-[11px] text-zinc-600 leading-relaxed">
@@ -198,20 +127,7 @@ export function BufferConnect({ companyId }: { companyId: string }) {
               >
                 publish.buffer.com/settings/integrations/mcp <ExternalLink className="w-2.5 h-2.5" />
               </a>
-            </p>
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-xs text-zinc-400 font-medium">Buffer organization ID</label>
-            <input
-              value={organizationId}
-              onChange={e => setOrganizationId(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleConnect()}
-              placeholder="Paste your organization ID"
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-violet-500/60"
-            />
-            <p className="text-[11px] text-zinc-600 leading-relaxed">
-              Use the organization ID shown on the same Buffer MCP integration page. This helps match the API key to the right workspace.
+              . Each company can use its own key for a separate Buffer workspace.
             </p>
           </div>
 
