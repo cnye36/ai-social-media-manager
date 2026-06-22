@@ -8,10 +8,11 @@ const BUFFER_MCP = 'https://mcp.buffer.com/mcp'
 const MCP_VERSION = '2024-11-05'
 
 const CHANNEL_LIST_TOOLS = [
-  'list_channels', 'get_channels', 'channels',
-  'list_profiles', 'get_profiles', 'profiles',
+  'list-channels', 'list_channels', 'get-channels', 'get_channels', 'channels',
+  'list-profiles', 'list_profiles', 'get-profiles', 'get_profiles', 'profiles',
 ]
-const CREATE_POST_TOOLS = ['create_post', 'createPost', 'add_post', 'create_update']
+const CREATE_POST_TOOLS = ['create-post', 'create_post', 'createPost', 'add-post', 'add_post', 'create-update', 'create_update']
+const ACCOUNT_TOOLS = ['get-account', 'get_account', 'account', 'get-user', 'get_user', 'me', 'whoami']
 
 export const SERVICE_TO_CHANNEL: Record<string, Channel> = {
   twitter:           'x',
@@ -104,11 +105,21 @@ async function listTools(token: string, sessionId?: string): Promise<McpTool[]> 
   return result.tools ?? []
 }
 
-function pickTool(tools: McpTool[], candidates: string[]): McpTool | undefined {
+function pickTool(tools: McpTool[], candidates: string[], pattern?: RegExp): McpTool | undefined {
   for (const name of candidates) {
     const found = tools.find(t => t.name === name)
     if (found) return found
   }
+  if (pattern) return tools.find(t => pattern.test(t.name))
+  return undefined
+}
+
+function serviceToChannel(raw: string): Channel | undefined {
+  const s = raw.toLowerCase()
+  if (SERVICE_TO_CHANNEL[s]) return SERVICE_TO_CHANNEL[s]
+  if (s.includes('linkedin')) return 'linkedin'
+  if (s.includes('twitter') || /\bx\b/.test(s)) return 'x'
+  if (s.includes('facebook')) return 'facebook'
   return undefined
 }
 
@@ -195,22 +206,43 @@ async function discoverOrganizationIds(
   tools: McpTool[],
   sessionId?: string
 ): Promise<string[]> {
+  const ids = new Set<string>()
+
+  const accountTool = pickTool(tools, ACCOUNT_TOOLS, /get[-_]?account|^account$|whoami|\bme\b/i)
+  if (accountTool) {
+    try {
+      const data = await callTool(token, accountTool.name, {}, sessionId)
+      if (data && typeof data === 'object') {
+        const orgs = (data as Record<string, unknown>).organizations
+        if (Array.isArray(orgs)) {
+          for (const org of orgs) {
+            const id = firstString((org as Record<string, unknown>).id)
+            if (id) ids.add(id)
+          }
+        }
+      }
+      extractOrganizationIds(data).forEach(id => ids.add(id))
+    } catch {
+      // Fall through to other discovery tools.
+    }
+  }
+
   const exactNames = [
-    'list_organizations', 'get_organizations', 'organizations',
-    'list_workspaces', 'get_workspaces', 'workspaces',
-    'get_current_organization', 'current_organization',
-    'get_account', 'account', 'me', 'whoami', 'get_user',
+    'list-organizations', 'list_organizations', 'get-organizations', 'get_organizations', 'organizations',
+    'list-workspaces', 'list_workspaces', 'get-workspaces', 'get_workspaces', 'workspaces',
+    'get-current-organization', 'get_current_organization', 'current-organization', 'current_organization',
+    'get-user', 'get_user',
   ]
   const candidates = [
     ...exactNames
       .map(name => tools.find(tool => tool.name === name))
       .filter((tool): tool is McpTool => Boolean(tool)),
     ...tools.filter(tool =>
-      /organi[sz]ation|workspace|account|whoami|\bme\b|user/i.test(tool.name) &&
-      !exactNames.includes(tool.name)
+      /organi[sz]ation|workspace|whoami|\bme\b|user/i.test(tool.name) &&
+      !exactNames.includes(tool.name) &&
+      tool.name !== accountTool?.name
     ),
   ]
-  const ids = new Set<string>()
 
   for (const tool of candidates) {
     try {
@@ -224,20 +256,23 @@ async function discoverOrganizationIds(
   return [...ids]
 }
 
+function orgIdRequired(schema: McpTool['inputSchema'] | undefined): boolean {
+  return ['organizationId', 'organization_id', 'organization-id', 'orgId', 'org_id']
+    .some(key => schemaRequires(schema, key))
+}
+
 function buildChannelArgs(schema: McpTool['inputSchema'] | undefined, organizationId?: string): Record<string, unknown> | null {
   const props = schema?.properties ?? {}
   const args: Record<string, unknown> = {}
 
   if (organizationId) {
-    if ('organizationId' in props || !schema) args.organizationId = organizationId
-    if ('organization_id' in props) args.organization_id = organizationId
+    for (const key of ['organizationId', 'organization_id', 'organization-id', 'orgId', 'org_id']) {
+      if (key in props) args[key] = organizationId
+    }
+    if (!Object.keys(args).length) args.organizationId = organizationId
   }
-  if (organizationId && !Object.keys(args).length) args.organizationId = organizationId
 
-  if (
-    !organizationId &&
-    (schemaRequires(schema, 'organizationId') || schemaRequires(schema, 'organization_id'))
-  ) {
+  if (!organizationId && orgIdRequired(schema)) {
     return null
   }
 
@@ -264,11 +299,13 @@ function parseBufferProfiles(data: unknown): BufferProfile[] {
       p.service ?? p.service_type ?? p.platform ?? p.type ??
       p.network ?? p.channel_type ?? p.provider ?? ''
     ).toLowerCase()
-    const channel = SERVICE_TO_CHANNEL[raw]
+    const channel = serviceToChannel(raw)
     if (!channel) continue
+    const id = p.id ?? p.channel_id ?? p.channelId ?? ''
+    if (!id) continue
     profiles.push({
-      id: p.id ?? p.channel_id ?? '',
-      service: raw as BufferProfile['service'],
+      id,
+      service: (SERVICE_TO_CHANNEL[raw] ? raw : channel) as BufferProfile['service'],
       service_username: p.service_username ?? p.username ?? p.handle ?? p.displayName ?? p.display_name ?? p.name ?? '',
       channel,
     })
@@ -401,7 +438,7 @@ async function fetchProfilesFromMcp(
   tools: McpTool[],
   sessionId?: string
 ): Promise<BufferProfile[]> {
-  const channelTool = pickTool(tools, CHANNEL_LIST_TOOLS)
+  const channelTool = pickTool(tools, CHANNEL_LIST_TOOLS, /list[-_]?channels?|get[-_]?channels?|^channels$/i)
   if (!channelTool) return []
 
   const tryList = async (organizationId?: string): Promise<BufferProfile[]> => {
@@ -411,14 +448,8 @@ async function fetchProfilesFromMcp(
     return parseBufferProfiles(data)
   }
 
-  try {
-    const profiles = await tryList()
-    if (profiles.length) return profiles
-  } catch {
-    // Channel listing may require org context; try discovery next.
-  }
-
   const orgIds = await discoverOrganizationIds(token, tools, sessionId)
+
   for (const orgId of orgIds) {
     try {
       const profiles = await tryList(orgId)
@@ -428,23 +459,43 @@ async function fetchProfilesFromMcp(
     }
   }
 
+  try {
+    const profiles = await tryList()
+    if (profiles.length) return profiles
+  } catch {
+    // Channel listing may require org context.
+  }
+
   return []
+}
+
+async function cacheBufferProfiles(companyId: string, profiles: BufferProfile[]): Promise<void> {
+  if (!profiles.length) return
+  const supabase = createAdminClient()
+  await supabase
+    .from('buffer_integrations')
+    .update({ profiles })
+    .eq('company_id', companyId)
 }
 
 async function resolveBufferProfile(
   integration: { access_token: string; profiles: BufferProfile[] },
   channel: Channel,
   sessionId: string | undefined,
-  tools: McpTool[]
+  tools: McpTool[],
+  companyId: string
 ): Promise<BufferProfile> {
   const stored = integration.profiles.find(p => p.channel === channel)
-  if (stored) return stored
+  if (stored?.id) return stored
 
   const profiles = await fetchProfilesFromMcp(integration.access_token, tools, sessionId)
+  if (profiles.length) await cacheBufferProfiles(companyId, profiles)
+
   const profile = profiles.find(p => p.channel === channel)
   if (!profile) {
+    const discovered = profiles.map(p => p.channel).join(', ') || 'none'
     throw new Error(
-      `No Buffer profile for channel "${channel}". Connect that channel in your Buffer workspace.`
+      `No Buffer channel found for "${channel}". MCP returned: ${discovered}. Connect that network in your Buffer workspace.`
     )
   }
   return profile
@@ -457,7 +508,7 @@ export async function connectBufferMcp(accessToken: string): Promise<BufferConne
   const sessionId = await initSession(accessToken)
   const tools = await listTools(accessToken, sessionId)
 
-  const createTool = pickTool(tools, CREATE_POST_TOOLS)
+  const createTool = pickTool(tools, CREATE_POST_TOOLS, /create[-_]?post|add[-_]?post/i)
   if (!createTool) {
     throw new Error('Buffer MCP connected but create_post is unavailable. Check your API key.')
   }
@@ -490,10 +541,10 @@ export async function publishViaBuffer(
   const token = integration.access_token
   const sessionId = await initSession(token)
   const tools = await listTools(token, sessionId)
-  const createTool = pickTool(tools, CREATE_POST_TOOLS)
+  const createTool = pickTool(tools, CREATE_POST_TOOLS, /create[-_]?post|add[-_]?post/i)
   if (!createTool) throw new Error('Buffer MCP does not expose a create_post tool')
 
-  const profile = await resolveBufferProfile(integration, post.channel, sessionId, tools)
+  const profile = await resolveBufferProfile(integration, post.channel, sessionId, tools, post.company_id)
   const args = buildCreatePostArgs(post, profile, createTool.inputSchema)
   const data = await callTool(token, createTool.name, args, sessionId)
   const { postId, dueAt } = parseBufferPostMeta(data)

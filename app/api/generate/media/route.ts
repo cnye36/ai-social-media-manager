@@ -23,6 +23,7 @@ export async function POST(req: NextRequest) {
     purpose,
     size,
     articleTitle,
+    includeLogo,
   } = body as {
     postContent?: string
     companyId: string
@@ -35,6 +36,7 @@ export async function POST(req: NextRequest) {
     purpose?: 'cover' | 'inline' | 'social'
     size?: ImageSize
     articleTitle?: string
+    includeLogo?: boolean
   }
 
   if (!companyId) {
@@ -52,7 +54,7 @@ export async function POST(req: NextRequest) {
 
   const { data: company } = await supabase
     .from('companies')
-    .select('id')
+    .select('id, logo_url')
     .eq('id', companyId)
     .eq('owner_id', user.id)
     .maybeSingle()
@@ -72,6 +74,7 @@ export async function POST(req: NextRequest) {
       purpose,
       size,
       articleTitle: articleTitle?.trim(),
+      logoUrl: includeLogo ? company.logo_url : undefined,
     })
     return NextResponse.json(result)
   } catch (err) {

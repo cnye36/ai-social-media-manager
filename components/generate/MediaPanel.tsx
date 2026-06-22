@@ -53,6 +53,7 @@ export function MediaPanel({ postContent, companyId, channel, postId, brandColor
   const [error, setError] = useState<string | null>(null)
   const [canvaLoading, setCanvaLoading] = useState(false)
   const [canvaUrl, setCanvaUrl] = useState<string | null>(null)
+  const [includeLogo, setIncludeLogo] = useState(false)
 
   // ── Library tab state ────────────────────────────────────────────────────────
   const [libraryItems, setLibraryItems] = useState<LibraryItem[]>([])
@@ -104,6 +105,7 @@ export function MediaPanel({ postContent, companyId, channel, postId, brandColor
           brandColors,
           postId,
           imagePrompt: useDraftPrompt && promptDraft.trim() ? promptDraft.trim() : undefined,
+          includeLogo,
         }),
       })
 
@@ -312,6 +314,16 @@ export function MediaPanel({ postContent, companyId, channel, postId, brandColor
             {iterationsLeft === 0 && (
               <p className="text-xs text-zinc-600 text-center">Max iterations reached.</p>
             )}
+
+            <label className="flex items-center gap-2 text-xs text-zinc-400 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={includeLogo}
+                onChange={e => setIncludeLogo(e.target.checked)}
+                className="rounded border-zinc-700 bg-zinc-900 text-violet-600 focus:ring-violet-500 focus:ring-offset-0"
+              />
+              Include brand logo (uploaded in Settings)
+            </label>
 
             <div className="flex gap-2">
               {!current ? (

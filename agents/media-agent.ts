@@ -22,14 +22,14 @@ const GenerateImageParams = z.object({
     ),
 })
 
-function makeGenerateImageTool(companyId: string, linkIds: { postId?: string; articleId?: string }) {
+function makeGenerateImageTool(companyId: string, linkIds: { postId?: string; articleId?: string }, logoUrl?: string | null) {
   return tool({
     name: 'generate_image',
     description:
       'Generate an image with AI. Use for photography, illustrations, backgrounds, infographics, diagrams, charts, step-by-step visuals, stat cards, and comparison graphics — all as a single rendered image.',
     parameters: GenerateImageParams,
     execute: async (params) => {
-      const result = await generateImage({ ...params, companyId, ...linkIds })
+      const result = await generateImage({ ...params, companyId, ...linkIds, logoUrl })
       return JSON.stringify({
         url: result.url,
         storagePath: result.storagePath,
@@ -40,7 +40,7 @@ function makeGenerateImageTool(companyId: string, linkIds: { postId?: string; ar
   })
 }
 
-function buildMediaAgent(companyId: string, linkIds: { postId?: string; articleId?: string }, mode: 'social' | 'blog'): Agent {
+function buildMediaAgent(companyId: string, linkIds: { postId?: string; articleId?: string }, mode: 'social' | 'blog', logoUrl?: string | null): Agent {
   const socialInstructions = `You are a creative media specialist for social media content. Analyze the post and call generate_image once to create the perfect accompanying visual.
 
 PROMPT QUALITY:
@@ -82,7 +82,7 @@ Call generate_image exactly once. Return only the tool result — no commentary.
     name: 'MediaAgent',
     model: 'gpt-5.4',
     instructions: mode === 'blog' ? blogInstructions : socialInstructions,
-    tools: [makeGenerateImageTool(companyId, linkIds)],
+    tools: [makeGenerateImageTool(companyId, linkIds, logoUrl)],
   })
 }
 
@@ -148,6 +148,8 @@ export interface GenerateMediaParams {
   size?: ImageSize
   /** Used to forbid using the title verbatim as on-image hook text. */
   articleTitle?: string
+  /** Public URL of the company's real logo — when set, it's composited into the image. */
+  logoUrl?: string | null
 }
 
 function defaultSize(purpose?: MediaPurpose): ImageSize {
@@ -187,6 +189,7 @@ export async function generateMedia(params: GenerateMediaParams): Promise<MediaR
     purpose,
     size,
     articleTitle,
+    logoUrl,
   } = params
 
   const linkIds = { postId, articleId }
@@ -201,6 +204,7 @@ export async function generateMedia(params: GenerateMediaParams): Promise<MediaR
       prompt,
       companyId,
       size: apiSize,
+      logoUrl,
       ...linkIds,
     })
     return attachAltText(
@@ -259,7 +263,7 @@ ${colorHint}${refinementHint}
 
 Call generate_image with a prompt that best matches the post — including infographic-style layouts when the content has data, steps, or comparisons.`
 
-  const agent = buildMediaAgent(companyId, linkIds, isBlog ? 'blog' : 'social')
+  const agent = buildMediaAgent(companyId, linkIds, isBlog ? 'blog' : 'social', logoUrl)
   const result = await run(agent, prompt)
   const image = parseMediaResult(result)
   return attachAltText(image, { postContent: postContent.trim(), channel, purpose })

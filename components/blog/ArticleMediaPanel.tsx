@@ -63,6 +63,7 @@ export function ArticleMediaPanel({
   const [refinementNote, setRefinementNote] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [includeLogo, setIncludeLogo] = useState(false)
   const [libraryItems, setLibraryItems] = useState<LibraryItem[]>([])
   const [libraryLoading, setLibraryLoading] = useState(false)
   const [libraryError, setLibraryError] = useState<string | null>(null)
@@ -119,6 +120,7 @@ export function ArticleMediaPanel({
           refinementNote: refinement || undefined,
           articleTitle,
           size: mode === 'cover' ? BLOG_COVER_IMAGE_SIZE : BLOG_INLINE_IMAGE_SIZE,
+          includeLogo,
         }),
       })
 
@@ -298,6 +300,16 @@ export function ArticleMediaPanel({
                   </button>
                 </div>
               )}
+
+              <label className="flex items-center gap-2 text-xs text-zinc-400 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={includeLogo}
+                  onChange={e => setIncludeLogo(e.target.checked)}
+                  className="rounded border-zinc-700 bg-zinc-900 text-violet-600 focus:ring-violet-500 focus:ring-offset-0"
+                />
+                Include brand logo (uploaded in Settings)
+              </label>
 
               <div className="flex gap-2">
                 {!current ? (

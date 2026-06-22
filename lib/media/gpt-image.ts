@@ -1,10 +1,16 @@
-import OpenAI from 'openai'
+import OpenAI, { toFile } from 'openai'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { MAX_ALT_TEXT_LENGTH } from '@/lib/media/alt-text'
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
 const IMAGE_MODEL = process.env.OPENAI_IMAGE_MODEL ?? 'gpt-image-2'
+
+const NO_FAKE_BRANDING_RULE =
+  'Do not invent or render any logos, business names, brand marks, or storefront/signage text anywhere in the image — leave surfaces, signage, and packaging unbranded and generic.'
+
+const REAL_LOGO_RULE =
+  'Incorporate the attached brand logo image exactly as shown — do not redraw, recolor, or otherwise alter it — placed as a small, tasteful badge in a corner of the composition, sized appropriately and not dominating the scene. Do not invent or render any other logos, business names, or brand marks.'
 
 /** Common preset sizes for GPT Image models. */
 export type ImageSize =
@@ -63,17 +69,28 @@ export async function generateImage(params: {
   size?: string
   postId?: string
   articleId?: string
+  /** Public URL of the company's real logo — when set, it's composited into the image instead of letting the model invent one. */
+  logoUrl?: string | null
 }): Promise<GeneratedImage> {
-  const { prompt, companyId, size, postId, articleId } = params
+  const { prompt, companyId, size, postId, articleId, logoUrl } = params
   const apiSize = normalizeImageSize(size)
 
-  const response = await openai.images.generate({
-    model: IMAGE_MODEL,
-    prompt,
-    n: 1,
-    size: apiSize as ImageSize,
-    quality: 'medium'
-  })
+  const response = logoUrl
+    ? await openai.images.edit({
+        model: IMAGE_MODEL,
+        image: await fetchLogoFile(logoUrl),
+        prompt: `${prompt}\n\n${REAL_LOGO_RULE}`,
+        n: 1,
+        size: apiSize as ImageSize,
+        quality: 'medium',
+      })
+    : await openai.images.generate({
+        model: IMAGE_MODEL,
+        prompt: `${prompt}\n\n${NO_FAKE_BRANDING_RULE}`,
+        n: 1,
+        size: apiSize as ImageSize,
+        quality: 'medium'
+      })
 
   const item = response.data?.[0] as { b64_json?: string } | undefined
   const b64 = item?.b64_json
@@ -107,6 +124,23 @@ export async function generateImage(params: {
   })()
 
   return { url: publicUrl, storagePath: filename, promptUsed: prompt }
+}
+
+/** Only fetch logos from our own Supabase Storage — logo_url is server-generated, but this
+ * blocks SSRF if that ever changes (e.g. a future "import logo from URL" field). */
+function assertOwnStorageUrl(logoUrl: string): void {
+  const supabaseOrigin = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!).origin
+  if (new URL(logoUrl).origin !== supabaseOrigin) {
+    throw new Error('Logo URL must be hosted on our own Supabase Storage')
+  }
+}
+
+async function fetchLogoFile(logoUrl: string) {
+  assertOwnStorageUrl(logoUrl)
+  const res = await fetch(logoUrl)
+  if (!res.ok) throw new Error(`Failed to fetch logo: ${res.status}`)
+  const buffer = Buffer.from(await res.arrayBuffer())
+  return toFile(buffer, 'logo.png', { type: res.headers.get('content-type') ?? 'image/png' })
 }
 
 /** Backfill alt text on the library row created during generateImage. */
