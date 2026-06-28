@@ -1,5 +1,6 @@
 import OpenAI from 'openai'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
@@ -49,5 +50,20 @@ export async function retrieve(
   })
 
   if (error) throw new Error(`Retrieval failed: ${error.message}`)
-  return (data ?? []) as RetrievedChunk[]
+  const chunks = (data ?? []) as RetrievedChunk[]
+
+  // Fire-and-forget: log query for knowledge gap detection
+  const maxSimilarity = chunks.length > 0 ? Math.max(...chunks.map(c => c.similarity)) : null
+  void (async () => {
+    try {
+      await createAdminClient().from('rag_query_logs').insert({
+        company_id: companyId,
+        query: query.slice(0, 500),
+        result_count: chunks.length,
+        max_similarity: maxSimilarity,
+      })
+    } catch { /* non-blocking */ }
+  })()
+
+  return chunks
 }

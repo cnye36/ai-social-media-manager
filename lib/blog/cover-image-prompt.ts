@@ -250,9 +250,10 @@ QUALITY STANDARDS:
 - Professional typography: heavy bold sans-serif headlines, lighter supporting text
 - Color palette is cohesive — accent color (${accent}) used consistently across icons, gradients, and borders
 
-THEME COMPATIBILITY: Must look excellent on both light AND dark blog page backgrounds.
-- If using a dark bg: image is self-contained and provides its own frame
-- If using a light bg: add a 2px border and subtle drop-shadow so the image has a visible edge on dark blog themes
+
+
+
+
 
 HOOK TEXT RULES:
 - The on-image headline MUST be "${hook}" — render this exactly as the dominant text

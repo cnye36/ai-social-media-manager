@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { format } from 'date-fns'
 import {
   Bold, Italic, List, Copy, Check, Trash2, CalendarClock,
@@ -88,6 +88,12 @@ export function PostEditorModal({
   const [bufferPostId, setBufferPostId] = useState<string | null>(null)
   const [showMedia, setShowMedia] = useState(false)
 
+  // ─── Quality score ─────────────────────────────────────────────────────────
+  const [postScore, setPostScore] = useState<number | null>(null)
+  const [scoreIssues, setScoreIssues] = useState<string[]>([])
+  const [scoreLoading, setScoreLoading] = useState(false)
+  const scoreTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   // ─── Thread state ──────────────────────────────────────────────────────────
   const [rawParsedThread, setRawParsedThread] = useState<ThreadTweet[]>([])
   const [threadTweets, setThreadTweets] = useState<string[]>([])
@@ -116,6 +122,8 @@ export function PostEditorModal({
       setApproveError('')
       setBufferPostId(post.buffer_post_id)
       setShowMedia(false)
+      setPostScore(null)
+      setScoreIssues([])
 
       if (isXThreadPost(post)) {
         const parsed = parseThreadTweets(post)
@@ -128,6 +136,37 @@ export function PostEditorModal({
       }
     }
   }, [post?.id, open])
+
+  const scoreContent = useCallback(async (text: string, ch: Channel) => {
+    setScoreLoading(true)
+    try {
+      const res = await fetch('/api/posts/score', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: text, channel: ch }),
+      })
+      if (res.ok) {
+        const { score, issues } = await res.json() as { score: number; issues: string[] }
+        setPostScore(score)
+        setScoreIssues(issues)
+      }
+    } finally {
+      setScoreLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (isThread || !post || content.length < 60) {
+      setPostScore(null)
+      setScoreIssues([])
+      return
+    }
+    if (scoreTimerRef.current) clearTimeout(scoreTimerRef.current)
+    scoreTimerRef.current = setTimeout(() => {
+      void scoreContent(content, post.channel as Channel)
+    }, 700)
+    return () => { if (scoreTimerRef.current) clearTimeout(scoreTimerRef.current) }
+  }, [content, isThread, post, scoreContent])
 
   function applyFormattingToSingle(type: 'bold' | 'italic' | 'bullet') {
     const ta = textareaRef.current
@@ -565,6 +604,32 @@ export function PostEditorModal({
                     <p className={cn('text-xs text-right', content.length > 280 ? 'text-red-400' : 'text-zinc-600')}>
                       {content.length}/280
                     </p>
+                  )}
+                  {/* Quality score */}
+                  {!isThread && content.length >= 60 && (
+                    <div className="flex items-center gap-2 min-h-[20px]">
+                      {scoreLoading ? (
+                        <span className="text-[11px] text-zinc-600">Scoring…</span>
+                      ) : postScore !== null ? (
+                        <>
+                          <span className={cn(
+                            'text-[11px] font-semibold tabular-nums',
+                            postScore >= 80 ? 'text-green-400' : postScore >= 65 ? 'text-yellow-400' : 'text-red-400'
+                          )}>
+                            {postScore}/100
+                          </span>
+                          {scoreIssues.slice(0, 2).map((issue, i) => (
+                            <span
+                              key={i}
+                              className="text-[11px] text-zinc-500 bg-zinc-800 px-1.5 py-0.5 rounded truncate max-w-[200px]"
+                              title={issue}
+                            >
+                              {issue}
+                            </span>
+                          ))}
+                        </>
+                      ) : null}
+                    </div>
                   )}
                   {previewMediaAlt && <AltTextBox value={previewMediaAlt} label="Image alt text" />}
                 </div>

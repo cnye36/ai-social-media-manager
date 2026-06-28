@@ -8,6 +8,7 @@ import { buildFacebookAgent } from './facebook-agent'
 import type { Channel } from '@/types/database'
 import type { GenerateRequest, GeneratedPost, ThreadTweet } from '@/types/agents'
 import { stripEmDashes } from '@/lib/content/no-em-dash'
+import { scorePost } from '@/lib/content/score-post'
 import { formatRedditMarkdown, parseRedditPost, type RedditPostContent } from '@/lib/reddit/parse'
 import { buildSubredditPromptBlock, loadSubredditConfig } from '@/lib/reddit/subreddit-config'
 import { splitImagePromptFromText } from '@/lib/generate/image-prompt'
@@ -92,6 +93,28 @@ function parseImagePrompt(text: string): { content: string; imagePrompt?: string
   }
 }
 
+// Extract plain text from raw agent output for quality scoring
+function extractScorableText(raw: string, channel: Channel): string {
+  if (channel === 'reddit') {
+    try {
+      const cleaned = raw.replace(/```json\s*/g, '').replace(/\s*```/g, '')
+      const parsed = JSON.parse(cleaned) as { body?: string }
+      if (parsed.body) return parsed.body
+    } catch { /* fall through */ }
+  }
+  if (channel === 'x') {
+    try {
+      const parsed = JSON.parse(raw) as { thread?: unknown[] }
+      if (Array.isArray(parsed.thread)) {
+        return parsed.thread
+          .map(t => (typeof t === 'string' ? t : (t as { text?: string }).text ?? ''))
+          .join('\n\n')
+      }
+    } catch { /* fall through */ }
+  }
+  return raw.split('\n--\nIMAGE_PROMPT:')[0].trim()
+}
+
 function sanitizeContentVariants(variants: Record<string, unknown>): Record<string, unknown> {
   const out = { ...variants }
   if (typeof out.imagePrompt === 'string') out.imagePrompt = stripEmDashes(out.imagePrompt)
@@ -156,8 +179,17 @@ function parseXContent(raw: string): { content: string; contentVariants: Record<
 export async function generatePost(request: GenerateRequest): Promise<GeneratedPost> {
   const { agent, channel, recentPosts } = await prepareAgent(request)
 
-  const result = await run(agent, buildGenerationPrompt(request, channel, recentPosts))
-  const rawOutput = result.finalOutput ?? ''
+  const basePrompt = buildGenerationPrompt(request, channel, recentPosts)
+  const result = await run(agent, basePrompt)
+  let rawOutput = result.finalOutput ?? ''
+
+  // Score and refine once if quality is low (non-streaming path only)
+  const { pass, issues } = await scorePost(extractScorableText(rawOutput, channel), channel)
+  if (!pass && issues.length > 0) {
+    const critiquePrompt = `${basePrompt}\n\nYOUR PREVIOUS DRAFT HAD ISSUES — fix all of them in your revision:\n${issues.map(i => `- ${i}`).join('\n')}`
+    const refined = await run(agent, critiquePrompt)
+    rawOutput = refined.finalOutput ?? rawOutput
+  }
 
   // Parse channel-specific formats
   if (channel === 'reddit') {

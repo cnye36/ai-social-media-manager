@@ -12,6 +12,7 @@ import { PostingSchedule } from '@/components/settings/PostingSchedule'
 import { ScrapeForm } from '@/components/knowledge/ScrapeForm'
 import { ManualEntryForm } from '@/components/knowledge/ManualEntryForm'
 import { KnowledgeList } from '@/components/knowledge/KnowledgeList'
+import { KnowledgeGaps } from '@/components/knowledge/KnowledgeGaps'
 import { BlogSitesSettings } from '@/components/settings/BlogSitesSettings'
 import type { Company, BrandProfile, KnowledgeChunk, BlogSite } from '@/types/database'
 
@@ -160,6 +161,8 @@ export function SettingsClient({
             </div>
             <ManualEntryForm companyId={company.id} />
           </div>
+
+          <KnowledgeGaps companyId={company.id} />
 
           <div>
             <h2 className="font-semibold text-white mb-4">Indexed knowledge</h2>
