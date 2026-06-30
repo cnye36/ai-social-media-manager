@@ -11,12 +11,28 @@ export interface LegacyBlogEntry {
   summary: string
 }
 
-const CATALOG_FILENAME = 'ai-automatedhq-blog-internal-links.md'
+const CATALOG_FILES: Record<string, string> = {
+  'ai-automatedhq': 'ai-automatedhq-blog-internal-links.md',
+  'affinitybots': 'affinitybots-blog-internal-links.md',
+}
 
-let cachedCatalog: LegacyBlogEntry[] | null = null
+const catalogCache = new Map<string, LegacyBlogEntry[]>()
 
-function catalogPath(): string {
-  return join(process.cwd(), 'lib', 'blog', 'data', CATALOG_FILENAME)
+function catalogPath(filename: string): string {
+  return join(process.cwd(), 'lib', 'blog', 'data', filename)
+}
+
+export function getCatalogFilenameForCompany(company: {
+  name?: string | null
+  website_url?: string | null
+}): string | null {
+  const website = company.website_url?.toLowerCase() ?? ''
+  const name = company.name?.toLowerCase() ?? ''
+
+  for (const [key, filename] of Object.entries(CATALOG_FILES)) {
+    if (website.includes(key) || name.includes(key)) return filename
+  }
+  return null
 }
 
 /** Parse the legacy blog catalog markdown (## slug sections with Date, Title, Summary). */
@@ -46,15 +62,17 @@ export function parseLegacyBlogCatalog(markdown: string): LegacyBlogEntry[] {
   return entries
 }
 
-export function loadLegacyBlogCatalog(): LegacyBlogEntry[] {
-  if (cachedCatalog) return cachedCatalog
+export function loadLegacyBlogCatalog(filename?: string): LegacyBlogEntry[] {
+  const file = filename ?? CATALOG_FILES['ai-automatedhq']
+  if (catalogCache.has(file)) return catalogCache.get(file)!
   try {
-    const markdown = readFileSync(catalogPath(), 'utf8')
-    cachedCatalog = parseLegacyBlogCatalog(markdown)
-    return cachedCatalog
+    const markdown = readFileSync(catalogPath(file), 'utf8')
+    const entries = parseLegacyBlogCatalog(markdown)
+    catalogCache.set(file, entries)
+    return entries
   } catch {
-    cachedCatalog = []
-    return cachedCatalog
+    catalogCache.set(file, [])
+    return []
   }
 }
 
@@ -62,13 +80,7 @@ export function companyUsesLegacyCatalog(company: {
   name?: string | null
   website_url?: string | null
 }): boolean {
-  const website = company.website_url?.toLowerCase() ?? ''
-  const name = company.name?.toLowerCase() ?? ''
-  return (
-    website.includes('ai-automatedhq') ||
-    name.includes('ai automated hq') ||
-    name.includes('ai-automatedhq')
-  )
+  return getCatalogFilenameForCompany(company) !== null
 }
 
 export function legacyEntriesToArticleRows(entries: LegacyBlogEntry[]): ExistingArticleRow[] {

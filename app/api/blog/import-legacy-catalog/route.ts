@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { buildArticlePublicUrl } from '@/lib/blog/article-url'
 import {
   companyUsesLegacyCatalog,
+  getCatalogFilenameForCompany,
   legacyEntriesToLinkRows,
   loadLegacyBlogCatalog,
   resolveBlogBaseUrl,
@@ -36,7 +37,8 @@ export async function POST(request: Request) {
     )
   }
 
-  const entries = loadLegacyBlogCatalog()
+  const catalogFilename = getCatalogFilenameForCompany(company) ?? undefined
+  const entries = loadLegacyBlogCatalog(catalogFilename)
   if (entries.length === 0) {
     return NextResponse.json({ error: 'Legacy catalog file is empty or missing' }, { status: 500 })
   }
