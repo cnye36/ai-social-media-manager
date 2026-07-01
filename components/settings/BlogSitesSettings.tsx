@@ -68,10 +68,22 @@ export function BlogSitesSettings({ companyId, initialSites }: BlogSitesSettings
   }
 
   async function handleImportLegacyCatalog() {
-    if (!confirm('Import ~40 published posts from your website catalog into the calendar and link index? Existing slugs will be updated.')) return
     setImporting(true)
     setImportResult(null)
     try {
+      const preview = await fetch(`/api/blog/import-legacy-catalog?companyId=${companyId}`)
+      const previewData = await preview.json() as { supported?: boolean; catalogFilename?: string; count?: number; error?: string }
+      setImporting(false)
+
+      if (!previewData.supported) {
+        setImportResult('No blog catalog is configured for this workspace.')
+        return
+      }
+
+      const msg = `Import ${previewData.count} posts from "${previewData.catalogFilename}" into the calendar and link index?\n\nExisting slugs will be updated, not duplicated.`
+      if (!confirm(msg)) return
+
+      setImporting(true)
       const res = await fetch('/api/blog/import-legacy-catalog', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

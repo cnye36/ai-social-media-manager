@@ -18,7 +18,7 @@ const GenerateImageParams = z.object({
     .enum(['1024x1024', '1536x1024', '1024x1536', '1792x1024', '1024x1792'])
     .default('1536x1024')
     .describe(
-      'Image dimensions. Use 1792x1024 for blog cover heroes (16:9), 1536x1024 for social landscape, 1024x1536 for portrait, 1024x1024 for square inline visuals.'
+      'Image dimensions. Use 1536x1024 for blog cover heroes (3:2) and social landscape, 1024x1536 for portrait, 1024x1024 for square inline visuals.'
     ),
 })
 

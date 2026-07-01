@@ -11,6 +11,32 @@ import {
 
 const LEGACY_TAG = 'legacy-import'
 
+export async function GET(request: Request) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const { searchParams } = new URL(request.url)
+  const companyId = searchParams.get('companyId')
+  if (!companyId) return NextResponse.json({ error: 'companyId required' }, { status: 400 })
+
+  const { data: company } = await supabase
+    .from('companies')
+    .select('id, name, website_url')
+    .eq('id', companyId)
+    .eq('owner_id', user.id)
+    .single()
+  if (!company) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
+  const catalogFilename = getCatalogFilenameForCompany(company)
+  if (!catalogFilename) {
+    return NextResponse.json({ supported: false })
+  }
+
+  const entries = loadLegacyBlogCatalog(catalogFilename)
+  return NextResponse.json({ supported: true, catalogFilename, count: entries.length })
+}
+
 export async function POST(request: Request) {
   const supabase = await createClient()
   const {

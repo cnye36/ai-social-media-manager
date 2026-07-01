@@ -3,7 +3,7 @@ import {
   BLOG_COVER_IMAGE_WIDTH,
 } from '@/lib/blog/image-sizes'
 
-/** Landscape blog hero dimensions (16:9 — must match generated cover size). */
+/** Landscape blog hero dimensions (3:2 — must match generated cover size). */
 export const FEATURED_IMAGE_WIDTH = BLOG_COVER_IMAGE_WIDTH
 export const FEATURED_IMAGE_HEIGHT = BLOG_COVER_IMAGE_HEIGHT
 

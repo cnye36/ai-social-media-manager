@@ -1,5 +1,10 @@
 /** Cover image prompt builder — picks a random layout archetype each time. */
 
+import {
+  BLOG_COVER_IMAGE_HEIGHT,
+  BLOG_COVER_IMAGE_WIDTH,
+} from '@/lib/blog/image-sizes'
+
 const ACCENT_GRADIENTS: Record<string, string> = {
   cyan:    'cyan-to-sky-blue (#06b6d4 → #0ea5e9)',
   purple:  'purple-to-violet (#a855f7 → #7c3aed)',
@@ -242,7 +247,7 @@ export function buildCoverImageVisualPrompt(params: CoverImageVisualParams): str
 
   return `Professional blog cover image — designed like an expert Canva or Figma media creator. NOT a photograph or abstract art.
 
-CANVAS: 1792×1024px (16:9 widescreen). Minimum 80px safe margins from each edge. All text legible at full size.
+CANVAS: ${BLOG_COVER_IMAGE_WIDTH}×${BLOG_COVER_IMAGE_HEIGHT}px (3:2 landscape). Minimum 80px safe margins from each edge. All text legible at full size.
 
 QUALITY STANDARDS:
 - Looks like it was built by a senior designer — clean alignment, consistent spacing, typographic hierarchy
