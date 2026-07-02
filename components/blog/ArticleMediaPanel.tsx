@@ -274,16 +274,8 @@ export function ArticleMediaPanel({
             )}
 
             <div className="p-4 space-y-3 border-t border-zinc-800">
-              {current?.result.altText && (
+              {current?.result.altText && mode === 'inline' && (
                 <AltTextBox value={current.result.altText} />
-              )}
-
-              {current?.result.promptUsed && (
-                <ImagePromptBox
-                  label="Prompt used for this image"
-                  value={current.result.promptUsed}
-                  readOnly
-                />
               )}
 
               <ImagePromptBox

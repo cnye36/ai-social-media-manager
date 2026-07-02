@@ -14,7 +14,6 @@ import { RichTextEditor, type RichTextEditorHandle } from './RichTextEditor'
 import { ArticleMediaPanel } from './ArticleMediaPanel'
 import { SocialFromArticle } from './SocialFromArticle'
 import { AltTextBox } from '@/components/media/AltTextBox'
-import { ImagePromptBox } from '@/components/media/ImagePromptBox'
 import { stripImagePromptComments } from '@/lib/blog/image-prompts'
 import { buildArticlePublicUrl } from '@/lib/blog/article-url'
 import type { MediaResult } from '@/types/media'
@@ -31,7 +30,7 @@ import {
 import type { ArticleFormat } from '@/types/agents'
 import type { GeneratedFrontmatter } from '@/app/api/generate/article/route'
 import { buildArticleFrontmatter } from '@/lib/blog/frontmatter'
-import type { ArticleScore } from '@/lib/blog/score-article'
+import type { ArticleScore, ArticleIssue } from '@/lib/blog/score-article'
 
 const FORMAT_OPTIONS: { value: ArticleFormat; label: string; icon: React.ReactNode }[] = [
   { value: 'blog_post', label: 'Blog Post', icon: <BookOpen className="w-3 h-3" /> },
@@ -100,10 +99,11 @@ export function ArticleEditorClient({
   const [editorBody, setEditorBody] = useState(initialArticle.body)
   const [copied, setCopied] = useState(false)
   const [frontmatterOpen, setFrontmatterOpen] = useState(true)
-  const [qualityOpen, setQualityOpen] = useState(true)
+  const [qualityOpen, setQualityOpen] = useState(false)
   const [articleScore, setArticleScore] = useState<ArticleScore | null>(null)
   const [scoring, setScoring] = useState(false)
   const [scoreError, setScoreError] = useState('')
+  const [fixingIssueIndex, setFixingIssueIndex] = useState<number | null>(null)
   const [mdxViewOpen, setMdxViewOpen] = useState(false)
   const [mdxCopied, setMdxCopied] = useState(false)
   const [articleFormat, setArticleFormat] = useState<ArticleFormat>(
@@ -296,6 +296,31 @@ export function ArticleEditorClient({
     }
   }
 
+  async function handleFixIssue(issue: ArticleIssue, index: number) {
+    setFixingIssueIndex(index)
+    const currentBody = editorRef.current?.getMarkdown() ?? editorBody
+    const categoryLabel = articleScore?.categories.find(c => c.key === issue.category)?.label ?? issue.category
+    const instruction = `Fix only this specific issue. Make the smallest possible edit and leave the rest of the article untouched:\n\n[${categoryLabel}] ${issue.note}`
+    const res = await fetch('/api/generate/article/edit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ companyId, currentBody, instruction }),
+    })
+    if (res.ok) {
+      const data = await res.json() as { body: string }
+      const edited = stripImagePromptComments(data.body?.trim() ?? '')
+      editorRef.current?.setMarkdown(edited)
+      handleEditorChange(edited)
+      await fetch(`/api/articles/${initialArticle.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body: edited }),
+      })
+      await handleScoreArticle(edited)
+    }
+    setFixingIssueIndex(null)
+  }
+
   function openInlineImagePanel() {
     const section = editorRef.current?.getSelectionContext() ?? ''
     setInlineSuggestedPrompt(section.slice(0, 500))
@@ -451,6 +476,13 @@ export function ArticleEditorClient({
             ))}
           </div>
 
+          <Button variant="secondary" size="sm" onClick={() => setQualityOpen(true)} className="gap-1.5">
+            <Gauge className={cn(
+              'w-3.5 h-3.5',
+              articleScore && (articleScore.overall >= 80 ? 'text-green-400' : articleScore.overall >= 65 ? 'text-yellow-400' : 'text-red-400'),
+            )} />
+            {articleScore ? `${articleScore.overall}/100` : 'Quality'}
+          </Button>
           <Button variant="secondary" size="sm" onClick={() => setAiEditOpen(o => !o)} disabled={generating} className="gap-1.5">
             <Wand2 className="w-3.5 h-3.5" />
             AI Edit
@@ -763,15 +795,6 @@ export function ArticleEditorClient({
                       Static path: /blog-images/{slug || 'your-slug'}.png — or generate below
                     </p>
                   )}
-                  <ImagePromptBox
-                    label="Cover image prompt"
-                    value={featuredImagePrompt || coverSuggestedPrompt}
-                    onChange={v => {
-                      setFeaturedImagePrompt(v)
-                      setCoverSuggestedPrompt(v)
-                    }}
-                    hint="Suggested on AI write, or edit before generating. Saved with the article."
-                  />
                   {featuredImageAlt ? (
                     <AltTextBox
                       value={featuredImageAlt}
@@ -803,76 +826,6 @@ export function ArticleEditorClient({
             )}
           </div>
 
-          {/* Quality check */}
-          <div className="rounded-xl border border-zinc-800 bg-zinc-900/30 overflow-hidden">
-            <button
-              onClick={() => setQualityOpen(o => !o)}
-              className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-zinc-800/30 transition-colors"
-            >
-              <span className="text-xs font-semibold text-zinc-300 uppercase tracking-widest flex items-center gap-1.5">
-                <Gauge className="w-3.5 h-3.5" />
-                Quality check
-              </span>
-              {qualityOpen ? <ChevronUp className="w-4 h-4 text-zinc-600" /> : <ChevronDown className="w-4 h-4 text-zinc-600" />}
-            </button>
-
-            {qualityOpen && (
-              <div className="px-4 pb-4 space-y-3 border-t border-zinc-800 pt-3">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => handleScoreArticle()}
-                  disabled={scoring}
-                  className="gap-1.5 w-full"
-                >
-                  {scoring ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Gauge className="w-3.5 h-3.5" />}
-                  {scoring ? 'Checking…' : articleScore ? 'Re-check article' : 'Check article'}
-                </Button>
-
-                {scoreError && <p className="text-xs text-red-400">{scoreError}</p>}
-
-                {articleScore && (
-                  <>
-                    <div className="flex items-center gap-2">
-                      <span className={cn(
-                        'text-sm font-semibold tabular-nums',
-                        articleScore.overall >= 80 ? 'text-green-400' : articleScore.overall >= 65 ? 'text-yellow-400' : 'text-red-400'
-                      )}>
-                        {articleScore.overall}/100
-                      </span>
-                      <span className="text-[10px] text-zinc-600">overall</span>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-1.5">
-                      {articleScore.categories.map(c => (
-                        <div key={c.key} className="flex items-center justify-between bg-zinc-800/60 rounded-lg px-2 py-1">
-                          <span className="text-[10px] text-zinc-500 truncate">{c.label}</span>
-                          <span className={cn(
-                            'text-[11px] font-medium tabular-nums',
-                            c.score >= 80 ? 'text-green-400' : c.score >= 65 ? 'text-yellow-400' : 'text-red-400'
-                          )}>
-                            {c.score}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-
-                    {articleScore.issues.length > 0 && (
-                      <ul className="space-y-1">
-                        {articleScore.issues.map((issue, i) => (
-                          <li key={i} className="text-[11px] text-zinc-500 flex gap-1.5">
-                            <span className="text-zinc-700 uppercase shrink-0">{issue.category.slice(0, 4)}</span>
-                            <span>{issue.note}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-
           {/* Social promotion */}
           <SocialFromArticle
             articleId={initialArticle.id}
@@ -888,6 +841,93 @@ export function ArticleEditorClient({
           </div>
         </div>
       </div>
+      {/* Quality check modal */}
+      {qualityOpen && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/80 backdrop-blur-sm p-4 pt-16 overflow-y-auto">
+          <div className="w-full max-w-lg bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800">
+              <div className="flex items-center gap-2">
+                <Gauge className="w-4 h-4 text-violet-400" />
+                <span className="text-sm font-semibold text-white">Quality check</span>
+              </div>
+              <button
+                onClick={() => setQualityOpen(false)}
+                className="text-zinc-500 hover:text-white transition-colors p-1"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="px-5 py-4 space-y-4">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => handleScoreArticle()}
+                disabled={scoring}
+                className="gap-1.5 w-full"
+              >
+                {scoring ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Gauge className="w-3.5 h-3.5" />}
+                {scoring ? 'Checking…' : articleScore ? 'Re-check article' : 'Check article'}
+              </Button>
+
+              {scoreError && <p className="text-xs text-red-400">{scoreError}</p>}
+
+              {articleScore && (
+                <>
+                  <div className="flex items-center gap-2">
+                    <span className={cn(
+                      'text-lg font-semibold tabular-nums',
+                      articleScore.overall >= 80 ? 'text-green-400' : articleScore.overall >= 65 ? 'text-yellow-400' : 'text-red-400'
+                    )}>
+                      {articleScore.overall}/100
+                    </span>
+                    <span className="text-xs text-zinc-600">overall</span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    {articleScore.categories.map(c => (
+                      <div key={c.key} className="flex items-center justify-between bg-zinc-800/60 rounded-lg px-3 py-2">
+                        <span className="text-xs text-zinc-500">{c.label}</span>
+                        <span className={cn(
+                          'text-sm font-medium tabular-nums',
+                          c.score >= 80 ? 'text-green-400' : c.score >= 65 ? 'text-yellow-400' : 'text-red-400'
+                        )}>
+                          {c.score}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {articleScore.issues.length > 0 ? (
+                    <ul className="space-y-2">
+                      {articleScore.issues.map((issue, i) => (
+                        <li key={i} className="flex items-start gap-2 bg-zinc-800/40 rounded-lg px-3 py-2">
+                          <div className="flex-1 min-w-0">
+                            <span className="text-[10px] text-zinc-600 uppercase font-medium">{issue.category}</span>
+                            <p className="text-xs text-zinc-400 leading-relaxed">{issue.note}</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleFixIssue(issue, i)}
+                            disabled={fixingIssueIndex !== null || scoring}
+                            className="shrink-0 flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-lg bg-violet-600/20 text-violet-300 hover:bg-violet-600/30 disabled:opacity-40 transition-colors"
+                          >
+                            {fixingIssueIndex === i ? <Loader2 className="w-3 h-3 animate-spin" /> : <Wand2 className="w-3 h-3" />}
+                            Fix
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-xs text-zinc-600">No issues flagged.</p>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* MDX View Modal */}
       {mdxViewOpen && (
         <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/80 backdrop-blur-sm p-4 pt-16 overflow-y-auto">
