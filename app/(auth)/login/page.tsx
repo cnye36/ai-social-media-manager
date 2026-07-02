@@ -6,6 +6,11 @@ import { getSiteUrl } from '@/lib/site-url'
 
 type Mode = 'signin' | 'signup'
 
+const ERROR_MESSAGES: Record<string, string> = {
+  invite_required: 'An invite code is required to create an account.',
+  auth_failed: 'Authentication failed. Please try again.',
+}
+
 export default function LoginPage() {
   useEffect(() => {
     const site = process.env.NEXT_PUBLIC_SITE_URL
@@ -18,19 +23,41 @@ export default function LoginPage() {
     }
   }, [])
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const errorCode = params.get('error')
+    if (errorCode && ERROR_MESSAGES[errorCode]) {
+      setError(ERROR_MESSAGES[errorCode])
+    }
+  }, [])
+
   const [mode, setMode] = useState<Mode>('signin')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  const [inviteCode, setInviteCode] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [signedUp, setSignedUp] = useState(false)
+
+  async function verifyInviteCode(): Promise<boolean> {
+    const res = await fetch('/api/auth/verify-invite', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ inviteCode }),
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      setError(data.error ?? 'Invalid invite code')
+      return false
+    }
+    return true
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError('')
     setLoading(true)
-    const supabase = createClient()
 
     if (mode === 'signup') {
       if (password !== confirmPassword) {
@@ -38,17 +65,20 @@ export default function LoginPage() {
         setLoading(false)
         return
       }
-      const { error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: { emailRedirectTo: `${getSiteUrl()}/auth/callback` },
+
+      const res = await fetch('/api/auth/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, inviteCode }),
       })
-      if (error) {
-        setError(error.message)
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setError(data.error ?? 'Sign up failed')
       } else {
         setSignedUp(true)
       }
     } else {
+      const supabase = createClient()
       const { error } = await supabase.auth.signInWithPassword({ email, password })
       if (error) {
         setError(error.message)
@@ -61,11 +91,28 @@ export default function LoginPage() {
   }
 
   async function handleGoogle() {
+    setError('')
+    setLoading(true)
+
+    if (mode === 'signup') {
+      if (!inviteCode.trim()) {
+        setError('Invite code is required to sign up')
+        setLoading(false)
+        return
+      }
+      const verified = await verifyInviteCode()
+      if (!verified) {
+        setLoading(false)
+        return
+      }
+    }
+
     const supabase = createClient()
     await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: { redirectTo: `${getSiteUrl()}/auth/callback` },
     })
+    setLoading(false)
   }
 
   function switchMode(next: Mode) {
@@ -73,6 +120,7 @@ export default function LoginPage() {
     setError('')
     setPassword('')
     setConfirmPassword('')
+    setInviteCode('')
     setSignedUp(false)
   }
 
@@ -102,7 +150,8 @@ export default function LoginPage() {
           <div className="space-y-4">
             <button
               onClick={handleGoogle}
-              className="w-full flex items-center justify-center gap-3 px-4 py-2.5 bg-white text-zinc-900 rounded-lg font-medium hover:bg-zinc-100 transition-colors"
+              disabled={loading}
+              className="w-full flex items-center justify-center gap-3 px-4 py-2.5 bg-white text-zinc-900 rounded-lg font-medium hover:bg-zinc-100 transition-colors disabled:opacity-50"
             >
               <GoogleIcon />
               Continue with Google
@@ -156,15 +205,25 @@ export default function LoginPage() {
                 className="w-full px-4 py-2.5 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent"
               />
               {mode === 'signup' && (
-                <input
-                  type="password"
-                  value={confirmPassword}
-                  onChange={e => setConfirmPassword(e.target.value)}
-                  placeholder="Confirm password"
-                  required
-                  minLength={6}
-                  className="w-full px-4 py-2.5 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent"
-                />
+                <>
+                  <input
+                    type="password"
+                    value={inviteCode}
+                    onChange={e => setInviteCode(e.target.value)}
+                    placeholder="Invite code"
+                    required
+                    className="w-full px-4 py-2.5 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent"
+                  />
+                  <input
+                    type="password"
+                    value={confirmPassword}
+                    onChange={e => setConfirmPassword(e.target.value)}
+                    placeholder="Confirm password"
+                    required
+                    minLength={6}
+                    className="w-full px-4 py-2.5 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent"
+                  />
+                </>
               )}
               {error && (
                 <p className="text-red-400 text-sm">{error}</p>

@@ -1,4 +1,6 @@
+import { isNewSignup, SIGNUP_INVITE_COOKIE } from '@/lib/auth/signup-invite'
 import { createClient } from '@/lib/supabase/server'
+import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
 
 function siteOrigin(request: Request): string {
@@ -17,6 +19,17 @@ export async function GET(request: Request) {
     const supabase = await createClient()
     const { error } = await supabase.auth.exchangeCodeForSession(code)
     if (!error) {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user && isNewSignup(user)) {
+        const cookieStore = await cookies()
+        const verified = cookieStore.get(SIGNUP_INVITE_COOKIE)?.value === '1'
+        if (!verified) {
+          await supabase.auth.signOut()
+          return NextResponse.redirect(`${origin}/login?error=invite_required`)
+        }
+        cookieStore.delete(SIGNUP_INVITE_COOKIE)
+      }
+
       return NextResponse.redirect(`${origin}${next}`)
     }
   }

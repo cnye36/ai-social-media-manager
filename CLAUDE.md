@@ -79,6 +79,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY
 SUPABASE_SERVICE_ROLE_KEY   # admin client only — never exposed to browser
 OPENAI_API_KEY
 CRON_SECRET                 # bearer token checked by /api/cron/publish and /api/reddit/monitor
+SIGNUP_INVITE_CODE          # required to create new accounts (email or Google)
 REDDIT_USER_AGENT           # optional — User-Agent for public RSS fetches
 ```
 
