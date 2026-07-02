@@ -5,7 +5,7 @@ export const BLOG_IMAGE_HOOK_MAX_WORDS = 10
 export const BLOG_IMAGE_THEME_RULES = `THEME COMPATIBILITY:
 - The image must look excellent on BOTH light and dark blog page backgrounds
 - If using a dark background: the image is self-contained and provides its own visual frame
-- If using a light/white background: include a 2px border and subtle drop-shadow on the image edge so it has a clear boundary on dark-themed pages
+- If using a light/white background: include a subtle drop-shadow on the image edge so it has a clear boundary on dark-themed pages. Do NOT add a border/outline around the image.
 - Never rely on the page color to "complete" the image — it must be self-contained`
 
 export const BLOG_IMAGE_TEXT_OVERLAY_RULES = `BLOG COVER IMAGE STANDARDS — professional Canva/Figma designer quality:
@@ -14,7 +14,7 @@ STYLE: Structured graphic design — NOT a photograph, NOT abstract art. Looks l
 
 BACKGROUND OPTIONS (any of these work):
 - Dark: navy gradient, dark teal, deep charcoal — self-contained on any page
-- Light: off-white, soft gray, warm cream — add 2px border + drop shadow for dark-theme compatibility
+- Light: off-white, soft gray, warm cream — add drop shadow (no border) for dark-theme compatibility
 - NO pure black, NO pure white
 
 HEADLINE (always the dominant element):

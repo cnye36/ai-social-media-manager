@@ -21,7 +21,7 @@ const ACCENT_GRADIENTS: Record<string, string> = {
 //
 //  THEME RULE: every archetype must look good when displayed on both a
 //  light blog page AND a dark blog page. Archetypes with a light/white bg
-//  instruct the model to add a visible border + shadow so the image doesn't
+//  instruct the model to add a drop shadow (no border) so the image doesn't
 //  bleed into a light-colored page background.
 // ──────────────────────────────────────────────────────────────────────────
 
@@ -105,7 +105,7 @@ BACKGROUND ELEMENT: ${rightVisual} — rendered softly at 15% opacity as a water
     brief: ({ hook, rightVisual, benefits, topicBadge, accent, gradient }) => `
 LAYOUT: Light editorial style — clean white background, editorial magazine feel.
 
-BACKGROUND: Off-white (#f8f9fa) or very light gray (#f1f5f9). Subtle light texture. 2px rounded border and soft drop shadow on the full image edge so it reads on dark blog themes.
+BACKGROUND: Off-white (#f8f9fa) or very light gray (#f1f5f9). Subtle light texture. Soft drop shadow (no border/outline) on the full image edge so it reads on dark blog themes.
 
 LEFT ZONE (50% width):
 ${topicBadge ? `- Small colored pill: "${topicBadge.toUpperCase()}" — filled ${accent} bg, white text, top-left\n` : ''}- Headline: "${hook}" — 64px bold, near-black (#0f172a) with 1–2 words in ${gradient} gradient
@@ -185,7 +185,7 @@ FLOATING FEATURE CARDS (5–7 cards scattered across the remaining 70% of canvas
     brief: ({ hook, rightVisual, benefits, topicBadge, accent, gradient }) => `
 LAYOUT: Bold typographic minimalism — type IS the design.
 
-BACKGROUND: Solid very dark charcoal (#141414) OR extremely light warm white (#fafaf9 with 1px border + shadow for dark-theme compatibility). Choose whichever creates better contrast with the accent color.
+BACKGROUND: Solid very dark charcoal (#141414) OR extremely light warm white (#fafaf9 with a soft drop shadow, no border, for dark-theme compatibility). Choose whichever creates better contrast with the accent color.
 
 DESIGN:
 - ONE thick ${accent}-colored horizontal rule, 6px, at 30% from top, full width

@@ -3,7 +3,7 @@ import type { Channel } from '@/types/database'
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
-const CRITERIA: Record<Channel, string> = {
+export const CRITERIA: Record<Channel, string> = {
   linkedin: [
     'Hook: First line stops the scroll — no "excited/thrilled/honored/pleased to announce"',
     'Length: 900–1,300 characters (can go longer for a strong story)',

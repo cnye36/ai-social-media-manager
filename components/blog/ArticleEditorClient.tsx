@@ -104,6 +104,7 @@ export function ArticleEditorClient({
   const [scoring, setScoring] = useState(false)
   const [scoreError, setScoreError] = useState('')
   const [fixingIssueIndex, setFixingIssueIndex] = useState<number | null>(null)
+  const [fixError, setFixError] = useState('')
   const [mdxViewOpen, setMdxViewOpen] = useState(false)
   const [mdxCopied, setMdxCopied] = useState(false)
   const [articleFormat, setArticleFormat] = useState<ArticleFormat>(
@@ -298,27 +299,41 @@ export function ArticleEditorClient({
 
   async function handleFixIssue(issue: ArticleIssue, index: number) {
     setFixingIssueIndex(index)
-    const currentBody = editorRef.current?.getMarkdown() ?? editorBody
-    const categoryLabel = articleScore?.categories.find(c => c.key === issue.category)?.label ?? issue.category
-    const instruction = `Fix only this specific issue. Make the smallest possible edit and leave the rest of the article untouched:\n\n[${categoryLabel}] ${issue.note}`
-    const res = await fetch('/api/generate/article/edit', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ companyId, currentBody, instruction }),
-    })
-    if (res.ok) {
-      const data = await res.json() as { body: string }
-      const edited = stripImagePromptComments(data.body?.trim() ?? '')
-      editorRef.current?.setMarkdown(edited)
-      handleEditorChange(edited)
-      await fetch(`/api/articles/${initialArticle.id}`, {
-        method: 'PATCH',
+    setFixError('')
+    try {
+      const currentBody = editorRef.current?.getMarkdown() ?? editorBody
+      const categoryLabel = articleScore?.categories.find(c => c.key === issue.category)?.label ?? issue.category
+      const instruction = `Fix only this specific issue. Make the smallest possible edit and leave the rest of the article untouched:\n\n[${categoryLabel}] ${issue.note}`
+      const res = await fetch('/api/generate/article/edit', {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ body: edited }),
+        body: JSON.stringify({ companyId, currentBody, instruction }),
       })
-      await handleScoreArticle(edited)
+      if (res.ok) {
+        const data = await res.json() as { body: string }
+        const edited = stripImagePromptComments(data.body?.trim() ?? '')
+        if (!edited) {
+          setFixError('AI returned an empty article — nothing was changed')
+          return
+        }
+        editorRef.current?.setMarkdown(edited)
+        handleEditorChange(edited)
+        const saveRes = await fetch(`/api/articles/${initialArticle.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ body: edited }),
+        })
+        if (!saveRes.ok) setFixError('Fixed in the editor, but failed to save — click Save to persist')
+        await handleScoreArticle(edited)
+      } else {
+        const d = await res.json().catch(() => ({}))
+        setFixError(typeof d.error === 'string' ? d.error : 'Fix failed')
+      }
+    } catch {
+      setFixError('Fix failed')
+    } finally {
+      setFixingIssueIndex(null)
     }
-    setFixingIssueIndex(null)
   }
 
   function openInlineImagePanel() {
@@ -897,6 +912,8 @@ export function ArticleEditorClient({
                       </div>
                     ))}
                   </div>
+
+                  {fixError && <p className="text-xs text-red-400">{fixError}</p>}
 
                   {articleScore.issues.length > 0 ? (
                     <ul className="space-y-2">

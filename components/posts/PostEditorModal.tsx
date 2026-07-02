@@ -5,7 +5,7 @@ import { format } from 'date-fns'
 import {
   Bold, Italic, List, Copy, Check, Trash2, CalendarClock,
   Image as ImageIcon, CheckCircle2, ChevronDown, ChevronUp,
-  X as XIcon,
+  X as XIcon, Wand2, Loader2,
 } from 'lucide-react'
 import { SendToBufferButton } from '@/components/posts/SendToBufferButton'
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog'
@@ -92,6 +92,8 @@ export function PostEditorModal({
   const [postScore, setPostScore] = useState<number | null>(null)
   const [scoreIssues, setScoreIssues] = useState<string[]>([])
   const [scoreLoading, setScoreLoading] = useState(false)
+  const [fixingIssue, setFixingIssue] = useState<string | null>(null)
+  const [fixError, setFixError] = useState('')
   const scoreTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // ─── Thread state ──────────────────────────────────────────────────────────
@@ -167,6 +169,37 @@ export function PostEditorModal({
     }, 700)
     return () => { if (scoreTimerRef.current) clearTimeout(scoreTimerRef.current) }
   }, [content, isThread, post, scoreContent])
+
+  async function handleFixIssue(issue: string) {
+    if (!post) return
+    setFixingIssue(issue)
+    setFixError('')
+    try {
+      const res = await fetch(`/api/posts/${post.id}/fix`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content, instruction: issue }),
+      })
+      if (res.ok) {
+        const data = await res.json() as { content: string }
+        setContent(data.content)
+        const saveRes = await fetch(`/api/posts/${post.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: postBodyForPublish(data.content) }),
+        })
+        if (saveRes.ok) onUpdate?.(await saveRes.json() as Post)
+        await scoreContent(data.content, post.channel as Channel)
+      } else {
+        const d = await res.json().catch(() => ({}))
+        setFixError(typeof d.error === 'string' ? d.error : 'Fix failed')
+      }
+    } catch {
+      setFixError('Fix failed')
+    } finally {
+      setFixingIssue(null)
+    }
+  }
 
   function applyFormattingToSingle(type: 'bold' | 'italic' | 'bullet') {
     const ta = textareaRef.current
@@ -607,25 +640,36 @@ export function PostEditorModal({
                   )}
                   {/* Quality score */}
                   {!isThread && content.length >= 60 && (
-                    <div className="flex items-center gap-2 min-h-[20px]">
+                    <div className="space-y-1.5 min-h-[20px]">
                       {scoreLoading ? (
                         <span className="text-[11px] text-zinc-600">Scoring…</span>
                       ) : postScore !== null ? (
                         <>
-                          <span className={cn(
-                            'text-[11px] font-semibold tabular-nums',
-                            postScore >= 80 ? 'text-green-400' : postScore >= 65 ? 'text-yellow-400' : 'text-red-400'
-                          )}>
-                            {postScore}/100
-                          </span>
-                          {scoreIssues.slice(0, 2).map((issue, i) => (
-                            <span
-                              key={i}
-                              className="text-[11px] text-zinc-500 bg-zinc-800 px-1.5 py-0.5 rounded truncate max-w-[200px]"
-                              title={issue}
-                            >
-                              {issue}
+                          <div className="flex items-center gap-2">
+                            <span className={cn(
+                              'text-[11px] font-semibold tabular-nums',
+                              postScore >= 80 ? 'text-green-400' : postScore >= 65 ? 'text-yellow-400' : 'text-red-400'
+                            )}>
+                              {postScore}/100
                             </span>
+                            <span className="text-[10px] text-zinc-600">quality score</span>
+                          </div>
+                          {fixError && <p className="text-[11px] text-red-400">{fixError}</p>}
+                          {scoreIssues.map((issue, i) => (
+                            <div key={i} className="flex items-center gap-2 bg-zinc-800/60 rounded-lg px-2 py-1">
+                              <span className="text-[11px] text-zinc-500 flex-1 truncate" title={issue}>
+                                {issue}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleFixIssue(issue)}
+                                disabled={fixingIssue !== null || scoreLoading}
+                                className="shrink-0 flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded bg-violet-600/20 text-violet-300 hover:bg-violet-600/30 disabled:opacity-40 transition-colors"
+                              >
+                                {fixingIssue === issue ? <Loader2 className="w-3 h-3 animate-spin" /> : <Wand2 className="w-3 h-3" />}
+                                Fix
+                              </button>
+                            </div>
                           ))}
                         </>
                       ) : null}
