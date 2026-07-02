@@ -39,6 +39,9 @@ interface ArticleMediaPanelProps {
   mode: ArticleMediaMode
   suggestedPrompt?: string
   brandColors?: { primary?: string; accent?: string }
+  /** Currently attached image for this mode (e.g. the article's saved cover), shown until a new one is generated/picked this session. */
+  attachedUrl?: string
+  attachedAlt?: string
   onUseCover?: (result: MediaResult) => void
   onInsertInline?: (result: MediaResult) => void
 }
@@ -53,6 +56,8 @@ export function ArticleMediaPanel({
   mode,
   suggestedPrompt = '',
   brandColors,
+  attachedUrl,
+  attachedAlt,
   onUseCover,
   onInsertInline,
 }: ArticleMediaPanelProps) {
@@ -229,7 +234,21 @@ export function ArticleMediaPanel({
                 </div>
               )}
 
-              {!current && !loading && (
+              {!current && !loading && attachedUrl && (
+                <div className="w-full">
+                  <HoverDownloadImage
+                    src={attachedUrl}
+                    alt={attachedAlt || 'Current cover image'}
+                    className="w-full object-contain max-h-[320px]"
+                    wrapperClassName="w-full"
+                  />
+                  <p className="text-[10px] text-zinc-500 text-center py-1.5 bg-zinc-950/60">
+                    Currently attached — generate or pick from library below to replace
+                  </p>
+                </div>
+              )}
+
+              {!current && !loading && !attachedUrl && (
                 <div className="flex flex-col items-center gap-2 py-10 text-zinc-600 px-4 text-center">
                   <ImageIcon className="w-9 h-9" />
                   <p className="text-sm">Generate a {mode === 'cover' ? 'cover' : 'section'} image for this article</p>

@@ -6,14 +6,13 @@ import { format } from 'date-fns'
 import {
   ArrowLeft, Loader2, Trash2, CalendarClock, Sparkles, Check,
   Tag, X, Copy, Wand2, ChevronDown, ChevronUp, ExternalLink,
-  Code2, BookOpen, LayoutList, Microscope, ImageIcon,
+  Code2, BookOpen, LayoutList, Microscope, ImageIcon, Gauge,
 } from 'lucide-react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { RichTextEditor, type RichTextEditorHandle } from './RichTextEditor'
 import { ArticleMediaPanel } from './ArticleMediaPanel'
 import { SocialFromArticle } from './SocialFromArticle'
-import { HoverDownloadImage } from '@/components/media/HoverDownloadImage'
 import { AltTextBox } from '@/components/media/AltTextBox'
 import { ImagePromptBox } from '@/components/media/ImagePromptBox'
 import { stripImagePromptComments } from '@/lib/blog/image-prompts'
@@ -32,6 +31,7 @@ import {
 import type { ArticleFormat } from '@/types/agents'
 import type { GeneratedFrontmatter } from '@/app/api/generate/article/route'
 import { buildArticleFrontmatter } from '@/lib/blog/frontmatter'
+import type { ArticleScore } from '@/lib/blog/score-article'
 
 const FORMAT_OPTIONS: { value: ArticleFormat; label: string; icon: React.ReactNode }[] = [
   { value: 'blog_post', label: 'Blog Post', icon: <BookOpen className="w-3 h-3" /> },
@@ -100,6 +100,10 @@ export function ArticleEditorClient({
   const [editorBody, setEditorBody] = useState(initialArticle.body)
   const [copied, setCopied] = useState(false)
   const [frontmatterOpen, setFrontmatterOpen] = useState(true)
+  const [qualityOpen, setQualityOpen] = useState(true)
+  const [articleScore, setArticleScore] = useState<ArticleScore | null>(null)
+  const [scoring, setScoring] = useState(false)
+  const [scoreError, setScoreError] = useState('')
   const [mdxViewOpen, setMdxViewOpen] = useState(false)
   const [mdxCopied, setMdxCopied] = useState(false)
   const [articleFormat, setArticleFormat] = useState<ArticleFormat>(
@@ -203,6 +207,7 @@ export function ArticleEditorClient({
           }),
         })
         if (saveRes.ok) setSaveSuccess(true)
+        void handleScoreArticle(body)
       }
     } else {
       const d = await res.json().catch(() => ({}))
@@ -267,6 +272,30 @@ export function ArticleEditorClient({
     router.push(`/${companyId}/blog`)
   }
 
+  async function handleScoreArticle(bodyOverride?: string) {
+    const body = bodyOverride ?? editorRef.current?.getMarkdown() ?? editorBody
+    if (!body.trim()) return
+    setScoring(true)
+    setScoreError('')
+    try {
+      const res = await fetch('/api/articles/score', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, body }),
+      })
+      if (res.ok) {
+        setArticleScore(await res.json() as ArticleScore)
+      } else {
+        const d = await res.json().catch(() => ({}))
+        setScoreError(typeof d.error === 'string' ? d.error : 'Check failed')
+      }
+    } catch {
+      setScoreError('Check failed')
+    } finally {
+      setScoring(false)
+    }
+  }
+
   function openInlineImagePanel() {
     const section = editorRef.current?.getSelectionContext() ?? ''
     setInlineSuggestedPrompt(section.slice(0, 500))
@@ -287,9 +316,16 @@ export function ArticleEditorClient({
     })
   }
 
-  function handleInlineImage(result: MediaResult) {
+  async function handleInlineImage(result: MediaResult) {
     editorRef.current?.insertImage(result.url, result.altText)
     setShowInlineMedia(false)
+    const body = editorRef.current?.getMarkdown() ?? editorBody
+    setEditorBody(body)
+    await fetch(`/api/articles/${initialArticle.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ body }),
+    })
   }
 
   function buildMdxContent() {
@@ -722,17 +758,7 @@ export function ArticleEditorClient({
                     <ImageIcon className="w-3 h-3" />
                     Cover image
                   </label>
-                  {featuredImageUrl ? (
-                    <div className="rounded-lg overflow-hidden border border-zinc-700">
-                      <HoverDownloadImage
-                        src={featuredImageUrl}
-                        alt={featuredImageAlt}
-                        className="w-full object-cover max-h-40"
-                        wrapperClassName="w-full"
-                        downloadFilename={`${slug || 'cover'}.png`}
-                      />
-                    </div>
-                  ) : (
+                  {!featuredImageUrl && (
                     <p className="text-[10px] text-zinc-600 font-mono">
                       Static path: /blog-images/{slug || 'your-slug'}.png — or generate below
                     </p>
@@ -768,9 +794,81 @@ export function ArticleEditorClient({
                     mode="cover"
                     suggestedPrompt={coverSuggestedPrompt || featuredImagePrompt}
                     brandColors={brandColors}
+                    attachedUrl={featuredImageUrl}
+                    attachedAlt={featuredImageAlt}
                     onUseCover={handleCoverImage}
                   />
                 </div>
+              </div>
+            )}
+          </div>
+
+          {/* Quality check */}
+          <div className="rounded-xl border border-zinc-800 bg-zinc-900/30 overflow-hidden">
+            <button
+              onClick={() => setQualityOpen(o => !o)}
+              className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-zinc-800/30 transition-colors"
+            >
+              <span className="text-xs font-semibold text-zinc-300 uppercase tracking-widest flex items-center gap-1.5">
+                <Gauge className="w-3.5 h-3.5" />
+                Quality check
+              </span>
+              {qualityOpen ? <ChevronUp className="w-4 h-4 text-zinc-600" /> : <ChevronDown className="w-4 h-4 text-zinc-600" />}
+            </button>
+
+            {qualityOpen && (
+              <div className="px-4 pb-4 space-y-3 border-t border-zinc-800 pt-3">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => handleScoreArticle()}
+                  disabled={scoring}
+                  className="gap-1.5 w-full"
+                >
+                  {scoring ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Gauge className="w-3.5 h-3.5" />}
+                  {scoring ? 'Checking…' : articleScore ? 'Re-check article' : 'Check article'}
+                </Button>
+
+                {scoreError && <p className="text-xs text-red-400">{scoreError}</p>}
+
+                {articleScore && (
+                  <>
+                    <div className="flex items-center gap-2">
+                      <span className={cn(
+                        'text-sm font-semibold tabular-nums',
+                        articleScore.overall >= 80 ? 'text-green-400' : articleScore.overall >= 65 ? 'text-yellow-400' : 'text-red-400'
+                      )}>
+                        {articleScore.overall}/100
+                      </span>
+                      <span className="text-[10px] text-zinc-600">overall</span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {articleScore.categories.map(c => (
+                        <div key={c.key} className="flex items-center justify-between bg-zinc-800/60 rounded-lg px-2 py-1">
+                          <span className="text-[10px] text-zinc-500 truncate">{c.label}</span>
+                          <span className={cn(
+                            'text-[11px] font-medium tabular-nums',
+                            c.score >= 80 ? 'text-green-400' : c.score >= 65 ? 'text-yellow-400' : 'text-red-400'
+                          )}>
+                            {c.score}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+
+                    {articleScore.issues.length > 0 && (
+                      <ul className="space-y-1">
+                        {articleScore.issues.map((issue, i) => (
+                          <li key={i} className="text-[11px] text-zinc-500 flex gap-1.5">
+                            <span className="text-zinc-700 uppercase shrink-0">{issue.category.slice(0, 4)}</span>
+                            <span>{issue.note}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </>
+                )}
               </div>
             )}
           </div>
