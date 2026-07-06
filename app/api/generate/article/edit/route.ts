@@ -72,9 +72,14 @@ ${BLOG_CITATION_RULES}`,
       temperature: 0.6,
     })
 
-    const edited = stripEmDashes(
-      relocateTrailingCitationLinks(completion.choices[0]?.message?.content ?? currentBody),
-    )
+    const rawContent = completion.choices[0]?.message?.content
+    if (!rawContent?.trim()) return NextResponse.json({ error: 'AI returned empty content' }, { status: 500 })
+
+    const edited = stripEmDashes(relocateTrailingCitationLinks(rawContent))
+    if (edited.trim() === currentBody.trim()) {
+      return NextResponse.json({ error: 'AI did not make any changes — try rephrasing the instruction' }, { status: 500 })
+    }
+
     return NextResponse.json({ body: edited })
   } catch (err) {
     console.error('Article edit error:', err)

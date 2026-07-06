@@ -59,7 +59,7 @@ export async function POST(
       messages: [
         {
           role: 'system',
-          content: `You are an expert ${channel} copywriter. Edit the given post based on the instruction below. Make the smallest possible edit — fix only what the instruction describes and leave the rest of the post untouched.${brandHints ? `\n\nBrand context:\n${brandHints}` : ''}
+          content: `You are an expert ${channel} copywriter. Edit the given post based on the instruction below. You must make a real, visible edit that resolves the instruction — never return the post text unchanged. Do not rewrite parts of the post that are unrelated to the instruction.${brandHints ? `\n\nBrand context:\n${brandHints}` : ''}
 
 ${channel.toUpperCase()} CRITERIA:
 ${CRITERIA[channel]}
@@ -78,6 +78,7 @@ Return ONLY the edited post content — no explanations, no preamble, no surroun
 
     const edited = stripEmDashes(completion.choices[0]?.message?.content?.trim() ?? '')
     if (!edited) return NextResponse.json({ error: 'AI returned empty content' }, { status: 500 })
+    if (edited === content.trim()) return NextResponse.json({ error: 'AI did not make any changes — try rephrasing the issue' }, { status: 500 })
 
     return NextResponse.json({ content: edited })
   } catch (err) {

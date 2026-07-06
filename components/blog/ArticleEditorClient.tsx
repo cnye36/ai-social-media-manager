@@ -303,7 +303,7 @@ export function ArticleEditorClient({
     try {
       const currentBody = editorRef.current?.getMarkdown() ?? editorBody
       const categoryLabel = articleScore?.categories.find(c => c.key === issue.category)?.label ?? issue.category
-      const instruction = `Fix only this specific issue. Make the smallest possible edit and leave the rest of the article untouched:\n\n[${categoryLabel}] ${issue.note}`
+      const instruction = `You must make a real, visible edit that resolves this specific issue — never return the article unchanged. Do not rewrite parts of the article that are unrelated to it:\n\n[${categoryLabel}] ${issue.note}`
       const res = await fetch('/api/generate/article/edit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
