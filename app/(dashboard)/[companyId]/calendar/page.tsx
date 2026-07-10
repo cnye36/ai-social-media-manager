@@ -14,13 +14,18 @@ export default async function CalendarPage({ params }: Props) {
 
   const rangeStart = startOfMonth(subMonths(new Date(), 1))
   const rangeEnd = endOfMonth(addMonths(new Date(), 1))
+  const rangeStartIso = rangeStart.toISOString()
+  const rangeEndIso = rangeEnd.toISOString()
 
   const [{ data: rawPosts }, { data: rawArticles }] = await Promise.all([
     supabase
       .from('posts')
       .select('*')
       .eq('company_id', companyId)
-      .in('status', ['scheduled', 'published']),
+      .in('status', ['scheduled', 'published'])
+      // Coarse superset of filterPostsForCalendar's date logic — keeps the fetch
+      // bounded to the visible window; the exact filter below still applies.
+      .or(`and(published_at.gte.${rangeStartIso},published_at.lte.${rangeEndIso}),and(scheduled_for.gte.${rangeStartIso},scheduled_for.lte.${rangeEndIso})`),
     supabase
       .from('articles')
       .select('*')

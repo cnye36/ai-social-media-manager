@@ -11,17 +11,14 @@ export async function PATCH(request: Request, context: RouteContext) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  // Resolve owning company and verify the user owns it
+  // RLS (owned_company_ids()) already scopes this to companies the user owns
   const { data: slot } = await supabase
     .from('content_plan_slots')
-    .select('id, company_id, plan:content_plans!inner(owner_id)')
+    .select('id, company_id')
     .eq('id', slotId)
     .single()
 
   if (!slot) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-
-  const ownerOf = (slot.plan as unknown as { owner_id: string } | null)?.owner_id
-  if (ownerOf !== user.id) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const body = await request.json() as Record<string, unknown>
 

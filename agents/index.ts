@@ -186,7 +186,9 @@ export async function generatePost(request: GenerateRequest): Promise<GeneratedP
   // Score and refine once if quality is low (non-streaming path only)
   const { pass, issues } = await scorePost(extractScorableText(rawOutput, channel), channel)
   if (!pass && issues.length > 0) {
-    const critiquePrompt = `${basePrompt}\n\nYOUR PREVIOUS DRAFT HAD ISSUES — fix all of them in your revision:\n${issues.map(i => `- ${i}`).join('\n')}`
+    // Revise the existing draft instead of regenerating from scratch — keeps what
+    // already works and avoids the agent re-running its knowledge tool calls.
+    const critiquePrompt = `${basePrompt}\n\nHere is your previous draft:\n\n${rawOutput}\n\nRevise this draft to fix ALL of the issues below. Keep everything that already works — same angle, same voice.\n${issues.map(i => `- ${i}`).join('\n')}`
     const refined = await run(agent, critiquePrompt)
     rawOutput = refined.finalOutput ?? rawOutput
   }

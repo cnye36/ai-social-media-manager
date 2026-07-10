@@ -11,11 +11,14 @@ export default async function PostsPage({ params }: Props) {
   const { companyId } = await params
   const supabase = await createClient()
 
-  const { data: posts } = await supabase
+  const POSTS_LIMIT = 200
+
+  const { data: posts, count } = await supabase
     .from('posts')
-    .select('*')
+    .select('*', { count: 'exact' })
     .eq('company_id', companyId)
     .order('created_at', { ascending: false })
+    .limit(POSTS_LIMIT)
 
   return (
     <div className="p-8 max-w-5xl mx-auto">
@@ -33,7 +36,7 @@ export default async function PostsPage({ params }: Props) {
         </Link>
       </div>
 
-      <PostsTable posts={posts ?? []} companyId={companyId} />
+      <PostsTable posts={posts ?? []} companyId={companyId} totalCount={count ?? undefined} />
     </div>
   )
 }

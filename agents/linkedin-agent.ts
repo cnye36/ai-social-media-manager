@@ -65,7 +65,7 @@ export function buildLinkedInAgent(params: {
 
   return new Agent({
     name: 'LinkedIn Content Writer',
-    model: 'gpt-4o',
+    model: 'gpt-5.4',
     instructions: systemPrompt,
     tools: [buildRagSearchTool(params.companyId)],
   })

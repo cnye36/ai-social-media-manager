@@ -52,9 +52,10 @@ function XFormatLabel({ post }: { post: Post }) {
 interface PostsTableProps {
   posts: Post[]
   companyId: string
+  totalCount?: number
 }
 
-export function PostsTable({ posts: initialPosts, companyId }: PostsTableProps) {
+export function PostsTable({ posts: initialPosts, companyId, totalCount }: PostsTableProps) {
   const [posts, setPosts] = useState<Post[]>(initialPosts)
   const [channelFilter, setChannelFilter] = useState<Channel | 'all'>('all')
   const [statusFilter, setStatusFilter] = useState<PostStatus | 'all'>('all')
@@ -165,6 +166,8 @@ export function PostsTable({ posts: initialPosts, companyId }: PostsTableProps) 
       {/* Post count + approve errors */}
       <p className="text-sm text-zinc-500">
         {filtered.length} post{filtered.length !== 1 ? 's' : ''}
+        {totalCount != null && totalCount > initialPosts.length &&
+          ` · showing the ${initialPosts.length} most recent of ${totalCount}`}
       </p>
       {approveError && (
         <p className="text-xs text-red-400 bg-red-400/10 border border-red-400/20 rounded-lg px-3 py-2">
