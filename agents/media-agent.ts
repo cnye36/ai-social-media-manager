@@ -9,6 +9,7 @@ import { BLOG_COVER_IMAGE_SIZE, BLOG_INLINE_IMAGE_SIZE } from '@/lib/blog/image-
 import { generateImageAltText } from '@/lib/media/alt-text'
 import { generateImage, normalizeImageSize, updateMediaLibraryAlt, type ImageSize } from '@/lib/media/gpt-image'
 import type { MediaResult } from '@/types/media'
+import type { Channel } from '@/types/database'
 
 const GenerateImageParams = z.object({
   prompt: z.string().describe(
@@ -40,20 +41,64 @@ function makeGenerateImageTool(companyId: string, linkIds: { postId?: string; ar
   })
 }
 
-function buildMediaAgent(companyId: string, linkIds: { postId?: string; articleId?: string }, mode: 'social' | 'blog', logoUrl?: string | null): Agent {
-  const socialInstructions = `You are a creative media specialist for social media content. Analyze the post and call generate_image once to create the perfect accompanying visual.
+const SOCIAL_IMAGE_INTRO = `You are a creative media specialist for social media content. Analyze the post and call generate_image once to create the perfect accompanying visual.
 
 PROMPT QUALITY:
-- Craft rich, specific prompts: style (photographic / illustrated / flat infographic), mood, lighting, palette, composition.
-- Include "high quality, professional, social media optimized, legible text" when the visual needs labels or data.
-- For statistics, processes, comparisons, or lists: describe an infographic-style layout (sections, headings, icons, numbers) so it renders clearly in one image.
+- Craft rich, specific prompts: exact layout, mood, lighting, palette, composition, and the exact text/labels/numbers to render.
+- Include "high quality, professional, legible text" whenever the visual carries labels or data.
 
 BRAND COLORS:
 - Default: violet primary (#7c3aed), soft accent (#a78bfa) when no brand colors are given.
-- Apply brand colors from the user message when provided.
+- Apply brand colors from the user message when provided.`
 
-Call generate_image exactly once. Return only the tool result — no commentary.`
+const LINKEDIN_IMAGE_RULES = `STYLE: Structured information design — a data card, stat breakout, before/after comparison panel, or a 3-5 step mini-diagram. NOT a stock photo, NOT a generic corporate scene (handshakes, laptop-and-coffee, meeting room), NOT decorative art with no informational payload. Think "slide pulled from a sharp internal deck," not "marketing banner."
 
+WHAT TO BUILD (pick whichever fits the post's actual content):
+- A single bold stat or number as the hero element, with 1-2 lines of supporting context
+- A before/after or X-vs-Y comparison (two columns or two states)
+- A 3-5 step process or framework diagram
+- A short "the N things that mattered" checklist card
+
+LAYOUT:
+- One dominant headline, number, or label — heavy bold sans-serif, the largest element in the frame
+- Legible at feed-thumbnail size: 2-4 content blocks max, generous whitespace, no dense paragraphs or fine print
+- Background: solid or subtle gradient (navy, charcoal, off-white, soft gray) — never a busy photo background
+
+WHAT TO AVOID: stock photography, generic corporate scenes, clip-art icons, more than 4 pieces of text/data, purely decorative visuals with nothing to actually read.
+
+QUALITY BAR: someone scrolling past should be able to tell from the thumbnail alone that there's a real insight inside — enough to make them want to click "see more."`
+
+const X_IMAGE_RULES = `STYLE: One sharp, single-focus visual — a chart, a before/after, a bold stat callout, or a screenshot-style mockup. NOT a stock photo, NOT decorative art, NOT a dense multi-panel infographic (the tweet already carries the words; this is a fast-scrolling feed).
+
+LAYOUT: One clear focal point, minimal text — the image should add one visual proof point (a number, a trend line, a stark contrast), not restate the tweet.
+
+WHAT TO AVOID: stock photography, corporate clip-art, cramming multiple data points into one image.`
+
+const FACEBOOK_IMAGE_RULES = `STYLE: Warm and authentic — a candid-feeling photo-style scene, a simple relatable illustration, or a milestone/celebration visual. NOT a corporate infographic, NOT a stiff stock-photo boardroom scene.
+
+LAYOUT: Simple and readable at a glance — this is a fast-scroll platform, not a place for dense data panels or heavy text overlays.
+
+WHAT TO AVOID: dense text/data overlays, corporate stock photography, anything that looks like a paid ad unit.`
+
+const REDDIT_IMAGE_RULES = `STYLE: Plain and native-feeling — a simple screenshot-style mockup, a real-looking photo, or a bare-bones chart. Reddit users downvote anything that looks like a polished marketing graphic or ad.
+
+LAYOUT: Minimal to no text overlay. If data needs showing, render it like a quick screenshot or hand-drawn chart, not a designed infographic.
+
+WHAT TO AVOID: polished corporate design, gradients, icon grids, benefit strips, anything that reads as "made by a marketing team."`
+
+const SOCIAL_CHANNEL_IMAGE_RULES: Partial<Record<Channel, string>> = {
+  linkedin: LINKEDIN_IMAGE_RULES,
+  x: X_IMAGE_RULES,
+  facebook: FACEBOOK_IMAGE_RULES,
+  reddit: REDDIT_IMAGE_RULES,
+}
+
+function buildSocialInstructions(channel: Channel): string {
+  const channelRules = SOCIAL_CHANNEL_IMAGE_RULES[channel] ?? LINKEDIN_IMAGE_RULES
+  return `${SOCIAL_IMAGE_INTRO}\n\n${channelRules}\n\nCall generate_image exactly once. Return only the tool result — no commentary.`
+}
+
+function buildMediaAgent(companyId: string, linkIds: { postId?: string; articleId?: string }, mode: 'blog' | Channel, logoUrl?: string | null): Agent {
   const blogInstructions = `You are a senior graphic designer who creates high-performing blog cover images — the kind a media expert builds in Canva or Figma. Every image you create looks distinctly different from the last.
 
 ${BLOG_IMAGE_TEXT_OVERLAY_RULES}
@@ -81,7 +126,7 @@ Call generate_image exactly once. Return only the tool result — no commentary.
   return new Agent({
     name: 'MediaAgent',
     model: 'gpt-5.4',
-    instructions: mode === 'blog' ? blogInstructions : socialInstructions,
+    instructions: mode === 'blog' ? blogInstructions : buildSocialInstructions(mode),
     tools: [makeGenerateImageTool(companyId, linkIds, logoUrl)],
   })
 }
@@ -263,7 +308,7 @@ ${colorHint}${refinementHint}
 
 Call generate_image with a prompt that best matches the post — including infographic-style layouts when the content has data, steps, or comparisons.`
 
-  const agent = buildMediaAgent(companyId, linkIds, isBlog ? 'blog' : 'social', logoUrl)
+  const agent = buildMediaAgent(companyId, linkIds, isBlog ? 'blog' : (channel as Channel), logoUrl)
   const result = await run(agent, prompt)
   const image = parseMediaResult(result)
   return attachAltText(image, { postContent: postContent.trim(), channel, purpose })
