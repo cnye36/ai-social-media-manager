@@ -846,6 +846,8 @@ export function ArticleEditorClient({
             articleId={initialArticle.id}
             companyId={companyId}
             defaultOpen
+            articleStatus={status}
+            articleScheduledFor={scheduledFor ? new Date(scheduledFor).toISOString() : null}
           />
 
           {/* Meta */}

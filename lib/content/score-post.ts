@@ -156,3 +156,68 @@ Return JSON only: {"score": <0-100 integer>, "issues": ["<specific actionable is
     return { score: 75, pass: true, issues: [] }
   }
 }
+
+const QUALITATIVE_CRITERIA_X_THREAD = [
+  'Tweet 1 makes a specific promise the reader would regret missing — not just a strong standalone insight',
+  'Tweet 1 never instructs the reader to keep reading ("read this", "we\'ll show you", "keep scrolling") — the promise itself should create the pull',
+  'No tweet literally announces its own rhetorical device as a label (e.g. does not open with "Confession:", "Hot take:", "Unpopular opinion:")',
+  'Every middle tweet adds a genuinely new point — none of them just restate or expand the previous tweet',
+  'The final tweet is a standalone payoff, an open question, or a specific CTA — not a soft trail-off',
+].join('\n')
+
+/** Scores an X thread as a whole. Per-tweet length/em-dash checks replace the broken
+ * "joined string > 280 chars" check that would otherwise fail on every real thread. */
+export async function scoreXThread(tweets: string[]): Promise<PostScore> {
+  if (tweets.length === 0) return { score: 0, pass: false, issues: ['No tweets found in thread'] }
+
+  const detIssues = [
+    ...tweets
+      .map((t, i) => (t.length > 280 ? `Tweet ${i + 1} is ${t.length} characters — must be 280 or under` : null))
+      .filter((i): i is string => i !== null),
+    ...(tweets.some(t => t.includes('—')) ? ['Contains an em dash (—) — remove it'] : []),
+  ]
+
+  if (detIssues.length > 0) {
+    return { score: 50, pass: false, issues: detIssues.slice(0, 3) }
+  }
+
+  try {
+    const res = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      response_format: { type: 'json_object' },
+      max_tokens: 250,
+      temperature: 0,
+      messages: [
+        {
+          role: 'system',
+          content: `You are a strict X (Twitter) thread evaluator. Score the thread as a whole against the criteria below.
+
+CRITERIA FOR X THREADS:
+${QUALITATIVE_CRITERIA_X_THREAD}
+
+Return JSON only: {"score": <0-100 integer>, "issues": ["<specific actionable issue>", ...]}
+- score reflects how well the THREAD AS A WHOLE meets the criteria above (100 = perfect, 0 = fails everything)
+- issues: specific, actionable problems (max 3). Reference the tweet number where relevant, and quote the exact phrase being criticized. Empty array if criteria are met.
+- Per-tweet length and em dashes are already checked separately — do not mention them.`,
+        },
+        {
+          role: 'user',
+          content: tweets.map((t, i) => `Tweet ${i + 1}: ${t}`).join('\n\n'),
+        },
+      ],
+    })
+
+    const parsed = JSON.parse(res.choices[0]?.message?.content ?? '{}') as {
+      score?: unknown
+      issues?: unknown
+    }
+    const llmScore = Math.max(0, Math.min(100, Math.round(Number(parsed.score) || 0)))
+    const llmIssues = Array.isArray(parsed.issues)
+      ? (parsed.issues as unknown[]).filter((i): i is string => typeof i === 'string')
+      : []
+
+    return { score: llmScore, pass: llmScore >= 65, issues: llmIssues.slice(0, 3) }
+  } catch {
+    return { score: 75, pass: true, issues: [] }
+  }
+}

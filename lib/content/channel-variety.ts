@@ -191,7 +191,7 @@ export function pickHookStyle(
   recentPosts: Post[] = [],
   rng: () => number = Math.random,
 ): HookStyle | XHookStyle {
-  if (channel === 'x') return pickXHookStyle(rng)
+  if (channel === 'x') return pickXHookStyle(recentPosts, rng)
 
   const styles = CHANNEL_HOOK_STYLES[channel]
   const recentPatterns = new Set(
@@ -235,7 +235,7 @@ export function buildChannelVarietyBlock(
   const parts: string[] = []
 
   if (channel === 'x') {
-    parts.push(buildXVarietyBlock(pickXHookStyle(rng)))
+    parts.push(buildXVarietyBlock(pickXHookStyle(recentPosts, rng)))
   } else {
     parts.push(buildChannelHookBlock(channel, pickHookStyle(channel, recentPosts, rng) as HookStyle, recentPosts))
   }

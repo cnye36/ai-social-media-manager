@@ -8,7 +8,7 @@ import { buildFacebookAgent } from './facebook-agent'
 import type { Channel } from '@/types/database'
 import type { GenerateRequest, GeneratedPost, ThreadTweet } from '@/types/agents'
 import { stripEmDashes } from '@/lib/content/no-em-dash'
-import { scorePost } from '@/lib/content/score-post'
+import { scorePost, scoreXThread } from '@/lib/content/score-post'
 import { formatRedditMarkdown, parseRedditPost, type RedditPostContent } from '@/lib/reddit/parse'
 import { buildSubredditPromptBlock, loadSubredditConfig } from '@/lib/reddit/subreddit-config'
 import { splitImagePromptFromText } from '@/lib/generate/image-prompt'
@@ -184,7 +184,12 @@ export async function generatePost(request: GenerateRequest): Promise<GeneratedP
   let rawOutput = result.finalOutput ?? ''
 
   // Score and refine once if quality is low (non-streaming path only)
-  const { pass, issues } = await scorePost(extractScorableText(rawOutput, channel), channel)
+  const threadForScoring = channel === 'x' && request.threadMode
+    ? parseXContent(rawOutput).contentVariants.thread as ThreadTweet[] | undefined
+    : undefined
+  const { pass, issues } = threadForScoring?.length
+    ? await scoreXThread(threadForScoring.map(t => t.text))
+    : await scorePost(extractScorableText(rawOutput, channel), channel)
   if (!pass && issues.length > 0) {
     // Revise the existing draft instead of regenerating from scratch — keeps what
     // already works and avoids the agent re-running its knowledge tool calls.

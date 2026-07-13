@@ -3,7 +3,8 @@ import OpenAI from 'openai'
 import { createClient } from '@/lib/supabase/server'
 import { retrieve } from '@/lib/rag/retrieve'
 import { NO_EM_DASH_RULE, stripEmDashes } from '@/lib/content/no-em-dash'
-import { buildXVarietyBlock, pickXHookStyle } from '@/lib/content/x-variety'
+import { buildChannelVarietyBlock } from '@/lib/content/channel-variety'
+import { fetchRecentChannelPosts } from '@/lib/content/recent-posts'
 import { buildArticlePublicUrl, DEFAULT_BLOG_BASE_URL } from '@/lib/blog/article-url'
 import type { Channel } from '@/types/database'
 
@@ -91,7 +92,7 @@ export async function POST(
     .join('\n\n')
 
   const [{ data: brand }, chunks, { data: site }] = await Promise.all([
-    supabase.from('brand_profiles').select('tone, voice_notes, target_audience, keywords').eq('company_id', article.company_id).maybeSingle(),
+    supabase.from('brand_profiles').select('tone, voice_notes, target_audience, keywords, channel_overrides').eq('company_id', article.company_id).maybeSingle(),
     retrieve(article.company_id, article.title, 4, 0.3).catch(() => [] as Awaited<ReturnType<typeof retrieve>>),
     article.site_id
       ? supabase.from('blog_sites').select('base_url').eq('id', article.site_id).single()
@@ -115,13 +116,24 @@ export async function POST(
 
   const results = await Promise.allSettled(
     channels.map(async (channel) => {
-      const systemPrompt = [CHANNEL_INSTRUCTIONS[channel](xTextLimit(articleUrl)), brandContext, knowledgeContext, NO_EM_DASH_RULE]
-        .filter(Boolean)
-        .join('\n\n')
-      const userContent =
-        channel === 'x'
-          ? `Article to promote:\n\n${articleContext}\n\n${buildXVarietyBlock(pickXHookStyle())}`
-          : `Article to promote:\n\n${articleContext}`
+      const [override, recentPosts] = await Promise.all([
+        Promise.resolve(brand?.channel_overrides?.[channel]),
+        fetchRecentChannelPosts(supabase, article.company_id, channel),
+      ])
+      const overrideContext = [
+        override?.tone && `Channel-specific tone: ${override.tone}`,
+        override?.voice_notes && `Channel voice notes: ${override.voice_notes}`,
+      ].filter(Boolean).join('\n')
+
+      const systemPrompt = [
+        CHANNEL_INSTRUCTIONS[channel](xTextLimit(articleUrl)),
+        brandContext,
+        overrideContext,
+        knowledgeContext,
+        NO_EM_DASH_RULE,
+      ].filter(Boolean).join('\n\n')
+
+      const userContent = `Article to promote:\n\n${articleContext}\n\n${buildChannelVarietyBlock(channel, recentPosts)}`
 
       const completion = await openai.chat.completions.create({
         model: 'gpt-5.4-mini',
@@ -132,17 +144,36 @@ export async function POST(
         max_completion_tokens: 600,
         temperature: 0.75,
       })
-      const content = stripEmDashes(completion.choices[0].message.content ?? '')
-      return {
-        channel,
-        content: appendArticleLink(channel, content, articleUrl),
-      }
+      const rawContent = stripEmDashes(completion.choices[0].message.content ?? '')
+      const content = appendArticleLink(channel, rawContent, articleUrl)
+
+      const { data: post, error } = await supabase
+        .from('posts')
+        .insert({
+          company_id: article.company_id,
+          channel,
+          status: 'draft',
+          content,
+          ai_generated: true,
+          content_variants: {},
+          media_items: [],
+          generation_params: { source: 'article', articleId: id, articleTitle: article.title, model: 'gpt-5.4-mini' },
+        })
+        .select()
+        .single()
+
+      if (error) throw new Error(`Failed to save ${channel} post: ${error.message}`)
+      return post
     })
   )
 
-  const drafts = results
-    .filter((r): r is PromiseFulfilledResult<{ channel: Channel; content: string }> => r.status === 'fulfilled')
+  const posts = results
+    .filter((r): r is PromiseFulfilledResult<unknown> => r.status === 'fulfilled')
     .map(r => r.value)
 
-  return NextResponse.json({ drafts })
+  const errors = results
+    .filter((r): r is PromiseRejectedResult => r.status === 'rejected')
+    .map(r => (r.reason as Error)?.message ?? 'Unknown error')
+
+  return NextResponse.json({ posts, errors })
 }

@@ -1,5 +1,8 @@
 /** Per-generation variety for X posts — reduces repetitive hooks and hashtag patterns. */
 
+import type { Post } from '@/types/database'
+import { collectRecentOpeners, extractOpeningPattern } from './recent-posts'
+
 export interface XHookStyle {
   id: string
   label: string
@@ -76,9 +79,14 @@ export const BANNED_X_OPENERS = [
   'When it comes to',
 ]
 
-export function pickXHookStyle(rng: () => number = Math.random): XHookStyle {
-  const index = Math.floor(rng() * X_HOOK_STYLES.length)
-  return X_HOOK_STYLES[index]!
+export function pickXHookStyle(recentPosts: Post[] = [], rng: () => number = Math.random): XHookStyle {
+  const recentPatterns = new Set(
+    collectRecentOpeners(recentPosts).map(o => extractOpeningPattern(o).toLowerCase()),
+  )
+  const eligible = X_HOOK_STYLES.filter(style => !recentPatterns.has(style.label.toLowerCase().slice(0, 8)))
+  const pool = eligible.length > 0 ? eligible : X_HOOK_STYLES
+  const index = Math.floor(rng() * pool.length)
+  return pool[index]!
 }
 
 export function buildXVarietyBlock(hookStyle: XHookStyle): string {
@@ -109,4 +117,32 @@ VARIETY (critical — posts must not sound like copies of each other):
 - Each post should use a different hook archetype: hot take, question, stat, confession, myth-bust, micro-story, mid-thought drop-in, etc.
 - Vary sentence length and rhythm unpredictably. Some posts short and punchy, others one flowing thought.
 - Do not reuse the same closing pattern (e.g. ending every tweet with the same CTA shape or hashtag placement).
+`.trim()
+
+export const X_ANTI_FORMULA_RULES = `
+NEVER LABEL THE TECHNIQUE:
+Execute the hook — do not announce it. Never open with the literal name of the device you're using: no "Confession:", "Hot take:", "Unpopular opinion:", "Real talk:", "Plot twist:", "Fun fact:". State the thing itself; the reader recognizes what kind of statement it is without being told.
+
+MAKE A PROMISE, DON'T ASK FOR PATIENCE:
+A contract opener that states what's coming ("Here's what 90 days taught me:", "3 things nobody tells you about X:") is good — it IS the value. Never pad a post with an empty instruction to keep reading instead of adding value now: avoid "read this," "keep scrolling," "stick around," "we'll show you" as a stand-alone move. If you promise something, make the promise specific enough that it earns the next line on its own.
+`.trim()
+
+export const X_EXAMPLES_SINGLE = `
+CALIBRATION EXAMPLES (write your own for the real topic — never reuse these):
+
+BAD (labels the technique, generic phrasing):
+"Real confession: we used to think a stuffed help center meant support was covered. Nope. It meant the answers were hiding."
+
+GOOD (same idea, no label, concrete and complete in one breath):
+"We had 400 help articles and support tickets kept climbing anyway. A stuffed help center isn't coverage, it's a filing cabinet nobody opens."
+`.trim()
+
+export const X_EXAMPLES_THREAD = `
+CALIBRATION EXAMPLES (write your own for the real topic — never reuse these):
+
+BAD tweet 1 (labels the technique, tells the reader to keep reading instead of adding value):
+"Real confession: we used to think a stuffed help center meant support was covered. Nope. It meant the answers were hiding. Read this and we'll show the before-and-after fix."
+
+GOOD tweet 1 (specific promise, no label, no instruction to keep reading):
+"We cut support ticket volume 34% by deleting two-thirds of our help center. Here's what we kept, what we killed, and the one article that now does the work of forty."
 `.trim()

@@ -1,7 +1,9 @@
 import { Agent } from '@openai/agents'
 import { buildRagSearchTool } from './tools/rag-search'
 import { buildBaseSystemPrompt } from './base-agent'
-import { X_HASHTAG_RULES, X_VARIETY_RULES } from '@/lib/content/x-variety'
+import {
+  X_HASHTAG_RULES, X_VARIETY_RULES, X_ANTI_FORMULA_RULES, X_EXAMPLES_SINGLE, X_EXAMPLES_THREAD,
+} from '@/lib/content/x-variety'
 import type { BrandProfile } from '@/types/database'
 import type { RetrievedChunk } from '@/lib/rag/retrieve'
 import type { ContentGoal, PostLength } from '@/types/agents'
@@ -36,6 +38,10 @@ REPLY-BAIT BY CONTENT GOAL:
 ${X_VARIETY_RULES}
 
 ${X_HASHTAG_RULES}
+
+${X_ANTI_FORMULA_RULES}
+
+${X_EXAMPLES_SINGLE}
 
 WHAT WORKS: Hot takes with evidence, contrarian claims stated as facts, one specific number that surprises, an honest admission, a question no one else is asking.
 WHAT TO AVOID: Corporate announcements, passive voice, anything from a press release, "Most teams/Many companies" openers, a single brand hashtag as the only tag.
@@ -79,6 +85,10 @@ THREAD RULES:
 ${X_VARIETY_RULES}
 
 ${X_HASHTAG_RULES}
+
+${X_ANTI_FORMULA_RULES}
+
+${X_EXAMPLES_THREAD}
 
 WHAT WORKS: A tweet 1 that promises a list or reveal, numbered insights where each surprises, before/after reveals, raw numbers that raise obvious follow-up questions.
 WHAT TO AVOID: "A thread 🧵" as your hook, padding, repeating the same point twice, a weak final tweet, numbering tweets inside the tweet text, starting tweet 1 with "Most teams…" or similar generic B2B setups.

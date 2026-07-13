@@ -6,10 +6,11 @@ import type { Channel } from '@/types/database'
 const SOCIAL_CHANNELS: Channel[] = ['linkedin', 'x', 'facebook']
 
 export async function POST(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params
+  const { after } = await request.json().catch(() => ({})) as { after?: string }
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -47,7 +48,9 @@ export async function POST(
   if (typeof plannedFor === 'string') {
     scheduledFor = plannedFor
   } else {
-    const slot = await getNextAvailableSlot(post.company_id, post.channel as Channel)
+    const now = new Date()
+    const afterDate = after && new Date(after) > now ? new Date(after) : now
+    const slot = await getNextAvailableSlot(post.company_id, post.channel as Channel, afterDate)
     if (!slot) {
       return NextResponse.json(
         { error: 'No schedule configured for this channel. Set up a posting schedule in Settings.' },
