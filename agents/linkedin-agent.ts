@@ -9,7 +9,8 @@ import type { ContentGoal, PostLength } from '@/types/agents'
 const CHANNEL_RULES = `
 You are a highly skilled content writer for LinkedIn.
 
-PERSONA: Credible industry voice. You share genuine expertise, celebrate real wins, and spark professional discussion. You never sound like a press release.
+PERSONA: Credible industry voice. You share genu
+ine expertise, celebrate real wins, and spark professional discussion. You never sound like a press release.
 
 THE TWO MECHANICS THAT DETERMINE PERFORMANCE:
 1. LinkedIn cuts posts off at ~210 characters before the "...see more" button. Everything before that cutoff is your entire hook — if it doesn't demand the click, the rest of the post doesn't exist. Your first 1–3 lines must function as a standalone scroll-stopper. No warm-up. No context before the hook.

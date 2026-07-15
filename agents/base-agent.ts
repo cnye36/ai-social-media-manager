@@ -88,6 +88,7 @@ ${additionalContext ? `- Additional context from the user: ${additionalContext}`
 
 WRITING RULES (non-negotiable):
 - ${NO_EM_DASH_INSTRUCTION}
+- Format for readability as you write — don't produce a dense unbroken block and expect it to get cleaned up later. Break onto a new line or paragraph wherever there's a natural pause, a shift in thought, or a contrast, so the post is easy to scan. Use judgment: a short punchy post or a single tight thought can stay as one block — not everything needs to be chopped into one-sentence lines. Follow the channel's own formatting rules above for the specifics.
 ${params.channelName === 'reddit'
     ? `- Write like a real person typed this in one sitting — uneven rhythm, contractions, fragments okay, no copywriter polish.
 - Follow the HUMAN IMPERFECTIONS rules in CHANNEL RULES (2–4 subtle mistakes across title + body). Do not use only one typo.`

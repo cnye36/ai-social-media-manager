@@ -440,6 +440,7 @@ export function XThreadEditor({ post, companyId, brandColors, embedded, voice = 
           </div>
         )}
         <MediaPanel
+          key={focusedIdx}
           postContent={tweets[focusedIdx] ?? ''}
           companyId={companyId}
           channel="x"

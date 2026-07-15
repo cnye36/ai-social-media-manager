@@ -38,6 +38,51 @@ import {
 const SOCIAL_CHANNELS: Channel[] = ['linkedin', 'x', 'facebook']
 const STATUSES: PostStatus[] = ['draft', 'scheduled', 'published', 'archived']
 
+function QualityScorePanel({
+  label, score, issues, loading, fixingIssue, fixError, onFix,
+}: {
+  label: string
+  score: number | null
+  issues: string[]
+  loading: boolean
+  fixingIssue: string | null
+  fixError: string
+  onFix: (issue: string) => void
+}) {
+  if (loading) return <span className="text-[11px] text-zinc-600">Scoring…</span>
+  if (score === null) return null
+  return (
+    <div className="space-y-1.5 min-h-[20px]">
+      <div className="flex items-center gap-2">
+        <span className={cn(
+          'text-[11px] font-semibold tabular-nums',
+          score >= 80 ? 'text-green-400' : score >= 65 ? 'text-yellow-400' : 'text-red-400'
+        )}>
+          {score}/100
+        </span>
+        <span className="text-[10px] text-zinc-600">{label}</span>
+      </div>
+      {fixError && <p className="text-[11px] text-red-400">{fixError}</p>}
+      {issues.map((issue, i) => (
+        <div key={i} className="flex items-center gap-2 bg-zinc-800/60 rounded-lg px-2 py-1">
+          <span className="text-[11px] text-zinc-500 flex-1 truncate" title={issue}>
+            {issue}
+          </span>
+          <button
+            type="button"
+            onClick={() => onFix(issue)}
+            disabled={fixingIssue !== null || loading}
+            className="shrink-0 flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded bg-violet-600/20 text-violet-300 hover:bg-violet-600/30 disabled:opacity-40 transition-colors"
+          >
+            {fixingIssue === issue ? <Loader2 className="w-3 h-3 animate-spin" /> : <Wand2 className="w-3 h-3" />}
+            Fix
+          </button>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function FormattingRibbon({ onFormat }: { onFormat: (type: 'bold' | 'italic' | 'bullet') => void }) {
   return (
     <div className="flex items-center gap-0.5 border border-zinc-800 rounded-lg p-1 w-fit">
@@ -157,8 +202,43 @@ export function PostEditorModal({
     }
   }, [])
 
+  const scoreThread = useCallback(async (tweets: string[]) => {
+    setScoreLoading(true)
+    try {
+      const res = await fetch('/api/posts/score', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tweets, channel: 'x' }),
+      })
+      if (res.ok) {
+        const { score, issues } = await res.json() as { score: number; issues: string[] }
+        setPostScore(score)
+        setScoreIssues(issues)
+      }
+    } finally {
+      setScoreLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
-    if (isThread || !post || content.length < 60) {
+    if (!post) {
+      setPostScore(null)
+      setScoreIssues([])
+      return
+    }
+    if (isThread) {
+      if (threadTweets.length === 0 || threadTweets.join('').length < 60) {
+        setPostScore(null)
+        setScoreIssues([])
+        return
+      }
+      if (scoreTimerRef.current) clearTimeout(scoreTimerRef.current)
+      scoreTimerRef.current = setTimeout(() => {
+        void scoreThread(threadTweets)
+      }, 700)
+      return () => { if (scoreTimerRef.current) clearTimeout(scoreTimerRef.current) }
+    }
+    if (content.length < 60) {
       setPostScore(null)
       setScoreIssues([])
       return
@@ -168,13 +248,46 @@ export function PostEditorModal({
       void scoreContent(content, post.channel as Channel)
     }, 700)
     return () => { if (scoreTimerRef.current) clearTimeout(scoreTimerRef.current) }
-  }, [content, isThread, post, scoreContent])
+  }, [content, threadTweets, isThread, post, scoreContent, scoreThread])
 
   async function handleFixIssue(issue: string) {
     if (!post) return
     setFixingIssue(issue)
     setFixError('')
     try {
+      if (isThread) {
+        const match = issue.match(/Tweet\s+(\d+)/i)
+        const idx = match
+          ? Math.min(Math.max(Number(match[1]) - 1, 0), threadTweets.length - 1)
+          : focusedTweetIdx
+        const res = await fetch(`/api/posts/${post.id}/fix`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: threadTweets[idx], instruction: issue }),
+        })
+        if (res.ok) {
+          const data = await res.json() as { content: string }
+          const nextTweets = threadTweets.map((t, i) => (i === idx ? data.content : t))
+          setThreadTweets(nextTweets)
+          setFocusedTweetIdx(idx)
+          const updatedThread = buildUpdatedThread(nextTweets)
+          const saveRes = await fetch(`/api/posts/${post.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              content: nextTweets.join(X_THREAD_CONTENT_SEPARATOR),
+              content_variants: { thread: updatedThread },
+            }),
+          })
+          if (saveRes.ok) onUpdate?.(await saveRes.json() as Post)
+          await scoreThread(nextTweets)
+        } else {
+          const d = await res.json().catch(() => ({}))
+          setFixError(typeof d.error === 'string' ? d.error : 'Fix failed')
+        }
+        return
+      }
+
       const res = await fetch(`/api/posts/${post.id}/fix`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -265,10 +378,11 @@ export function PostEditorModal({
     requestAnimationFrame(() => { ta.focus(); ta.setSelectionRange(ns, ne) })
   }
 
-  function buildUpdatedThread(): ThreadTweet[] {
+  function buildUpdatedThread(tweetsOverride?: string[]): ThreadTweet[] {
+    const tweetsToUse = tweetsOverride ?? threadTweets
     return rawParsedThread.map((t, i) => {
       const { media: _omit, ...base } = t
-      const updated = { ...base, text: threadTweets[i] ?? t.text }
+      const updated = { ...base, text: tweetsToUse[i] ?? t.text }
       const media = tweetMedia[i]
       return media ? { ...updated, media } : updated
     })
@@ -622,6 +736,15 @@ export function PostEditorModal({
                       )
                     })}
                   </div>
+                  <QualityScorePanel
+                    label="thread quality score"
+                    score={postScore}
+                    issues={scoreIssues}
+                    loading={scoreLoading}
+                    fixingIssue={fixingIssue}
+                    fixError={fixError}
+                    onFix={handleFixIssue}
+                  />
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -640,40 +763,15 @@ export function PostEditorModal({
                   )}
                   {/* Quality score */}
                   {!isThread && content.length >= 60 && (
-                    <div className="space-y-1.5 min-h-[20px]">
-                      {scoreLoading ? (
-                        <span className="text-[11px] text-zinc-600">Scoring…</span>
-                      ) : postScore !== null ? (
-                        <>
-                          <div className="flex items-center gap-2">
-                            <span className={cn(
-                              'text-[11px] font-semibold tabular-nums',
-                              postScore >= 80 ? 'text-green-400' : postScore >= 65 ? 'text-yellow-400' : 'text-red-400'
-                            )}>
-                              {postScore}/100
-                            </span>
-                            <span className="text-[10px] text-zinc-600">quality score</span>
-                          </div>
-                          {fixError && <p className="text-[11px] text-red-400">{fixError}</p>}
-                          {scoreIssues.map((issue, i) => (
-                            <div key={i} className="flex items-center gap-2 bg-zinc-800/60 rounded-lg px-2 py-1">
-                              <span className="text-[11px] text-zinc-500 flex-1 truncate" title={issue}>
-                                {issue}
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => handleFixIssue(issue)}
-                                disabled={fixingIssue !== null || scoreLoading}
-                                className="shrink-0 flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded bg-violet-600/20 text-violet-300 hover:bg-violet-600/30 disabled:opacity-40 transition-colors"
-                              >
-                                {fixingIssue === issue ? <Loader2 className="w-3 h-3 animate-spin" /> : <Wand2 className="w-3 h-3" />}
-                                Fix
-                              </button>
-                            </div>
-                          ))}
-                        </>
-                      ) : null}
-                    </div>
+                    <QualityScorePanel
+                      label="quality score"
+                      score={postScore}
+                      issues={scoreIssues}
+                      loading={scoreLoading}
+                      fixingIssue={fixingIssue}
+                      fixError={fixError}
+                      onFix={handleFixIssue}
+                    />
                   )}
                   {previewMediaAlt && <AltTextBox value={previewMediaAlt} label="Image alt text" />}
                 </div>
@@ -721,6 +819,7 @@ export function PostEditorModal({
           {showMedia && (
             <div className="px-5 pb-5 max-h-[360px] overflow-y-auto border-t border-zinc-800/60">
               <MediaPanel
+                key={`${post.id}:${isThread ? focusedTweetIdx : 'single'}`}
                 postContent={mediaPostContent}
                 companyId={companyId}
                 channel={channel}
