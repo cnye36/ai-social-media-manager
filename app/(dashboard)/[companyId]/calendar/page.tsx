@@ -52,7 +52,7 @@ export default async function CalendarPage({ params }: Props) {
         posts={posts}
         articles={articles}
         companyId={companyId}
-        generateHref={`/${companyId}/generate`}
+        generateHref={`/${companyId}/social`}
       />
     </div>
   )

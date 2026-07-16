@@ -1,5 +1,7 @@
 'use client'
 
+// Role: read-only recent posts on the dashboard home. Full management is /posts (PostsTable).
+
 import { useState } from 'react'
 import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
@@ -35,7 +37,7 @@ export function DashboardPostList({ posts: initialPosts, companyId }: DashboardP
     return (
       <div className="px-5 py-12 text-center text-zinc-500 text-sm">
         No posts yet.{' '}
-        <Link href={`/${companyId}/generate`} className="text-violet-400 hover:underline">
+        <Link href={`/${companyId}/social`} className="text-violet-400 hover:underline">
           Generate your first one
         </Link>
       </div>

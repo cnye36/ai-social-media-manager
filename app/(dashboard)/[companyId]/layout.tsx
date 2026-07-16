@@ -30,7 +30,7 @@ export default async function DashboardLayout({ children, params }: Props) {
   if (!company) redirect(`/${companies[0].id}`)
 
   return (
-    <div className="flex h-screen overflow-hidden bg-zinc-950">
+    <div className="flex h-screen overflow-hidden bg-surface-0">
       <Sidebar companies={companies} currentCompanyId={companyId} />
       <main className="flex-1 min-w-0 overflow-y-auto">
         {children}

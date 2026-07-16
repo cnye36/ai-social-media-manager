@@ -1,5 +1,9 @@
 'use client'
 
+// Role: the manage-everything view — all channels, all statuses (/posts).
+// Channel-filtered history lives in the Social tabs (ChannelHistory);
+// scheduling lives in /calendar; the dashboard shows a read-only recent list.
+
 import { useState, useTransition } from 'react'
 import { format } from 'date-fns'
 import { Copy, Check, Trash2, CalendarClock, Calendar, CheckCircle2 } from 'lucide-react'

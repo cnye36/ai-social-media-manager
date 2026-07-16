@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { cn } from '@/lib/utils'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { useUrlTab } from '@/lib/hooks/use-url-tab'
 import { Building2, Palette, BookOpen, Link2, Globe, CalendarClock } from 'lucide-react'
 import { CompanySettingsForm } from '@/components/settings/CompanySettingsForm'
 import { BrandSettingsForm } from '@/components/settings/BrandSettingsForm'
@@ -18,6 +18,8 @@ import type { Company, BrandProfile, KnowledgeChunk, BlogSite } from '@/types/da
 
 type Tab = 'company' | 'brand' | 'knowledge' | 'connections' | 'blog' | 'schedule'
 
+const TAB_IDS: readonly Tab[] = ['company', 'brand', 'knowledge', 'connections', 'schedule', 'blog']
+
 const tabs: { id: Tab; label: string; icon: typeof Building2 }[] = [
   { id: 'company', label: 'Company', icon: Building2 },
   { id: 'brand', label: 'Brand & Voice', icon: Palette },
@@ -33,7 +35,6 @@ interface SettingsClientProps {
   knowledgeChunks: KnowledgeChunk[]
   knowledgeTotal: number
   blogSites: BlogSite[]
-  defaultTab?: Tab
 }
 
 export function SettingsClient({
@@ -42,33 +43,22 @@ export function SettingsClient({
   knowledgeChunks,
   knowledgeTotal,
   blogSites,
-  defaultTab = 'company',
 }: SettingsClientProps) {
-  const validTabs: Tab[] = ['company', 'brand', 'knowledge', 'connections', 'schedule', 'blog']
-  const [activeTab, setActiveTab] = useState<Tab>(
-    validTabs.includes(defaultTab as Tab) ? (defaultTab as Tab) : 'company'
-  )
+  const [activeTab, setActiveTab] = useUrlTab<Tab>('tab', TAB_IDS, 'company')
 
   return (
     <div>
       {/* Tab bar */}
-      <div className="flex gap-1 border-b border-zinc-800 mb-8">
-        {tabs.map(({ id, label, icon: Icon }) => (
-          <button
-            key={id}
-            onClick={() => setActiveTab(id)}
-            className={cn(
-              'flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors',
-              activeTab === id
-                ? 'border-violet-500 text-violet-300'
-                : 'border-transparent text-zinc-400 hover:text-white'
-            )}
-          >
-            <Icon className="w-4 h-4" />
-            {label}
-          </button>
-        ))}
-      </div>
+      <Tabs value={activeTab} onValueChange={v => setActiveTab(v as Tab)} className="mb-8">
+        <TabsList>
+          {tabs.map(({ id, label, icon: Icon }) => (
+            <TabsTrigger key={id} value={id}>
+              <Icon className="w-4 h-4" />
+              {label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
 
       {/* Tab panels */}
       {activeTab === 'company' && (

@@ -23,13 +23,13 @@ export default async function DashboardPage({ params }: Props) {
   const stats = [
     { label: 'Drafts this week', value: recentPosts?.filter(p => p.status === 'draft').length ?? 0, icon: FileText, href: `/${companyId}/posts?status=draft` },
     { label: 'Scheduled', value: scheduledPosts?.length ?? 0, icon: CalendarDays, href: `/${companyId}/calendar` },
-    { label: 'Knowledge entries', value: knowledgeCount?.length ?? 0, icon: BookOpen, href: `/${companyId}/knowledge` },
+    { label: 'Knowledge entries', value: knowledgeCount?.length ?? 0, icon: BookOpen, href: `/${companyId}/settings?tab=knowledge` },
   ]
 
   return (
     <div className="p-8 max-w-5xl mx-auto">
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-white">{company?.name}</h1>
+        <h1 className="font-display text-2xl font-bold text-white">{company?.name}</h1>
         <p className="text-zinc-400 mt-1 text-sm">Welcome back — here's your content overview</p>
       </div>
 
@@ -51,14 +51,14 @@ export default async function DashboardPage({ params }: Props) {
 
       <div className="flex gap-3 mb-8">
         <Link
-          href={`/${companyId}/generate`}
+          href={`/${companyId}/social`}
           className="flex items-center gap-2 px-5 py-2.5 bg-violet-600 text-white rounded-lg font-medium hover:bg-violet-500 transition-colors"
         >
           <Sparkles className="w-4 h-4" />
           Generate Post
         </Link>
         <Link
-          href={`/${companyId}/knowledge`}
+          href={`/${companyId}/settings?tab=knowledge`}
           className="flex items-center gap-2 px-5 py-2.5 bg-zinc-800 text-white rounded-lg font-medium hover:bg-zinc-700 transition-colors"
         >
           <BookOpen className="w-4 h-4" />

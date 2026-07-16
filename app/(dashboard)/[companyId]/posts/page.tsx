@@ -28,7 +28,7 @@ export default async function PostsPage({ params }: Props) {
           <p className="text-zinc-400 mt-1 text-sm">All your drafted, scheduled, and published content</p>
         </div>
         <Link
-          href={`/${companyId}/generate`}
+          href={`/${companyId}/social`}
           className="flex items-center gap-2 px-4 py-2 bg-violet-600 text-white rounded-lg text-sm font-medium hover:bg-violet-500 transition-colors"
         >
           <Sparkles className="w-4 h-4" />
