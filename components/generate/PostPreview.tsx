@@ -2,7 +2,7 @@
 
 import { useState, useRef } from 'react'
 import { format } from 'date-fns'
-import { Copy, Check, RefreshCw, Image as ImageIcon, Bold, Italic, List, Eye, Pencil, CalendarClock, CircleCheck } from 'lucide-react'
+import { Copy, Check, RefreshCw, Image as ImageIcon, Bold, Italic, List, Eye, Pencil, CalendarClock, CircleCheck, Scissors, Loader2 } from 'lucide-react'
 import { SendToBufferButton } from '@/components/posts/SendToBufferButton'
 import { buildStatusDatetimePayload } from '@/lib/content-status'
 import { LinkedInIcon, XIcon, RedditIcon, FacebookIcon } from '@/components/ui/channel-icons'
@@ -74,6 +74,8 @@ export function PostPreview({
   const [savedScheduledFor, setSavedScheduledFor] = useState<string | null>(null)
   const [savedBufferPostId, setSavedBufferPostId] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<'edit' | 'preview'>('edit')
+  const [shortening, setShortening] = useState(false)
+  const [shortenError, setShortenError] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const displayContent = editedContent ?? content
@@ -82,11 +84,32 @@ export function PostPreview({
   const parsedBody = splitImagePromptFromText(displayContent)
   const cleanContent = parsedBody.content
   const resolvedImagePrompt = imagePrompt ?? parsedBody.imagePrompt
+  const isXThread = channel === 'x' && cleanContent.includes('---')
+  const isOverXLimit = channel === 'x' && !isXThread && cleanContent.length > 280
 
   async function handleCopy() {
     await navigator.clipboard.writeText(cleanContent)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
+  }
+
+  async function handleShorten() {
+    setShortening(true)
+    setShortenError('')
+    try {
+      const res = await fetch('/api/generate/shorten', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: cleanContent, companyId }),
+      })
+      const data = await res.json() as { content?: string; error?: string }
+      if (!res.ok || !data.content) throw new Error(data.error ?? 'Failed to shorten post')
+      setEditedContent(data.content)
+    } catch (err) {
+      setShortenError(err instanceof Error ? err.message : 'Failed to shorten post')
+    } finally {
+      setShortening(false)
+    }
   }
 
   function applyFormatting(type: 'bold' | 'italic' | 'bullet') {
@@ -451,9 +474,18 @@ export function PostPreview({
         )}
 
         {/* Character count for X */}
-        {channel === 'x' && !isStreaming && cleanContent && !cleanContent.includes('---') && (
-          <div className={cn('px-5 pb-3 text-right text-xs', cleanContent.length > 280 ? 'text-red-400' : 'text-zinc-500')}>
-            {cleanContent.length}/280
+        {channel === 'x' && !isStreaming && cleanContent && !isXThread && (
+          <div className="px-5 pb-3 flex items-center justify-end gap-2">
+            {shortenError && <span className="text-xs text-red-400">{shortenError}</span>}
+            {isOverXLimit && (
+              <Button variant="outline" size="sm" onClick={handleShorten} disabled={shortening}>
+                {shortening ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Scissors className="w-3.5 h-3.5" />}
+                {shortening ? 'Shortening…' : 'Shorten to fit'}
+              </Button>
+            )}
+            <span className={cn('text-xs', isOverXLimit ? 'text-red-400' : 'text-zinc-500')}>
+              {cleanContent.length}/280
+            </span>
           </div>
         )}
 

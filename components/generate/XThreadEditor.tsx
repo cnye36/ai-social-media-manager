@@ -2,7 +2,7 @@
 
 import { useState, useRef } from 'react'
 import { format } from 'date-fns'
-import { Bold, Italic, List, ImageIcon, CalendarClock, Check, Loader2, CircleCheck, X, Eye, Pencil } from 'lucide-react'
+import { Bold, Italic, List, ImageIcon, CalendarClock, Check, Loader2, CircleCheck, X, Eye, Pencil, Scissors } from 'lucide-react'
 import { SendToBufferButton } from '@/components/posts/SendToBufferButton'
 import { buildStatusDatetimePayload } from '@/lib/content-status'
 import { threadMediaToPostItems } from '@/lib/posts/x-format'
@@ -44,6 +44,8 @@ export function XThreadEditor({ post, companyId, brandColors, embedded, voice = 
     return initial
   })
   const [focusedIdx, setFocusedIdx] = useState(0)
+  const [shorteningIdx, setShorteningIdx] = useState<number | null>(null)
+  const [shortenError, setShortenError] = useState('')
   const [viewMode, setViewMode] = useState<'edit' | 'preview'>('edit')
   const [saveState, setSaveState] = useState<SaveState>('idle')
   const [showSchedule, setShowSchedule] = useState(false)
@@ -117,6 +119,25 @@ export function XThreadEditor({ post, companyId, brandColors, embedded, voice = 
       if (res.ok) {
         onSaved?.()
       }
+    }
+  }
+
+  async function handleShortenTweet(index: number) {
+    setShorteningIdx(index)
+    setShortenError('')
+    try {
+      const res = await fetch('/api/generate/shorten', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: tweets[index], companyId }),
+      })
+      const data = await res.json() as { content?: string; error?: string }
+      if (!res.ok || !data.content) throw new Error(data.error ?? 'Failed to shorten tweet')
+      setTweets(prev => { const a = [...prev]; a[index] = data.content as string; return a })
+    } catch (err) {
+      setShortenError(err instanceof Error ? err.message : 'Failed to shorten tweet')
+    } finally {
+      setShorteningIdx(null)
     }
   }
 
@@ -357,6 +378,8 @@ export function XThreadEditor({ post, companyId, brandColors, embedded, voice = 
         </span>
       </div>
 
+      {shortenError && <p className="text-xs text-red-400">{shortenError}</p>}
+
       <div className="space-y-2 max-h-[440px] overflow-y-auto pr-0.5">
         {tweets.map((text, i) => {
           const imageHint = rawThread[i]?.imagePrompt
@@ -379,8 +402,21 @@ export function XThreadEditor({ post, companyId, brandColors, embedded, voice = 
                     <span className="ml-2 normal-case text-violet-400/80 font-normal">· image attached</span>
                   )}
                 </span>
-                <span className={cn('text-[11px] tabular-nums', over ? 'text-red-400 font-medium' : 'text-zinc-600')}>
-                  {text.length}/280
+                <span className="flex items-center gap-1.5">
+                  {over && (
+                    <button
+                      type="button"
+                      onClick={() => handleShortenTweet(i)}
+                      disabled={shorteningIdx !== null}
+                      className="flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded bg-violet-600/20 text-violet-300 hover:bg-violet-600/30 disabled:opacity-40 transition-colors"
+                    >
+                      {shorteningIdx === i ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <Scissors className="w-2.5 h-2.5" />}
+                      {shorteningIdx === i ? 'Shortening…' : 'Shorten'}
+                    </button>
+                  )}
+                  <span className={cn('text-[11px] tabular-nums', over ? 'text-red-400 font-medium' : 'text-zinc-600')}>
+                    {text.length}/280
+                  </span>
                 </span>
               </div>
               <textarea
