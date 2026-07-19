@@ -69,7 +69,7 @@ export function SettingsClient({
 
       {activeTab === 'brand' && (
         <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
-          <BrandSettingsForm companyId={company.id} initialData={brandProfile} />
+          <BrandSettingsForm companyId={company.id} initialData={brandProfile} accountType={company.account_type} />
         </div>
       )}
 

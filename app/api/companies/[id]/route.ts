@@ -20,11 +20,17 @@ export async function PATCH(request: Request, { params }: Props) {
   if (!company) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const body = await request.json()
-  const { name, website_url } = body
+  const { name, website_url, account_type } = body
 
   const updates: Record<string, string | null> = {}
   if (name !== undefined) updates.name = name.trim()
   if (website_url !== undefined) updates.website_url = website_url || null
+  if (account_type !== undefined) {
+    if (account_type !== 'company' && account_type !== 'founder') {
+      return NextResponse.json({ error: 'Invalid account_type' }, { status: 400 })
+    }
+    updates.account_type = account_type
+  }
 
   const { data, error } = await supabase
     .from('companies')

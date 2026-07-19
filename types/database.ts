@@ -3,6 +3,7 @@ export type PostStatus = 'draft' | 'scheduled' | 'published' | 'archived'
 export type ArticleStatus = 'draft' | 'scheduled' | 'published' | 'archived'
 export type SourceType = 'website' | 'manual'
 export type ScrapeStatus = 'pending' | 'running' | 'done' | 'error'
+export type AccountType = 'company' | 'founder'
 
 export interface Company {
   id: string
@@ -11,7 +12,16 @@ export interface Company {
   slug: string
   website_url: string | null
   logo_url: string | null
+  account_type: AccountType
   created_at: string
+}
+
+export interface FounderProject {
+  name: string
+  description: string
+  url: string | null
+  /** How/when this project should be woven into a post — e.g. "mention when talking about automation or agencies" */
+  promo_angle: string | null
 }
 
 export interface BrandProfile {
@@ -37,6 +47,9 @@ export interface BrandProfile {
   team_size: string | null
   /** Primary languages/frameworks for examples and technical content (e.g. "TypeScript, React") */
   preferred_stack: string | null
+  // Founder accounts only
+  bio: string | null
+  projects: FounderProject[]
 }
 
 export interface KnowledgeChunk {

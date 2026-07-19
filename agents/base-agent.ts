@@ -1,4 +1,4 @@
-import type { BrandProfile } from '@/types/database'
+import type { AccountType, BrandProfile } from '@/types/database'
 import { NO_EM_DASH_INSTRUCTION } from '@/lib/content/no-em-dash'
 import { preferredStackGuidance } from '@/lib/content-planning/brand-context'
 import type { RetrievedChunk } from '@/lib/rag/retrieve'
@@ -19,6 +19,7 @@ const GOAL_GUIDANCE: Record<ContentGoal, string> = {
 
 export function buildBaseSystemPrompt(params: {
   companyName: string
+  accountType?: AccountType
   brand: BrandProfile | null
   channelRules: string
   channelName: string
@@ -29,9 +30,16 @@ export function buildBaseSystemPrompt(params: {
   additionalContext?: string
 }): string {
   const {
-    companyName, brand, channelRules, channelName,
+    companyName, accountType = 'company', brand, channelRules, channelName,
     retrievedKnowledge, topic, contentGoal, postLength, additionalContext,
   } = params
+
+  const founderSection = accountType === 'founder' && brand ? `
+FOUNDER PROFILE:
+You are writing as ${companyName}, an individual founder — not a company brand account. Write in first person ("I", "my"), with a personal, opinionated voice.
+- Bio: ${brand.bio || 'Not specified'}
+${brand.projects?.length ? `- Projects: ${brand.projects.map(p => `${p.name} (${p.url || 'no url'}) — ${p.description}${p.promo_angle ? ` [mention when: ${p.promo_angle}]` : ''}`).join('; ')}` : '- No projects listed.'}
+${channelName === 'x' && brand.projects?.length ? `- Roughly 1 in every 4–5 posts, weave in a subtle, natural mention of one of these projects — as a founder sharing something real, never as an ad or CTA-driven pitch. Most posts should have zero mention of the projects and just be genuine personal commentary, opinions, or lessons learned.` : ''}`.trim() : ''
 
   const intelLines = brand ? [
     brand.company_description && `- What we do: ${brand.company_description}`,
@@ -71,9 +79,11 @@ ${brand.channel_overrides?.[channelName as keyof typeof brand.channel_overrides]
       }`
     : 'COMPANY KNOWLEDGE: None pre-loaded — use the search_company_knowledge tool to look up specific details if needed.'
 
-  return `You are the dedicated ${channelName} content writer for ${companyName}.
+  return `${accountType === 'founder'
+    ? `You are ${companyName}, writing your own ${channelName} posts as an individual founder.`
+    : `You are the dedicated ${channelName} content writer for ${companyName}.`}
 
-${companyIntelSection ? `${companyIntelSection}\n\n` : ''}${brandSection}
+${founderSection ? `${founderSection}\n\n` : ''}${companyIntelSection ? `${companyIntelSection}\n\n` : ''}${brandSection}
 
 ${knowledgeSection}
 

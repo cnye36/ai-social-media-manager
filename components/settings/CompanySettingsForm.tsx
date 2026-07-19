@@ -1,11 +1,12 @@
 'use client'
 
 import { useState, useRef } from 'react'
+import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Upload, Building2 } from 'lucide-react'
-import type { Company } from '@/types/database'
+import type { AccountType, Company } from '@/types/database'
 import Image from 'next/image'
 
 interface CompanySettingsFormProps {
@@ -13,9 +14,11 @@ interface CompanySettingsFormProps {
 }
 
 export function CompanySettingsForm({ company }: CompanySettingsFormProps) {
+  const router = useRouter()
   const [name, setName] = useState(company.name)
   const [websiteUrl, setWebsiteUrl] = useState(company.website_url ?? '')
   const [logoUrl, setLogoUrl] = useState(company.logo_url)
+  const [accountType, setAccountType] = useState<AccountType>(company.account_type)
   const [uploading, setUploading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -44,7 +47,7 @@ export function CompanySettingsForm({ company }: CompanySettingsFormProps) {
     const res = await fetch(`/api/companies/${company.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, website_url: websiteUrl }),
+      body: JSON.stringify({ name, website_url: websiteUrl, account_type: accountType }),
     })
     setSaving(false)
     if (!res.ok) {
@@ -54,10 +57,35 @@ export function CompanySettingsForm({ company }: CompanySettingsFormProps) {
     }
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
+    router.refresh()
   }
 
   return (
     <div className="space-y-8">
+      {/* Account type */}
+      <div className="space-y-1.5">
+        <Label>Account type</Label>
+        <p className="text-xs text-zinc-500">
+          Company accounts post as a brand. Founder accounts post as you — with a bio and projects the AI can subtly promote.
+        </p>
+        <div className="flex gap-2 pt-1">
+          {(['company', 'founder'] as const).map(type => (
+            <button
+              key={type}
+              type="button"
+              onClick={() => setAccountType(type)}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors capitalize ${
+                accountType === type
+                  ? 'bg-violet-600 text-white'
+                  : 'bg-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-700'
+              }`}
+            >
+              {type}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* Logo */}
       <div className="space-y-3">
         <Label>Company logo</Label>

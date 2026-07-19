@@ -2,7 +2,7 @@ import { Agent } from '@openai/agents'
 import { buildRagSearchTool } from './tools/rag-search'
 import { buildBaseSystemPrompt } from './base-agent'
 import { FACEBOOK_VARIETY_RULES } from '@/lib/content/channel-variety'
-import type { BrandProfile } from '@/types/database'
+import type { AccountType, BrandProfile } from '@/types/database'
 import type { RetrievedChunk } from '@/lib/rag/retrieve'
 import type { ContentGoal, PostLength } from '@/types/agents'
 
@@ -51,6 +51,7 @@ ${FACEBOOK_VARIETY_RULES}
 export function buildFacebookAgent(params: {
   companyId: string
   companyName: string
+  accountType?: AccountType
   brand: BrandProfile | null
   retrievedKnowledge: RetrievedChunk[]
   topic: string

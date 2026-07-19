@@ -2,7 +2,7 @@ import { Agent } from '@openai/agents'
 import { buildRagSearchTool } from './tools/rag-search'
 import { buildBaseSystemPrompt } from './base-agent'
 import { getSubredditOverlay } from '@/lib/reddit/subreddit-overlays'
-import type { BrandProfile } from '@/types/database'
+import type { AccountType, BrandProfile } from '@/types/database'
 import type { RetrievedChunk } from '@/lib/rag/retrieve'
 import type { ContentGoal, PostLength } from '@/types/agents'
 
@@ -92,6 +92,7 @@ TECH CONTEXT: If the COMPANY INTEL section lists a preferred tech stack, use tha
 export function buildRedditAgent(params: {
   companyId: string
   companyName: string
+  accountType?: AccountType
   brand: BrandProfile | null
   retrievedKnowledge: RetrievedChunk[]
   topic: string

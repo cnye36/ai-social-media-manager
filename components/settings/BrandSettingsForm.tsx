@@ -5,20 +5,25 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
-import { X, Plus } from 'lucide-react'
-import type { BrandProfile, Channel } from '@/types/database'
+import { X, Plus, Trash2 } from 'lucide-react'
+import type { AccountType, BrandProfile, Channel, FounderProject } from '@/types/database'
 
 const TONES = ['professional', 'casual', 'witty', 'authoritative', 'friendly', 'bold']
 const CHANNELS: Channel[] = ['linkedin', 'x', 'reddit', 'facebook']
 const STAGES = ['Pre-launch', 'Startup', 'Growth', 'Established', 'Enterprise']
 const TEAM_SIZES = ['1–5', '6–20', '21–50', '51–200', '200+']
+const EMPTY_PROJECT: FounderProject = { name: '', description: '', url: null, promo_angle: null }
 
 interface BrandSettingsFormProps {
   companyId: string
   initialData: BrandProfile | null
+  accountType: AccountType
 }
 
-export function BrandSettingsForm({ companyId, initialData }: BrandSettingsFormProps) {
+export function BrandSettingsForm({ companyId, initialData, accountType }: BrandSettingsFormProps) {
+  // Founder profile
+  const [bio, setBio] = useState(initialData?.bio ?? '')
+  const [projects, setProjects] = useState<FounderProject[]>(initialData?.projects ?? [])
   // Voice & tone
   const [tone, setTone] = useState(initialData?.tone ?? 'professional')
   const [voiceNotes, setVoiceNotes] = useState(initialData?.voice_notes ?? '')
@@ -60,6 +65,14 @@ export function BrandSettingsForm({ companyId, initialData }: BrandSettingsFormP
     setList(list.filter(t => t !== item))
   }
 
+  function updateProject(index: number, patch: Partial<FounderProject>) {
+    setProjects(projects.map((p, i) => (i === index ? { ...p, ...patch } : p)))
+  }
+
+  function removeProject(index: number) {
+    setProjects(projects.filter((_, i) => i !== index))
+  }
+
   async function handleSave() {
     setSaving(true)
     setSaved(false)
@@ -84,6 +97,8 @@ export function BrandSettingsForm({ companyId, initialData }: BrandSettingsFormP
         company_stage: companyStage,
         team_size: teamSize,
         preferred_stack: preferredStack.trim() || null,
+        bio: bio.trim() || null,
+        projects: projects.filter(p => p.name.trim() && p.description.trim()),
       }),
     })
     setSaving(false)
@@ -98,6 +113,71 @@ export function BrandSettingsForm({ companyId, initialData }: BrandSettingsFormP
 
   return (
     <div className="space-y-10">
+
+      {accountType === 'founder' && (
+        <>
+          {/* ── Founder Profile ────────────────────────────── */}
+          <section className="space-y-6">
+            <div>
+              <h3 className="text-sm font-semibold text-white uppercase tracking-wider">Founder profile</h3>
+              <p className="text-xs text-zinc-500 mt-0.5">Your voice as an individual — used to write personal, first-person posts</p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="bio">Bio <span className="text-zinc-500 font-normal text-xs">(who you are, what you do, your background)</span></Label>
+              <Textarea
+                id="bio"
+                value={bio}
+                onChange={e => setBio(e.target.value)}
+                placeholder="I'm a founder building an AI automation agency and a SaaS product on the side. I write about..."
+                rows={4}
+              />
+            </div>
+
+            <div className="space-y-3">
+              <Label>Projects <span className="text-zinc-500 font-normal text-xs">(the AI will occasionally, subtly plug these — never every post)</span></Label>
+              {projects.map((project, i) => (
+                <div key={i} className="p-4 rounded-lg border border-zinc-800 bg-zinc-900/50 space-y-2">
+                  <div className="flex items-start gap-2">
+                    <Input
+                      value={project.name}
+                      onChange={e => updateProject(i, { name: e.target.value })}
+                      placeholder="Project name"
+                      className="flex-1"
+                    />
+                    <button onClick={() => removeProject(i)} className="p-2 text-zinc-500 hover:text-red-400">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <Textarea
+                    value={project.description}
+                    onChange={e => updateProject(i, { description: e.target.value })}
+                    placeholder="What it does, who it's for"
+                    rows={2}
+                  />
+                  <Input
+                    value={project.url ?? ''}
+                    onChange={e => updateProject(i, { url: e.target.value || null })}
+                    placeholder="https://..."
+                    type="url"
+                  />
+                  <Input
+                    value={project.promo_angle ?? ''}
+                    onChange={e => updateProject(i, { promo_angle: e.target.value || null })}
+                    placeholder="When to mention it (e.g. when talking about automation or agency ops)"
+                  />
+                </div>
+              ))}
+              <Button variant="secondary" size="sm" onClick={() => setProjects([...projects, { ...EMPTY_PROJECT }])}>
+                <Plus className="w-4 h-4 mr-2" />
+                Add project
+              </Button>
+            </div>
+          </section>
+
+          <hr className="border-zinc-800" />
+        </>
+      )}
 
       {/* ── Company Intel ──────────────────────────────── */}
       <section className="space-y-6">

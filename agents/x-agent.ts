@@ -4,7 +4,7 @@ import { buildBaseSystemPrompt } from './base-agent'
 import {
   X_HASHTAG_RULES, X_VARIETY_RULES, X_ANTI_FORMULA_RULES, X_EXAMPLES_SINGLE, X_EXAMPLES_THREAD,
 } from '@/lib/content/x-variety'
-import type { BrandProfile } from '@/types/database'
+import type { AccountType, BrandProfile } from '@/types/database'
 import type { RetrievedChunk } from '@/lib/rag/retrieve'
 import type { ContentGoal, PostLength } from '@/types/agents'
 
@@ -97,6 +97,7 @@ WHAT TO AVOID: "A thread 🧵" as your hook, padding, repeating the same point t
 export function buildXAgent(params: {
   companyId: string
   companyName: string
+  accountType?: AccountType
   brand: BrandProfile | null
   retrievedKnowledge: RetrievedChunk[]
   topic: string

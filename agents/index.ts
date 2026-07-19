@@ -28,7 +28,7 @@ async function prepareAgent(request: GenerateRequest) {
   const supabase = await createClient()
 
   const [companyResult, brandResult, knowledgeChunks, subredditConfig, recentPosts] = await Promise.all([
-    supabase.from('companies').select('name').eq('id', companyId).single(),
+    supabase.from('companies').select('name, account_type').eq('id', companyId).single(),
     supabase.from('brand_profiles').select('*').eq('company_id', companyId).single(),
     retrieve(companyId, topic, 5, 0.35),
     channel === 'reddit' && subreddit
@@ -47,6 +47,7 @@ async function prepareAgent(request: GenerateRequest) {
   const agentParams = {
     companyId,
     companyName: companyResult.data?.name ?? 'the company',
+    accountType: companyResult.data?.account_type ?? 'company',
     brand: brandResult.data ?? null,
     retrievedKnowledge: knowledgeChunks,
     topic,
