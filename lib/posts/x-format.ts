@@ -4,8 +4,8 @@ import type { ThreadTweet } from '@/types/agents'
 /** Join separator used when persisting multi-tweet threads to `post.content`. */
 export const X_THREAD_CONTENT_SEPARATOR = '\n\n---\n\n'
 
-/** Buffer GraphQL asset shape for image attachments. */
-export type BufferImageAsset = { image: { url: string } }
+/** Buffer GraphQL asset shape for image/video attachments. */
+export type BufferImageAsset = { image: { url: string } } | { video: { url: string } }
 
 function threadFromVariants(contentVariants: Record<string, unknown>): unknown[] | null {
   const thread = contentVariants.thread
@@ -92,7 +92,7 @@ export function parseThreadTweets(post: Post): ThreadTweet[] {
 
 export function mediaToBufferAssets(media?: MediaItem): BufferImageAsset[] {
   if (!media?.url) return []
-  return [{ image: { url: media.url } }]
+  return media.type === 'video' ? [{ video: { url: media.url } }] : [{ image: { url: media.url } }]
 }
 
 export interface XThreadBufferPayload {

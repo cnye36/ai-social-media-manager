@@ -11,11 +11,22 @@ export interface MediaResult {
   altText: string
 }
 
-export function mediaItemFromResult(result: MediaResult): MediaItem {
+/** Result from a completed video_jobs row (POST /api/generate/video + polling) */
+export interface VideoResult {
+  type: 'video'
+  url: string
+  storagePath: string
+  /** Prompt sent to the video model (user-written or LLM-crafted suggestion). */
+  promptUsed: string
+}
+
+export type GeneratedMediaResult = MediaResult | VideoResult
+
+export function mediaItemFromResult(result: GeneratedMediaResult): MediaItem {
   return {
-    type: 'image',
+    type: result.type,
     url: result.url,
     storage_path: result.storagePath,
-    alt_text: result.altText,
+    ...(result.type === 'image' ? { alt_text: result.altText } : {}),
   }
 }

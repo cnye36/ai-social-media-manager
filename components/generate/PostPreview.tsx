@@ -16,7 +16,7 @@ import { AltTextBox } from '@/components/media/AltTextBox'
 import { mediaItemFromResult } from '@/types/media'
 import { splitImagePromptFromText } from '@/lib/generate/image-prompt'
 import type { Channel } from '@/types/database'
-import type { MediaResult } from '@/types/media'
+import type { GeneratedMediaResult } from '@/types/media'
 
 const CHANNEL_META: Record<Channel, { label: string; icon: React.ReactNode; accentClass: string; headerClass: string }> = {
   linkedin: {
@@ -45,7 +45,7 @@ const CHANNEL_META: Record<Channel, { label: string; icon: React.ReactNode; acce
   },
 }
 
-type AcceptedMedia = MediaResult
+type AcceptedMedia = GeneratedMediaResult
 type SaveState = 'idle' | 'saving' | 'draft' | 'scheduled' | 'published'
 
 interface PostPreviewProps {
@@ -412,7 +412,7 @@ export function PostPreview({
               channel={channel}
               content={cleanContent}
               mediaUrl={acceptedMedia?.url}
-              mediaAlt={acceptedMedia?.altText}
+              mediaAlt={acceptedMedia?.type === 'image' ? acceptedMedia.altText : undefined}
             />
           ) : (
             <>
@@ -452,7 +452,7 @@ export function PostPreview({
                 <div className="flex items-center gap-1.5">
                   <ImageIcon className="w-3 h-3 text-violet-400" />
                   <span className="text-[10px] text-zinc-400 font-medium uppercase tracking-wide">
-                    Image attached
+                    {acceptedMedia.type === 'video' ? 'Video attached' : 'Image attached'}
                   </span>
                 </div>
                 <button
@@ -462,14 +462,22 @@ export function PostPreview({
                   Remove
                 </button>
               </div>
-              <HoverDownloadImage
-                src={acceptedMedia.url}
-                alt={acceptedMedia.altText}
-                className="w-full object-contain max-h-48"
-                wrapperClassName="w-full"
-              />
+              {acceptedMedia.type === 'video' ? (
+                <video
+                  src={acceptedMedia.url}
+                  controls
+                  className="w-full max-h-48"
+                />
+              ) : (
+                <HoverDownloadImage
+                  src={acceptedMedia.url}
+                  alt={acceptedMedia.altText}
+                  className="w-full object-contain max-h-48"
+                  wrapperClassName="w-full"
+                />
+              )}
             </div>
-            <AltTextBox value={acceptedMedia.altText} className="mt-2" />
+            {acceptedMedia.type === 'image' && <AltTextBox value={acceptedMedia.altText} className="mt-2" />}
           </div>
         )}
 

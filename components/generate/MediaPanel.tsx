@@ -1,22 +1,24 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { ImageIcon, LayoutTemplate, RefreshCw, ExternalLink, ChevronLeft, ChevronRight, Loader2, X, Library, Maximize2 } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { ImageIcon, LayoutTemplate, RefreshCw, ExternalLink, ChevronLeft, ChevronRight, Loader2, X, Library, Maximize2, Film } from 'lucide-react'
 import { format } from 'date-fns'
 import { cn } from '@/lib/utils'
 import { HoverDownloadImage } from '@/components/media/HoverDownloadImage'
+import { HoverDownloadVideo } from '@/components/media/HoverDownloadVideo'
 import { MediaDetailModal } from '@/components/media/MediaDetailModal'
 import { AltTextBox } from '@/components/media/AltTextBox'
 import { ImagePromptBox } from '@/components/media/ImagePromptBox'
 import type { ModalMediaItem } from '@/components/media/MediaDetailModal'
-import type { MediaResult } from '@/types/media'
+import type { GeneratedMediaResult, MediaResult, VideoResult } from '@/types/media'
+import type { VideoJob } from '@/types/database'
 
 interface LibraryItem {
   id: string
   url: string
   prompt: string | null
   alt_text: string | null
-  type: 'image' | 'infographic'
+  type: 'image' | 'infographic' | 'video'
   svg: string | null
   created_at: string
   storagePath?: string  // mapped from storage_path for onAccept compat
@@ -36,15 +38,30 @@ interface MediaPanelProps {
   brandColors?: { primary?: string; accent?: string }
   /** Suggested prompt from post generation (IMAGE_PROMPT suffix, etc.) */
   suggestedPrompt?: string
-  onAccept?: (result: MediaResult) => void
+  onAccept?: (result: GeneratedMediaResult) => void
 }
 
 type PanelTab = 'generate' | 'library'
+type MediaMode = 'image' | 'video'
+
+const VIDEO_SIZE_BY_CHANNEL: Record<string, '1280x720' | '720x1280'> = {
+  linkedin: '1280x720',
+  facebook: '1280x720',
+  x: '1280x720',
+}
+
+type VideoJobPhase =
+  | { phase: 'idle' }
+  | { phase: 'starting' }
+  | { phase: 'running'; jobId: string; progress: number }
+  | { phase: 'done'; result: VideoResult }
+  | { phase: 'error'; message: string }
 
 export function MediaPanel({ postContent, companyId, channel, postId, brandColors, suggestedPrompt, onAccept }: MediaPanelProps) {
   const [activeTab, setActiveTab] = useState<PanelTab>('generate')
+  const [mediaMode, setMediaMode] = useState<MediaMode>('image')
 
-  // ── Generate tab state ───────────────────────────────────────────────────────
+  // ── Generate tab state (image) ───────────────────────────────────────────────
   const [promptDraft, setPromptDraft] = useState(suggestedPrompt ?? '')
   const [history, setHistory] = useState<HistoryEntry[]>([])
   const [historyIndex, setHistoryIndex] = useState(-1)
@@ -54,6 +71,101 @@ export function MediaPanel({ postContent, companyId, channel, postId, brandColor
   const [canvaLoading, setCanvaLoading] = useState(false)
   const [canvaUrl, setCanvaUrl] = useState<string | null>(null)
   const [includeLogo, setIncludeLogo] = useState(false)
+
+  // ── Generate tab state (video) ───────────────────────────────────────────────
+  const [videoPromptDraft, setVideoPromptDraft] = useState('')
+  const [videoPromptLoading, setVideoPromptLoading] = useState(false)
+  const [videoJob, setVideoJob] = useState<VideoJobPhase>({ phase: 'idle' })
+  const videoPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (videoPollRef.current !== null) clearInterval(videoPollRef.current)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (mediaMode === 'video' && !videoPromptDraft && videoJob.phase === 'idle') {
+      suggestVideoPrompt()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mediaMode])
+
+  async function suggestVideoPrompt() {
+    setVideoPromptLoading(true)
+    try {
+      const res = await fetch('/api/generate/video-prompt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ postContent, channel, brandColors }),
+      })
+      if (!res.ok) return
+      const data = await res.json() as { videoPrompt: string }
+      setVideoPromptDraft(data.videoPrompt)
+    } finally {
+      setVideoPromptLoading(false)
+    }
+  }
+
+  async function generateVideo() {
+    if (!videoPromptDraft.trim() || videoJob.phase === 'starting' || videoJob.phase === 'running') return
+    setVideoJob({ phase: 'starting' })
+
+    try {
+      const res = await fetch('/api/generate/video', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: videoPromptDraft.trim(),
+          companyId,
+          postId,
+          size: VIDEO_SIZE_BY_CHANNEL[channel] ?? '1280x720',
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setVideoJob({ phase: 'error', message: data.error ?? 'Video generation failed to start' })
+        return
+      }
+      setVideoJob({ phase: 'running', jobId: data.jobId, progress: 0 })
+      pollVideoJob(data.jobId)
+    } catch (err) {
+      setVideoJob({ phase: 'error', message: (err as Error).message })
+    }
+  }
+
+  function pollVideoJob(jobId: string) {
+    videoPollRef.current = setInterval(async () => {
+      const res = await fetch(`/api/generate/video/${jobId}`)
+      if (!res.ok) return
+      const job = await res.json() as VideoJob
+
+      if (job.status === 'completed' && job.url && job.storage_path) {
+        clearInterval(videoPollRef.current!)
+        videoPollRef.current = null
+        setVideoJob({
+          phase: 'done',
+          result: { type: 'video', url: job.url, storagePath: job.storage_path, promptUsed: job.prompt },
+        })
+      } else if (job.status === 'failed') {
+        clearInterval(videoPollRef.current!)
+        videoPollRef.current = null
+        setVideoJob({ phase: 'error', message: job.error_message ?? 'Video generation failed' })
+      } else {
+        setVideoJob({ phase: 'running', jobId, progress: job.progress ?? 0 })
+      }
+    }, 3000)
+  }
+
+  function acceptVideo() {
+    if (videoJob.phase === 'done' && onAccept) onAccept(videoJob.result)
+  }
+
+  function resetVideoJob() {
+    if (videoPollRef.current !== null) clearInterval(videoPollRef.current)
+    videoPollRef.current = null
+    setVideoJob({ phase: 'idle' })
+  }
 
   // ── Library tab state ────────────────────────────────────────────────────────
   const [libraryItems, setLibraryItems] = useState<LibraryItem[]>([])
@@ -81,7 +193,8 @@ export function MediaPanel({ postContent, companyId, channel, postId, brandColor
       const res = await fetch(`/api/media?companyId=${companyId}`)
       if (!res.ok) throw new Error('Failed to load library')
       const data = await res.json() as { items: LibraryItem[] }
-      setLibraryItems(data.items)
+      // Video assets aren't editable via this image-focused grid (Canva, alt-text) — surface them separately later.
+      setLibraryItems(data.items.filter(item => item.type !== 'video'))
     } catch (e) {
       setLibraryError((e as Error).message)
     } finally {
@@ -213,6 +326,125 @@ export function MediaPanel({ postContent, companyId, channel, postId, brandColor
 
       {activeTab === 'generate' ? (
         <>
+          {/* Media mode toggle */}
+          <div className="flex gap-1 p-2 border-b border-zinc-800 bg-zinc-900/50">
+            <button
+              onClick={() => setMediaMode('image')}
+              className={cn(
+                'flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-colors',
+                mediaMode === 'image' ? 'bg-violet-600 text-white' : 'text-zinc-500 hover:text-zinc-300'
+              )}
+            >
+              <ImageIcon className="w-3 h-3" />
+              Image
+            </button>
+            <button
+              onClick={() => setMediaMode('video')}
+              className={cn(
+                'flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-colors',
+                mediaMode === 'video' ? 'bg-violet-600 text-white' : 'text-zinc-500 hover:text-zinc-300'
+              )}
+            >
+              <Film className="w-3 h-3" />
+              Video
+            </button>
+          </div>
+
+          {mediaMode === 'video' ? (
+            <>
+              <div className="relative bg-zinc-900 min-h-[240px] flex items-center justify-center">
+                {videoJob.phase === 'running' && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-zinc-900/90 z-10 gap-3">
+                    <Loader2 className="w-8 h-8 text-violet-400 animate-spin" />
+                    <p className="text-sm text-zinc-400">Generating video… {videoJob.progress}%</p>
+                    <p className="text-xs text-zinc-600">This can take a minute or two</p>
+                  </div>
+                )}
+
+                {videoJob.phase === 'starting' && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-zinc-900/90 z-10 gap-3">
+                    <Loader2 className="w-8 h-8 text-violet-400 animate-spin" />
+                    <p className="text-sm text-zinc-400">Starting video job…</p>
+                  </div>
+                )}
+
+                {videoJob.phase === 'idle' && (
+                  <div className="flex flex-col items-center gap-3 py-12 text-zinc-600">
+                    <Film className="w-10 h-10" />
+                    <p className="text-sm">Generate a short video clip for this post</p>
+                  </div>
+                )}
+
+                {videoJob.phase === 'done' && (
+                  <HoverDownloadVideo
+                    src={videoJob.result.url}
+                    className="w-full max-h-[480px]"
+                    wrapperClassName="w-full"
+                  />
+                )}
+              </div>
+
+              {videoJob.phase === 'error' && (
+                <div className="flex items-center gap-2 px-4 py-2 bg-red-950/50 border-t border-red-900/50">
+                  <X className="w-3.5 h-3.5 text-red-400 shrink-0" />
+                  <p className="text-xs text-red-400">{videoJob.message}</p>
+                </div>
+              )}
+
+              <div className="p-4 space-y-3 border-t border-zinc-800">
+                <ImagePromptBox
+                  label="Video prompt"
+                  value={videoPromptDraft}
+                  onChange={setVideoPromptDraft}
+                  placeholder="Describe the short clip you want to generate…"
+                  hint={videoPromptLoading ? 'Crafting a suggested prompt…' : 'Edit before generating, or regenerate the suggestion.'}
+                />
+
+                <button
+                  onClick={suggestVideoPrompt}
+                  disabled={videoPromptLoading}
+                  className="flex items-center gap-1.5 text-xs text-zinc-600 hover:text-zinc-400 transition-colors disabled:opacity-40"
+                >
+                  <RefreshCw className={cn('w-3 h-3', videoPromptLoading && 'animate-spin')} />
+                  Suggest a new prompt
+                </button>
+
+                <div className="flex gap-2">
+                  {videoJob.phase !== 'done' ? (
+                    <button
+                      onClick={generateVideo}
+                      disabled={!videoPromptDraft.trim() || videoJob.phase === 'starting' || videoJob.phase === 'running'}
+                      className="flex-1 flex items-center justify-center gap-2 py-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                    >
+                      {videoJob.phase === 'starting' || videoJob.phase === 'running' ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Film className="w-4 h-4" />
+                      )}
+                      Generate video
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        onClick={acceptVideo}
+                        className="flex-1 py-2 bg-violet-600 hover:bg-violet-500 text-white rounded-lg text-sm font-medium transition-colors"
+                      >
+                        Use this video
+                      </button>
+                      <button
+                        onClick={resetVideoJob}
+                        className="flex items-center gap-1.5 px-3 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-sm font-medium transition-colors"
+                      >
+                        <RefreshCw className="w-4 h-4" />
+                        Regenerate
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            </>
+          ) : (
+          <>
           {/* Media display */}
           <div className="relative bg-zinc-900 min-h-[240px] flex items-center justify-center">
             {/* Iteration nav */}
@@ -368,6 +600,8 @@ export function MediaPanel({ postContent, companyId, channel, postId, brandColor
               <ExternalLink className="w-3 h-3" />
             </a>
           </div>
+        </>
+          )}
         </>
       ) : (
         /* Library tab */

@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { AltTextBox } from '@/components/media/AltTextBox'
 import { MediaPanel } from '@/components/generate/MediaPanel'
-import { mediaItemFromResult, type MediaResult } from '@/types/media'
+import { mediaItemFromResult, type GeneratedMediaResult } from '@/types/media'
 import { ChannelPreview, XThreadPreview } from '@/components/posts/ChannelPreview'
 import { cn } from '@/lib/utils'
 import type { Post, Channel, PostStatus, MediaItem } from '@/types/database'
@@ -465,7 +465,7 @@ export function PostEditorModal({
     }
   }
 
-  async function handleMediaAccept(result: MediaResult) {
+  async function handleMediaAccept(result: GeneratedMediaResult) {
     if (!post) return
     const item = mediaItemFromResult(result)
 

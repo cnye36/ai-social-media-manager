@@ -331,7 +331,7 @@ function buildCreatePostArgs(
     ? buildXThreadBufferPayload(post)
     : null
 
-  const image = post.media_items?.find(m => m.type === 'image' && m.url)
+  const image = post.media_items?.find(m => (m.type === 'image' || m.type === 'video') && m.url)
   const assets = xThread
     ? xThread.assets
     : image?.url

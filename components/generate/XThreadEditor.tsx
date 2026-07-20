@@ -12,7 +12,7 @@ import { AltTextBox } from '@/components/media/AltTextBox'
 import { MediaPanel } from './MediaPanel'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { mediaItemFromResult, type MediaResult } from '@/types/media'
+import { mediaItemFromResult, type GeneratedMediaResult } from '@/types/media'
 import type { GeneratedPost, ThreadTweet } from '@/types/agents'
 import type { MediaItem } from '@/types/database'
 
@@ -98,7 +98,7 @@ export function XThreadEditor({ post, companyId, brandColors, embedded, voice = 
     }))
   }
 
-  async function handleMediaAccept(media: MediaResult) {
+  async function handleMediaAccept(media: GeneratedMediaResult) {
     const item = mediaItemFromResult(media)
     setTweetMedia(prev => ({ ...prev, [focusedIdx]: item }))
 

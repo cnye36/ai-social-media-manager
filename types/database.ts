@@ -156,10 +156,29 @@ export interface MediaLibraryItem {
   url: string
   prompt: string | null
   alt_text: string | null
-  type: 'image' | 'infographic'
+  type: 'image' | 'infographic' | 'video'
   svg: string | null
   post_id: string | null
   article_id: string | null
+  created_at: string
+}
+
+export interface VideoJob {
+  id: string
+  company_id: string
+  post_id: string | null
+  prompt: string
+  model: string
+  seconds: string
+  size: string
+  status: 'queued' | 'in_progress' | 'completed' | 'failed'
+  openai_video_id: string | null
+  progress: number
+  storage_path: string | null
+  url: string | null
+  error_message: string | null
+  started_at: string | null
+  completed_at: string | null
   created_at: string
 }
 
