@@ -3,22 +3,28 @@ import { Sparkles } from 'lucide-react'
 import { createClient } from '@/lib/supabase/server'
 import { PostsTable } from '@/components/posts/PostsTable'
 
+const POSTS_PER_PAGE = 20
+
 interface Props {
   params: Promise<{ companyId: string }>
+  searchParams: Promise<{ page?: string }>
 }
 
-export default async function PostsPage({ params }: Props) {
+export default async function PostsPage({ params, searchParams }: Props) {
   const { companyId } = await params
+  const { page: pageParam } = await searchParams
+  const page = Math.max(1, Number(pageParam) || 1)
   const supabase = await createClient()
 
-  const POSTS_LIMIT = 200
+  const from = (page - 1) * POSTS_PER_PAGE
+  const to = from + POSTS_PER_PAGE - 1
 
   const { data: posts, count } = await supabase
     .from('posts')
     .select('*', { count: 'exact' })
     .eq('company_id', companyId)
     .order('created_at', { ascending: false })
-    .limit(POSTS_LIMIT)
+    .range(from, to)
 
   return (
     <div className="p-8 max-w-5xl mx-auto">
@@ -36,7 +42,13 @@ export default async function PostsPage({ params }: Props) {
         </Link>
       </div>
 
-      <PostsTable posts={posts ?? []} companyId={companyId} totalCount={count ?? undefined} />
+      <PostsTable
+        posts={posts ?? []}
+        companyId={companyId}
+        totalCount={count ?? undefined}
+        page={page}
+        pageSize={POSTS_PER_PAGE}
+      />
     </div>
   )
 }

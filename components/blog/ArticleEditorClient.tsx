@@ -6,13 +6,13 @@ import { format } from 'date-fns'
 import {
   ArrowLeft, Loader2, Trash2, CalendarClock, Sparkles, Check,
   Tag, X, Copy, Wand2, ChevronDown, ChevronUp, ExternalLink,
-  Code2, BookOpen, LayoutList, Microscope, ImageIcon, Gauge,
+  Code2, BookOpen, LayoutList, Microscope, ImageIcon, Gauge, Send,
 } from 'lucide-react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { RichTextEditor, type RichTextEditorHandle } from './RichTextEditor'
 import { ArticleMediaPanel } from './ArticleMediaPanel'
-import { SocialFromArticle } from './SocialFromArticle'
+import { PromoteSocialModal } from './PromoteSocialModal'
 import { AltTextBox } from '@/components/media/AltTextBox'
 import { stripImagePromptComments } from '@/lib/blog/image-prompts'
 import { buildArticlePublicUrl } from '@/lib/blog/article-url'
@@ -98,6 +98,7 @@ export function ArticleEditorClient({
   const [wordCount, setWordCount] = useState(0)
   const [editorBody, setEditorBody] = useState(initialArticle.body)
   const [copied, setCopied] = useState(false)
+  const [promoteOpen, setPromoteOpen] = useState(false)
   const [frontmatterOpen, setFrontmatterOpen] = useState(true)
   const [qualityOpen, setQualityOpen] = useState(false)
   const [articleScore, setArticleScore] = useState<ArticleScore | null>(null)
@@ -842,12 +843,24 @@ export function ArticleEditorClient({
           </div>
 
           {/* Social promotion */}
-          <SocialFromArticle
+          <button
+            onClick={() => setPromoteOpen(true)}
+            className="w-full flex items-center justify-between px-4 py-3 rounded-xl border border-zinc-800 bg-zinc-900/30 hover:bg-zinc-800/40 transition-colors text-left"
+          >
+            <div className="flex items-center gap-2">
+              <Send className="w-4 h-4 text-violet-400" />
+              <span className="text-sm font-medium text-white">Promote on social media</span>
+              <span className="text-xs text-zinc-500">Generate, score, schedule, and send to Buffer</span>
+            </div>
+          </button>
+          <PromoteSocialModal
+            open={promoteOpen}
+            onOpenChange={setPromoteOpen}
             articleId={initialArticle.id}
             companyId={companyId}
-            defaultOpen
             articleStatus={status}
             articleScheduledFor={scheduledFor ? new Date(scheduledFor).toISOString() : null}
+            brandColors={brandColors}
           />
 
           {/* Meta */}

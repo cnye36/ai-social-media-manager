@@ -14,6 +14,7 @@ export async function GET(request: Request) {
   const status = searchParams.get('status')
   const scheduledAfter = searchParams.get('scheduledAfter')
   const scheduledBefore = searchParams.get('scheduledBefore')
+  const articleId = searchParams.get('articleId')
 
   let query = supabase
     .from('posts')
@@ -25,6 +26,7 @@ export async function GET(request: Request) {
   if (status) query = query.eq('status', status)
   if (scheduledAfter) query = query.gte('scheduled_for', scheduledAfter)
   if (scheduledBefore) query = query.lte('scheduled_for', scheduledBefore)
+  if (articleId) query = query.eq('generation_params->>articleId', articleId)
 
   const { data, error } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

@@ -2,6 +2,8 @@ import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
 import { Sparkles, CalendarDays, FileText, BookOpen } from 'lucide-react'
 import { DashboardPostList } from '@/components/posts/DashboardPostList'
+import { BufferCapacityRow } from '@/components/dashboard/BufferCapacityRow'
+import { getBufferQueueStatus } from '@/lib/publishing/buffer-queue'
 import type { Post } from '@/types/database'
 
 interface Props {
@@ -12,12 +14,13 @@ export default async function DashboardPage({ params }: Props) {
   const { companyId } = await params
   const supabase = await createClient()
 
-  const [{ data: company }, { data: recentPosts }, { data: scheduledPosts }, { data: knowledgeCount }] =
+  const [{ data: company }, { data: recentPosts }, { data: scheduledPosts }, { data: knowledgeCount }, queueStatus] =
     await Promise.all([
       supabase.from('companies').select('*').eq('id', companyId).single(),
       supabase.from('posts').select('*').eq('company_id', companyId).order('created_at', { ascending: false }).limit(5),
       supabase.from('posts').select('id').eq('company_id', companyId).eq('status', 'scheduled'),
       supabase.from('knowledge_chunks').select('id', { count: 'exact' }).eq('company_id', companyId),
+      getBufferQueueStatus(companyId),
     ])
 
   const stats = [
@@ -48,6 +51,8 @@ export default async function DashboardPage({ params }: Props) {
           </Link>
         ))}
       </div>
+
+      <BufferCapacityRow queueStatus={queueStatus} companyId={companyId} />
 
       <div className="flex gap-3 mb-8">
         <Link

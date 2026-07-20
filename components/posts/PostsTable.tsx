@@ -5,8 +5,9 @@
 // scheduling lives in /calendar; the dashboard shows a read-only recent list.
 
 import { useState, useTransition } from 'react'
+import Link from 'next/link'
 import { format } from 'date-fns'
-import { Copy, Check, Trash2, CalendarClock, Calendar, CheckCircle2 } from 'lucide-react'
+import { Copy, Check, Trash2, CalendarClock, Calendar, CheckCircle2, ChevronLeft, ChevronRight } from 'lucide-react'
 import { PostEditorModal } from './PostEditorModal'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -57,9 +58,11 @@ interface PostsTableProps {
   posts: Post[]
   companyId: string
   totalCount?: number
+  page?: number
+  pageSize?: number
 }
 
-export function PostsTable({ posts: initialPosts, companyId, totalCount }: PostsTableProps) {
+export function PostsTable({ posts: initialPosts, companyId, totalCount, page = 1, pageSize = 20 }: PostsTableProps) {
   const [posts, setPosts] = useState<Post[]>(initialPosts)
   const [channelFilter, setChannelFilter] = useState<Channel | 'all'>('all')
   const [statusFilter, setStatusFilter] = useState<PostStatus | 'all'>('all')
@@ -72,6 +75,8 @@ export function PostsTable({ posts: initialPosts, companyId, totalCount }: Posts
 
   const channels: (Channel | 'all')[] = ['all', 'linkedin', 'x', 'reddit', 'facebook']
   const statuses: (PostStatus | 'all')[] = ['all', 'draft', 'scheduled', 'published', 'archived']
+
+  const totalPages = Math.max(1, Math.ceil((totalCount ?? initialPosts.length) / pageSize))
 
   const filtered = posts.filter(p => {
     if (channelFilter !== 'all' && p.channel !== channelFilter) return false
@@ -169,9 +174,8 @@ export function PostsTable({ posts: initialPosts, companyId, totalCount }: Posts
 
       {/* Post count + approve errors */}
       <p className="text-sm text-zinc-500">
-        {filtered.length} post{filtered.length !== 1 ? 's' : ''}
-        {totalCount != null && totalCount > initialPosts.length &&
-          ` · showing the ${initialPosts.length} most recent of ${totalCount}`}
+        {filtered.length} post{filtered.length !== 1 ? 's' : ''} on this page
+        {totalCount != null && ` · ${totalCount} total`}
       </p>
       {approveError && (
         <p className="text-xs text-red-400 bg-red-400/10 border border-red-400/20 rounded-lg px-3 py-2">
@@ -272,6 +276,41 @@ export function PostsTable({ posts: initialPosts, companyId, totalCount }: Posts
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between pt-2">
+          <Link
+            href={`?page=${page - 1}`}
+            aria-disabled={page <= 1}
+            className={cn(
+              'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors',
+              page <= 1
+                ? 'pointer-events-none text-zinc-700'
+                : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+            )}
+          >
+            <ChevronLeft className="w-4 h-4" />
+            Previous
+          </Link>
+          <span className="text-xs text-zinc-500">
+            Page {page} of {totalPages}
+          </span>
+          <Link
+            href={`?page=${page + 1}`}
+            aria-disabled={page >= totalPages}
+            className={cn(
+              'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors',
+              page >= totalPages
+                ? 'pointer-events-none text-zinc-700'
+                : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+            )}
+          >
+            Next
+            <ChevronRight className="w-4 h-4" />
+          </Link>
         </div>
       )}
     </div>
