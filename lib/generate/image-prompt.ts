@@ -53,7 +53,7 @@ export function splitImagePromptFromText(text: string): { content: string; image
     }
   }
 
-  return { content: text.trimEnd() }
+  return { content: text }
 }
 
 /** Post text safe for UI while streaming (hides partial `--` / IMAGE_PROMPT suffix). */

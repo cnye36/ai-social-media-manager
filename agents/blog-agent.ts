@@ -1,6 +1,7 @@
 import { Agent, webSearchTool } from '@openai/agents'
 import { BLOG_CITATION_RULES } from '@/lib/blog/citation-rules'
 import { NO_EM_DASH_INSTRUCTION } from '@/lib/content/no-em-dash'
+import { NO_FALSE_DICHOTOMY_INSTRUCTION, LIMIT_BOLD_INSTRUCTION } from '@/lib/content/ai-tells'
 import { buildRagSearchTool } from './tools/rag-search'
 import type { BrandProfile } from '@/types/database'
 import type { ArticleFormat } from '@/types/agents'
@@ -125,10 +126,11 @@ ${BLOG_CITATION_RULES}
 
 UNIVERSAL WRITING RULES:
 - ${NO_EM_DASH_INSTRUCTION}
+- ${NO_FALSE_DICHOTOMY_INSTRUCTION}
 - Write like a knowledgeable human, not an AI — vary sentence length, use contractions, avoid hollow phrases ("leverage", "delve into", "in today's fast-paced world")
 - Never start a section by just restating the heading
 - Every paragraph must earn its place — cut anything that doesn't add value
-- Use markdown properly: **bold** for key terms, *italic* for emphasis, \`code\` for technical terms, > blockquote for notable quotes
+- Use markdown properly: *italic* for emphasis, \`code\` for technical terms, > blockquote for notable quotes. ${LIMIT_BOLD_INSTRUCTION}
 - Do NOT include an H1 at the top — the article title is handled separately
 - End with a clear, specific CTA tied to ${companyName}'s actual products or services
 

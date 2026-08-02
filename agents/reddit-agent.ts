@@ -2,6 +2,7 @@ import { Agent } from '@openai/agents'
 import { buildRagSearchTool } from './tools/rag-search'
 import { buildBaseSystemPrompt } from './base-agent'
 import { getSubredditOverlay } from '@/lib/reddit/subreddit-overlays'
+import { LIMIT_BOLD_INSTRUCTION } from '@/lib/content/ai-tells'
 import type { AccountType, BrandProfile } from '@/types/database'
 import type { RetrievedChunk } from '@/lib/rag/retrieve'
 import type { ContentGoal, PostLength } from '@/types/agents'
@@ -35,7 +36,7 @@ FORMAT:
 - Title: REQUIRED. Specific and clickable — curiosity, a clear outcome, or a genuine hook. Under 200 characters. No empty clickbait. Lowercase or casual casing is fine when it fits (e.g. "anyone else struggle with X?" not "Anyone Else Struggle With X?").
 - Body: Match format to post type — real Reddit posts are NOT all one style:
   - Questions, quick stories, discussion starters, venting: conversational prose only. Short paragraphs (2-3 sentences) separated by blank lines. No headers or bullets — structured formatting on these post types reads as AI-written or corporate.
-  - Lessons learned, analyses, breakdowns, AMAs, how-I-did-X, resource posts: use light Reddit-native formatting. One or two ## headers for main sections. **Bold** 2-4 key terms or callouts. Bullet lists (-) only when you genuinely have 3+ parallel items. Mix in at least one plain prose paragraph — not every thought needs a bullet.
+  - Lessons learned, analyses, breakdowns, AMAs, how-I-did-X, resource posts: use light Reddit-native formatting. One or two ## headers for main sections. ${LIMIT_BOLD_INSTRUCTION} Bullet lists (-) only when you genuinely have 3+ parallel items. Mix in at least one plain prose paragraph — not every thought needs a bullet.
   - Never write: "Introduction", "Conclusion", "Summary", or "Overview" as a header. For long posts, add a lowercase "tldr:" as a final plain-text paragraph.
   - Always keep paragraphs at 2-4 sentences. End with something that naturally invites a reply: a question, a mild take, or "curious if others have run into this."
   - Never make it look like a SaaS blog post or help-center doc. Formatting serves the story, not the other way around.

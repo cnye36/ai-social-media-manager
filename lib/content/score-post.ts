@@ -1,5 +1,6 @@
 import OpenAI from 'openai'
 import type { Channel } from '@/types/database'
+import { hasFalseDichotomyCliche } from '@/lib/content/ai-tells'
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
@@ -12,6 +13,7 @@ export const CRITERIA: Record<Channel, string> = {
     'Ends with 3–5 lowercase hashtags',
     'No hollow superlatives (thrilled, honored, incredibly proud, excited to share)',
     'No em dashes (—)',
+    'No "you don\'t have an X problem, you have a Y problem" reframe cliché (or variants like "that\'s not an X issue, that\'s a Y issue")',
     'Ends with a question or CTA to drive engagement',
     'No bullet points as crutch — prose should flow naturally',
   ].join('\n'),
@@ -19,6 +21,7 @@ export const CRITERIA: Record<Channel, string> = {
     'Each tweet is under 280 characters',
     'First 8 words earn the read — strong, concrete hook',
     'No em dashes (—)',
+    'No "you don\'t have an X problem, you have a Y problem" reframe cliché (or variants like "that\'s not an X issue, that\'s a Y issue")',
     'Tone is sharp and direct, not vague or corporate',
   ].join('\n'),
   reddit: [
@@ -27,6 +30,7 @@ export const CRITERIA: Record<Channel, string> = {
     'Sounds like a real person sharing an experience — not a pitch or press release',
     'Ends with an open question to invite replies',
     'No em dashes (—)',
+    'No "you don\'t have an X problem, you have a Y problem" reframe cliché (or variants like "that\'s not an X issue, that\'s a Y issue")',
   ].join('\n'),
   facebook: [
     'Length: 150–400 words',
@@ -34,6 +38,7 @@ export const CRITERIA: Record<Channel, string> = {
     'Ends with an easy, direct question to spark comments',
     'Does NOT open with "Ever..." or "Have you ever..."',
     'No em dashes (—)',
+    'No "you don\'t have an X problem, you have a Y problem" reframe cliché (or variants like "that\'s not an X issue, that\'s a Y issue")',
   ].join('\n'),
 }
 
@@ -77,6 +82,10 @@ function deterministicIssues(content: string, channel: Channel): string[] {
   const issues: string[] = []
 
   if (content.includes('—')) issues.push('Contains an em dash (—) — remove it')
+
+  if (hasFalseDichotomyCliche(content)) {
+    issues.push('Uses the "not an X, that\'s a Y" reframe cliché — rewrite it as a plain statement')
+  }
 
   if (channel === 'x' && content.length > 280) {
     issues.push(`Tweet is ${content.length} characters — must be 280 or under`)
@@ -132,7 +141,7 @@ ${QUALITATIVE_CRITERIA[channel]}
 Return JSON only: {"score": <0-100 integer>, "issues": ["<specific actionable issue>", ...]}
 - score reflects how well the post meets ALL criteria above (100 = perfect, 0 = fails everything)
 - issues: specific, actionable problems (max 3). Each issue MUST quote the exact word or phrase from the post it is criticizing, in the format: "<quoted phrase>" — <what's wrong and how to fix it>. Do not give generic feedback that could describe any post — only flag something that is actually true of THIS post's wording. Empty array if the qualitative criteria are met.
-- Length, hashtag count, and em dashes are already checked separately — do not mention them.`,
+- Length, hashtag count, em dashes, and the "not an X, that's a Y" reframe cliché are already checked separately — do not mention them.`,
         },
         {
           role: 'user',
@@ -175,6 +184,9 @@ export async function scoreXThread(tweets: string[]): Promise<PostScore> {
       .map((t, i) => (t.length > 280 ? `Tweet ${i + 1} is ${t.length} characters — must be 280 or under` : null))
       .filter((i): i is string => i !== null),
     ...(tweets.some(t => t.includes('—')) ? ['Contains an em dash (—) — remove it'] : []),
+    ...(tweets.some(hasFalseDichotomyCliche)
+      ? ['Uses the "not an X, that\'s a Y" reframe cliché — rewrite it as a plain statement']
+      : []),
   ]
 
   if (detIssues.length > 0) {
@@ -198,7 +210,7 @@ ${QUALITATIVE_CRITERIA_X_THREAD}
 Return JSON only: {"score": <0-100 integer>, "issues": ["<specific actionable issue>", ...]}
 - score reflects how well the THREAD AS A WHOLE meets the criteria above (100 = perfect, 0 = fails everything)
 - issues: specific, actionable problems (max 3). Reference the tweet number where relevant, and quote the exact phrase being criticized. Empty array if criteria are met.
-- Per-tweet length and em dashes are already checked separately — do not mention them.`,
+- Per-tweet length, em dashes, and the "not an X, that's a Y" reframe cliché are already checked separately — do not mention them.`,
         },
         {
           role: 'user',
