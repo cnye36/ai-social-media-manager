@@ -122,7 +122,7 @@ export function buildLinkedInAgent(params: {
 
   return new Agent({
     name: 'LinkedIn Content Writer',
-    model: 'gpt-5.5-terra',
+    model: 'gpt-5.6-terra',
     instructions: systemPrompt,
     tools: [buildRagSearchTool(params.companyId), buildLoadSkillTool('linkedin')],
   })
