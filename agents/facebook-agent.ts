@@ -67,7 +67,7 @@ export function buildFacebookAgent(params: {
 
   return new Agent({
     name: 'Facebook Content Writer',
-    model: 'gpt-5.4',
+    model: 'gpt-5.6-terra',
     instructions: systemPrompt,
     tools: [buildRagSearchTool(params.companyId)],
   })

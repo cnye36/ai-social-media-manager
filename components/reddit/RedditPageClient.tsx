@@ -766,7 +766,7 @@ function OpportunitiesTab({ companyId }: { companyId: string }) {
           <Radio className="w-8 h-8 text-zinc-600 mb-3" />
           <p className="text-zinc-500 text-sm">No opportunities yet</p>
           <p className="text-zinc-600 text-xs mt-1">
-            Add monitors in the Monitors tab — posts will appear here once the cron runs
+            Add monitors in the Monitors tab, then hit "Check now" to scan
           </p>
         </div>
       ) : (
@@ -1287,6 +1287,8 @@ function MonitorsTab({ companyId }: { companyId: string }) {
   const [editKeywords, setEditKeywords] = useState<string[]>([])
   const [editKeywordInput, setEditKeywordInput] = useState('')
   const [editSaving, setEditSaving] = useState(false)
+  const [checking, setChecking] = useState(false)
+  const [checkResult, setCheckResult] = useState('')
 
   useEffect(() => {
     fetch(`/api/reddit/monitors?companyId=${companyId}`)
@@ -1294,6 +1296,34 @@ function MonitorsTab({ companyId }: { companyId: string }) {
       .then(data => { setMonitors(data); setLoading(false) })
       .catch(() => setLoading(false))
   }, [companyId])
+
+  async function checkNow() {
+    setChecking(true)
+    setCheckResult('')
+    try {
+      const res = await fetch('/api/reddit/monitor/check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ companyId }),
+      })
+      const data = await res.json() as { newOpportunities?: number; error?: string }
+      if (!res.ok) {
+        setCheckResult(data.error ?? 'Check failed')
+      } else {
+        setCheckResult(
+          data.newOpportunities
+            ? `Found ${data.newOpportunities} new opportunit${data.newOpportunities === 1 ? 'y' : 'ies'}`
+            : 'No new opportunities'
+        )
+        fetch(`/api/reddit/monitors?companyId=${companyId}`)
+          .then(r => r.json())
+          .then(setMonitors)
+      }
+    } catch {
+      setCheckResult('Check failed')
+    }
+    setChecking(false)
+  }
 
   function addSubredditTag(raw: string) {
     const sub = raw.replace(/^r\//, '').trim().toLowerCase()
@@ -1434,6 +1464,21 @@ function MonitorsTab({ companyId }: { companyId: string }) {
 
   return (
     <div className="space-y-6">
+      {/* Manual check */}
+      <div className="flex items-center gap-3">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={checkNow}
+          disabled={checking || monitors.length === 0}
+        >
+          <RefreshCw className={cn('w-4 h-4 mr-1.5', checking && 'animate-spin')} />
+          {checking ? 'Checking…' : 'Check now'}
+        </Button>
+        {checkResult && <span className="text-xs text-zinc-500">{checkResult}</span>}
+      </div>
+
       {/* Existing monitors */}
       {loading ? (
         <div className="flex items-center justify-center h-32 text-zinc-500">

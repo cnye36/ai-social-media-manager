@@ -195,7 +195,7 @@ OUTPUT: Return ONLY the complete markdown article body — no preamble, no "here
 
   return new Agent({
     name: 'Blog Content Writer',
-    model: 'gpt-5.4',
+    model: 'gpt-5.6-terra',
     instructions: systemPrompt,
     tools: [
       webSearchTool(),

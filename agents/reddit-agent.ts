@@ -115,7 +115,7 @@ export function buildRedditAgent(params: {
 
   return new Agent({
     name: 'Reddit Content Writer',
-    model: 'gpt-5.4',
+    model: 'gpt-5.6-terra',
     instructions: systemPrompt,
     tools: [buildRagSearchTool(params.companyId)],
   })

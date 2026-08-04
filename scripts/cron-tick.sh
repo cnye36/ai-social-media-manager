@@ -8,12 +8,13 @@
 #   chmod +x scripts/cron-tick.sh
 #
 # Example crontab (crontab -e):
-#   # Publish due posts/articles + Reddit scan every 15 minutes
+#   # Publish due posts/articles every 15 minutes
 #   */15 * * * * APP_URL=https://your-app.vercel.app CRON_SECRET=xxx /path/to/repo/scripts/cron-tick.sh
 #
-# Lighter schedule (hourly publish is enough for most teams; Reddit can stay 15–30m):
-#   0 * * * * .../cron-tick.sh publish
-#   */30 * * * * .../cron-tick.sh reddit
+# Reddit monitoring is manual-only — trigger it from the Reddit page's
+# "Check now" button in the UI. The `reddit` mode below still exists for
+# scripted/ad-hoc use if you ever want to schedule it again.
+#   .../cron-tick.sh reddit
 
 set -euo pipefail
 
