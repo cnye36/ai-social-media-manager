@@ -1,5 +1,6 @@
 import { Agent } from '@openai/agents'
 import { buildRagSearchTool } from './tools/rag-search'
+import { buildLoadSkillTool } from './tools/load-skill'
 import { buildBaseSystemPrompt } from './base-agent'
 import { FACEBOOK_VARIETY_RULES } from '@/lib/content/channel-variety'
 import type { AccountType, BrandProfile } from '@/types/database'
@@ -69,6 +70,6 @@ export function buildFacebookAgent(params: {
     name: 'Facebook Content Writer',
     model: 'gpt-5.6-terra',
     instructions: systemPrompt,
-    tools: [buildRagSearchTool(params.companyId)],
+    tools: [buildRagSearchTool(params.companyId), buildLoadSkillTool('facebook')],
   })
 }

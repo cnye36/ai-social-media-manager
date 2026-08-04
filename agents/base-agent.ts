@@ -98,6 +98,7 @@ CONTENT DIRECTION:
 ${additionalContext ? `- Additional context from the user: ${additionalContext}` : ''}
 
 WRITING RULES (non-negotiable):
+- Before drafting, call the load_writing_skill tool once and apply everything in it. It contains detector-evasion techniques and channel craft not repeated here.
 - ${NO_EM_DASH_INSTRUCTION}
 - ${NO_FALSE_DICHOTOMY_INSTRUCTION}
 - Format for readability as you write — don't produce a dense unbroken block and expect it to get cleaned up later. Break onto a new line or paragraph wherever there's a natural pause, a shift in thought, or a contrast, so the post is easy to scan. Use judgment: a short punchy post or a single tight thought can stay as one block — not everything needs to be chopped into one-sentence lines. Follow the channel's own formatting rules above for the specifics.

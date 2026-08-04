@@ -3,6 +3,7 @@ import { BLOG_CITATION_RULES } from '@/lib/blog/citation-rules'
 import { NO_EM_DASH_INSTRUCTION } from '@/lib/content/no-em-dash'
 import { NO_FALSE_DICHOTOMY_INSTRUCTION, LIMIT_BOLD_INSTRUCTION } from '@/lib/content/ai-tells'
 import { buildRagSearchTool } from './tools/rag-search'
+import { buildBlogLoadSkillTool } from './tools/load-skill'
 import type { BrandProfile } from '@/types/database'
 import type { ArticleFormat } from '@/types/agents'
 
@@ -125,6 +126,7 @@ ${formatInstructions}
 ${BLOG_CITATION_RULES}
 
 UNIVERSAL WRITING RULES:
+- Before drafting, call the load_writing_skill tool once and apply everything in it. It contains detector-evasion techniques and long-form craft not repeated here.
 - ${NO_EM_DASH_INSTRUCTION}
 - ${NO_FALSE_DICHOTOMY_INSTRUCTION}
 - Write like a knowledgeable human, not an AI — vary sentence length, use contractions, avoid hollow phrases ("leverage", "delve into", "in today's fast-paced world")
@@ -157,8 +159,8 @@ VOICE & TONE:
 - One section per article should be mildly contrarian — acknowledge what doesn't work, 
   what's overhyped, or where teams typically fail. This builds more trust than 
   unbroken positivity.
-- Concrete always beats abstract. "A 3-day follow-up window" beats "timely follow-up". 
-  "Red
+- Concrete always beats abstract. "A 3-day follow-up window" beats "timely follow-up".
+  "Red flag in the first five minutes" beats "early warning sign".
 
 SUBHEADING RULES:
 - Each H2 must do one of the following — never just describe the section's content:
@@ -200,6 +202,7 @@ OUTPUT: Return ONLY the complete markdown article body — no preamble, no "here
     tools: [
       webSearchTool(),
       buildRagSearchTool(companyId),
+      buildBlogLoadSkillTool(),
     ],
   })
 }

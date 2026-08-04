@@ -1,5 +1,6 @@
 import { Agent } from '@openai/agents'
 import { buildRagSearchTool } from './tools/rag-search'
+import { buildLoadSkillTool } from './tools/load-skill'
 import { buildBaseSystemPrompt } from './base-agent'
 import {
   X_HASHTAG_RULES, X_VARIETY_RULES, X_ANTI_FORMULA_RULES, X_EXAMPLES_SINGLE, X_EXAMPLES_THREAD,
@@ -117,6 +118,6 @@ export function buildXAgent(params: {
     name: 'X Content Writer',
     model: 'gpt-5.6-terra',
     instructions: systemPrompt,
-    tools: [buildRagSearchTool(params.companyId)],
+    tools: [buildRagSearchTool(params.companyId), buildLoadSkillTool('x')],
   })
 }

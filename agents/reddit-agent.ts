@@ -1,5 +1,6 @@
 import { Agent } from '@openai/agents'
 import { buildRagSearchTool } from './tools/rag-search'
+import { buildLoadSkillTool } from './tools/load-skill'
 import { buildBaseSystemPrompt } from './base-agent'
 import { getSubredditOverlay } from '@/lib/reddit/subreddit-overlays'
 import { LIMIT_BOLD_INSTRUCTION } from '@/lib/content/ai-tells'
@@ -117,6 +118,6 @@ export function buildRedditAgent(params: {
     name: 'Reddit Content Writer',
     model: 'gpt-5.6-terra',
     instructions: systemPrompt,
-    tools: [buildRagSearchTool(params.companyId)],
+    tools: [buildRagSearchTool(params.companyId), buildLoadSkillTool('reddit')],
   })
 }
