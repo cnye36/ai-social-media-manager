@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Lightbulb, Loader2, ChevronDown, ChevronUp, ArrowRight, RotateCcw, LayoutList, BookOpen, Microscope } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ContentGoal, ArticleFormat } from '@/types/agents'
@@ -40,15 +40,23 @@ interface BlogIdeaSparkProps {
   onFormatChange: (format: ArticleFormat) => void
   onGenerate: (idea: BlogIdea) => void
   disabled?: boolean
+  hideFormat?: boolean
 }
 
-export function BlogIdeaSpark({ companyId, articleFormat, onFormatChange, onGenerate, disabled }: BlogIdeaSparkProps) {
+export function BlogIdeaSpark({ companyId, articleFormat, onFormatChange, onGenerate, disabled, hideFormat = false }: BlogIdeaSparkProps) {
   const [open, setOpen] = useState(false)
   const [ideas, setIdeas] = useState<BlogIdea[]>([])
   const [lastFormat, setLastFormat] = useState<ArticleFormat | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [generatingIdx, setGeneratingIdx] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (lastFormat !== null && articleFormat !== lastFormat) {
+      setIdeas([])
+      setOpen(false)
+    }
+  }, [articleFormat, lastFormat])
 
   async function fetchIdeas(format: ArticleFormat) {
     setLoading(true)
@@ -95,33 +103,35 @@ export function BlogIdeaSpark({ companyId, articleFormat, onFormatChange, onGene
 
   return (
     <div className="space-y-3">
-      {/* Format selector */}
-      <div className="flex items-center gap-1.5">
-        {FORMAT_OPTIONS.map(opt => (
-          <button
-            key={opt.value}
-            type="button"
-            onClick={() => {
-              onFormatChange(opt.value)
-              // Reset cached ideas if format changed
-              if (opt.value !== lastFormat) {
-                setIdeas([])
-                setOpen(false)
-              }
-            }}
-            className={cn(
-              'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all border',
-              articleFormat === opt.value
-                ? 'bg-violet-600/20 border-violet-500/50 text-violet-300'
-                : 'bg-zinc-800/50 border-zinc-700/50 text-zinc-500 hover:text-zinc-300 hover:border-zinc-600'
-            )}
-            title={opt.description}
-          >
-            {opt.icon}
-            {opt.label}
-          </button>
-        ))}
-      </div>
+      {/* Format selector (optional when parent owns it) */}
+      {!hideFormat && (
+        <div className="flex items-center gap-1.5">
+          {FORMAT_OPTIONS.map(opt => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => {
+                onFormatChange(opt.value)
+                // Reset cached ideas if format changed
+                if (opt.value !== lastFormat) {
+                  setIdeas([])
+                  setOpen(false)
+                }
+              }}
+              className={cn(
+                'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all border',
+                articleFormat === opt.value
+                  ? 'bg-violet-600/20 border-violet-500/50 text-violet-300'
+                  : 'bg-zinc-800/50 border-zinc-700/50 text-zinc-500 hover:text-zinc-300 hover:border-zinc-600'
+              )}
+              title={opt.description}
+            >
+              {opt.icon}
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Spark / hide button row */}
       <div className="flex items-center justify-between">

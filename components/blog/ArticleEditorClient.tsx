@@ -61,7 +61,13 @@ export function ArticleEditorClient({
 
   // Content
   const [title, setTitle] = useState(initialArticle.title)
-  const [excerpt, setExcerpt] = useState(initialArticle.excerpt ?? '')
+  const [excerpt, setExcerpt] = useState(
+    // Brief is stored in excerpt for first-time AI Write; clear SEO excerpt until generate fills it
+    initialArticle.body ? (initialArticle.excerpt ?? '') : '',
+  )
+  const [writeBrief, setWriteBrief] = useState(
+    !initialArticle.body && initialArticle.excerpt ? initialArticle.excerpt : '',
+  )
 
   // Frontmatter
   const [slug, setSlug] = useState(initialArticle.slug ?? '')
@@ -165,7 +171,7 @@ export function ArticleEditorClient({
       body: JSON.stringify({
         companyId,
         title,
-        additionalContext: excerpt || undefined,
+        additionalContext: writeBrief.trim() || undefined,
         siteId: selectedSiteId || undefined,
         articleFormat,
       }),
@@ -558,6 +564,22 @@ export function ArticleEditorClient({
             placeholder="Article title…"
             className="w-full bg-transparent text-3xl font-bold text-white placeholder:text-zinc-700 border-none outline-none focus:ring-0"
           />
+
+          <div className="space-y-1.5">
+            <label htmlFor="article-write-brief" className="text-xs font-medium text-zinc-500">
+              What to write{' '}
+              <span className="font-normal text-zinc-600">(used by AI Write)</span>
+            </label>
+            <textarea
+              id="article-write-brief"
+              value={writeBrief}
+              onChange={e => setWriteBrief(e.target.value)}
+              placeholder="Audience, angle, key points, CTA, tone — guide the draft before you hit AI Write…"
+              rows={3}
+              disabled={generating}
+              className="w-full rounded-lg border border-zinc-800 bg-zinc-900/50 px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-zinc-600 focus:ring-1 focus:ring-violet-500/40 disabled:opacity-50"
+            />
+          </div>
 
           <div className="flex items-center justify-end gap-1">
             {(['edit', 'preview'] as const).map(mode => (
