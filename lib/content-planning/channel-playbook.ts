@@ -151,6 +151,75 @@ function conflicts(candidate: Date, existing: Date[]): boolean {
   return existing.some(e => Math.abs(e.getTime() - candidate.getTime()) < MIN_CHANNEL_GAP_MS)
 }
 
+/** Merge consecutive hours into windows. Isolated hours become a 2-hour frame (e.g. 8 → 8:00–10:00). */
+function windowsFromHours(hours: number[]): { start: number; end: number }[] {
+  const sorted = [...new Set(hours)].sort((a, b) => a - b)
+  if (!sorted.length) return [{ start: 9, end: 11 }]
+
+  const windows: { start: number; end: number }[] = []
+  let start = sorted[0]
+  let prev = sorted[0]
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i] === prev + 1) {
+      prev = sorted[i]
+      continue
+    }
+    windows.push({ start, end: Math.min(24, Math.max(prev + 1, start + 2)) })
+    start = sorted[i]
+    prev = sorted[i]
+  }
+  windows.push({ start, end: Math.min(24, Math.max(prev + 1, start + 2)) })
+  return windows
+}
+
+function windowForHour(
+  hour: number,
+  hours: number[],
+): { start: number; end: number } {
+  const windows = windowsFromHours(hours)
+  return windows.find(w => hour >= w.start && hour < w.end) ?? {
+    start: hour,
+    end: Math.min(24, hour + 2),
+  }
+}
+
+/**
+ * Pick a random time inside the optimal window (never :00).
+ * e.g. 8:00–10:00 → 8:37, 9:14, 9:52.
+ */
+function randomizeWithinWindow(
+  slot: CalendarSlot,
+  hours: number[],
+  now: Date,
+  booked: Date[],
+): Date | null {
+  const hour = slot.scheduledFor.getUTCHours()
+  const { start, end } = windowForHour(hour, hours)
+  const base = new Date(slot.scheduledFor)
+  base.setUTCMinutes(0, 0, 0)
+  base.setTime(base.getTime() + (start - hour) * 60 * 60 * 1000)
+
+  const spanMinutes = Math.max(60, (end - start) * 60)
+  const windowEnd = new Date(base.getTime() + spanMinutes * 60_000)
+  const earliest = new Date(Math.max(base.getTime() + 5 * 60_000, now.getTime() + 60_000))
+  if (earliest >= windowEnd) return null
+
+  const remainingMinutes = Math.floor((windowEnd.getTime() - earliest.getTime()) / 60_000)
+  const usable = Math.max(1, remainingMinutes - 5)
+
+  for (let attempt = 0; attempt < 16; attempt++) {
+    const candidate = new Date(earliest.getTime() + Math.floor(Math.random() * usable) * 60_000)
+    candidate.setUTCSeconds(0, 0)
+    if (candidate > now && candidate < windowEnd && !conflicts(candidate, booked)) {
+      return candidate
+    }
+  }
+
+  const fallback = new Date(earliest.getTime() + Math.floor(Math.random() * usable) * 60_000)
+  fallback.setUTCSeconds(0, 0)
+  return fallback > now ? fallback : null
+}
+
 function playbookCandidates(
   channel: Channel,
   startDate: string,
@@ -233,9 +302,10 @@ function targetCount(channel: Channel, dayCount: number, available: number): num
 }
 
 /**
- * Build the exact posting times that fit inside [startDate, endDate].
+ * Build posting times that fit inside [startDate, endDate].
  * Prefers the company's configured schedule slots; falls back to playbook
- * best days/hours. Drops anything in the past, already booked, or over cadence.
+ * best days/hours. Each slot is randomized inside its optimal window
+ * (never :00). Drops anything in the past, already booked, or over cadence.
  */
 export function selectCalendarSlots(params: {
   channels: Channel[]
@@ -288,7 +358,19 @@ export function selectCalendarSlots(params: {
     const target = targetCount(channel, dayCount, available.length)
     const pool = preferred.length >= target ? preferred : available
     const capped = capByCadence(pool, channel)
-    selected.push(...pickEvenly(capped, Math.min(target, capped.length)))
+    const picked = pickEvenly(capped, Math.min(target, capped.length))
+
+    const hours =
+      insights[channel]?.best_hours_utc?.length
+        ? insights[channel].best_hours_utc
+        : getPlaybook(channel).bestHoursUtc
+    const assigned = [...booked]
+    for (const slot of picked) {
+      const scheduledFor = randomizeWithinWindow(slot, hours, now, assigned)
+      if (!scheduledFor) continue
+      assigned.push(scheduledFor)
+      selected.push({ ...slot, scheduledFor })
+    }
   }
 
   return selected.sort((a, b) => a.scheduledFor.getTime() - b.scheduledFor.getTime())
