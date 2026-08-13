@@ -3,11 +3,16 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { DEFAULT_SCHEDULES, DEFAULT_TIMEZONE } from './defaults'
 import type { Channel } from '@/types/database'
 
-interface ScheduleEntry {
+export interface ScheduleEntry {
   day_of_week: number
   hour: number
   minute: number
   timezone: string
+}
+
+export interface RangedScheduleSlot {
+  utc: Date
+  calendarDate: string
 }
 
 const BUFFER_CHANNELS: Channel[] = ['linkedin', 'x', 'facebook']
@@ -72,6 +77,45 @@ function expandSlots(entries: ScheduleEntry[], from: Date, days = 60): Date[] {
   }
 
   return slots.sort((a, b) => a.getTime() - b.getTime())
+}
+
+function eachISODate(startDate: string, endDate: string): string[] {
+  const dates: string[] = []
+  let cur = startDate
+  while (cur <= endDate) {
+    dates.push(cur)
+    const d = new Date(`${cur}T00:00:00.000Z`)
+    d.setUTCDate(d.getUTCDate() + 1)
+    cur = d.toISOString().slice(0, 10)
+  }
+  return dates
+}
+
+/**
+ * Expand schedule entries into concrete UTC timestamps whose local calendar date
+ * falls in [startDate, endDate] (inclusive) and is strictly after `after`.
+ */
+export function listScheduleSlotsInRange(
+  entries: ScheduleEntry[],
+  startDate: string,
+  endDate: string,
+  after: Date = new Date(),
+): RangedScheduleSlot[] {
+  if (!entries.length || endDate < startDate) return []
+
+  const slots: RangedScheduleSlot[] = []
+  for (const calendarDate of eachISODate(startDate, endDate)) {
+    const [y, m, d] = calendarDate.split('-').map(Number)
+    const dow = new Date(`${calendarDate}T00:00:00.000Z`).getUTCDay()
+
+    for (const entry of entries) {
+      if (entry.day_of_week !== dow) continue
+      const utc = localToUTC(y, m, d, entry.hour, entry.minute, entry.timezone)
+      if (utc > after) slots.push({ utc, calendarDate })
+    }
+  }
+
+  return slots.sort((a, b) => a.utc.getTime() - b.utc.getTime())
 }
 
 /** Seed default schedules for a company+channel, returning the entries. */

@@ -40,9 +40,9 @@ export function PlannerListClient({ companyId, initialPlans }: PlannerListClient
             Content Planner
           </h1>
           <p className="text-zinc-400 mt-1 text-sm max-w-xl">
-            Plan a week or month of posts like your social media director would — using your brand,
-            past scheduled content, and any updates you want to highlight. Write posts in batches,
-            then add media and schedule from Posts or Calendar.
+            Pick a start and end date and we&apos;ll map posts onto your posting-schedule time slots
+            — using your brand, past scheduled content, and any updates you want to highlight.
+            Write posts in batches, then add media and schedule from Posts or Calendar.
           </p>
         </div>
         <Button onClick={() => setShowCreate(v => !v)}>

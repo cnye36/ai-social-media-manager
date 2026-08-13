@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { addDays, addMonths, format, startOfWeek } from 'date-fns'
+import { addDays, format } from 'date-fns'
 import { Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -19,8 +19,6 @@ const CHANNELS: { id: Channel; label: string; icon: React.ReactNode }[] = [
   { id: 'reddit', label: 'Reddit', icon: <RedditIcon className="w-4 h-4" /> },
 ]
 
-type RangePreset = 'week' | 'month'
-
 interface CreatePlanFormProps {
   companyId: string
   onCreated?: (plan: ContentPlan) => void
@@ -29,31 +27,18 @@ interface CreatePlanFormProps {
 
 export function CreatePlanForm({ companyId, onCreated, onCancel }: CreatePlanFormProps) {
   const router = useRouter()
-  const weekStart = startOfWeek(new Date(), { weekStartsOn: 1 })
-  const [name, setName] = useState(`Content plan · ${format(new Date(), 'MMM yyyy')}`)
-  const [preset, setPreset] = useState<RangePreset>('month')
-  const [startDate, setStartDate] = useState(format(new Date(), 'yyyy-MM-dd'))
-  const [endDate, setEndDate] = useState(format(addMonths(new Date(), 1), 'yyyy-MM-dd'))
+  const today = format(new Date(), 'yyyy-MM-dd')
+  const [name, setName] = useState(`Content plan · ${format(new Date(), 'MMM d')}–${format(addDays(new Date(), 13), 'MMM d')}`)
+  const [startDate, setStartDate] = useState(today)
+  const [endDate, setEndDate] = useState(format(addDays(new Date(), 13), 'yyyy-MM-dd'))
   const [channels, setChannels] = useState<Channel[]>(['linkedin', 'x'])
   const [additionalContext, setAdditionalContext] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  function applyPreset(p: RangePreset) {
-    setPreset(p)
-    if (p === 'week') {
-      const start = format(weekStart, 'yyyy-MM-dd')
-      const end = format(addDays(weekStart, 6), 'yyyy-MM-dd')
-      setStartDate(start)
-      setEndDate(end)
-      setName(`Week of ${format(weekStart, 'MMM d')}`)
-    } else {
-      const start = format(new Date(), 'yyyy-MM-dd')
-      const end = format(addMonths(new Date(), 1), 'yyyy-MM-dd')
-      setStartDate(start)
-      setEndDate(end)
-      setName(`Content plan · ${format(new Date(), 'MMM yyyy')}`)
-    }
+  function handleStartChange(value: string) {
+    setStartDate(value)
+    if (endDate < value) setEndDate(value)
   }
 
   function toggleChannel(ch: Channel) {
@@ -66,6 +51,10 @@ export function CreatePlanForm({ companyId, onCreated, onCancel }: CreatePlanFor
     e.preventDefault()
     if (!channels.length) {
       setError('Select at least one channel')
+      return
+    }
+    if (endDate < startDate) {
+      setError('End date must be on or after the start date')
       return
     }
     setLoading(true)
@@ -88,7 +77,6 @@ export function CreatePlanForm({ companyId, onCreated, onCancel }: CreatePlanFor
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Failed to create plan')
 
-      const slots = data.content_plan_slots ?? []
       const plan: ContentPlan = {
         ...data,
         slots: undefined,
@@ -108,60 +96,45 @@ export function CreatePlanForm({ companyId, onCreated, onCancel }: CreatePlanFor
     <form onSubmit={handleSubmit} className="space-y-5">
       <h2 className="text-lg font-semibold text-white">New content plan</h2>
 
-      <div className="flex gap-2">
-        {(['week', 'month'] as RangePreset[]).map(p => (
-          <button
-            key={p}
-            type="button"
-            onClick={() => applyPreset(p)}
-            className={cn(
-              'px-3 py-1.5 rounded-lg text-sm border transition-colors',
-              preset === p
-                ? 'border-violet-500 bg-violet-600/15 text-violet-300'
-                : 'border-zinc-700 text-zinc-400 hover:border-zinc-600',
-            )}
-          >
-            {p === 'week' ? 'This week' : 'Next month'}
-          </button>
-        ))}
+      <div>
+        <Label htmlFor="plan-name">Plan name</Label>
+        <input
+          id="plan-name"
+          value={name}
+          onChange={e => setName(e.target.value)}
+          className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white"
+          required
+        />
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div className="grid grid-cols-2 gap-3">
         <div>
-          <Label htmlFor="plan-name">Plan name</Label>
+          <Label htmlFor="start">Start date</Label>
           <input
-            id="plan-name"
-            value={name}
-            onChange={e => setName(e.target.value)}
+            id="start"
+            type="date"
+            value={startDate}
+            onChange={e => handleStartChange(e.target.value)}
             className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white"
             required
           />
         </div>
-        <div className="grid grid-cols-2 gap-2">
-          <div>
-            <Label htmlFor="start">Start</Label>
-            <input
-              id="start"
-              type="date"
-              value={startDate}
-              onChange={e => setStartDate(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white"
-              required
-            />
-          </div>
-          <div>
-            <Label htmlFor="end">End</Label>
-            <input
-              id="end"
-              type="date"
-              value={endDate}
-              onChange={e => setEndDate(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white"
-              required
-            />
-          </div>
+        <div>
+          <Label htmlFor="end">End date</Label>
+          <input
+            id="end"
+            type="date"
+            value={endDate}
+            min={startDate}
+            onChange={e => setEndDate(e.target.value)}
+            className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white"
+            required
+          />
         </div>
       </div>
+      <p className="text-xs text-zinc-600 -mt-3">
+        Posts are only created on dates in this range, at your posting-schedule times for each channel.
+      </p>
 
       <div>
         <Label>Channels</Label>

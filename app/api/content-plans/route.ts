@@ -57,6 +57,13 @@ export async function POST(request: Request) {
     )
   }
 
+  if (endDate < startDate) {
+    return NextResponse.json(
+      { error: 'End date must be on or after the start date' },
+      { status: 400 },
+    )
+  }
+
   const validChannels = (channels ?? []).filter(c => VALID_CHANNELS.includes(c))
   if (validChannels.length === 0) {
     return NextResponse.json({ error: 'At least one channel is required' }, { status: 400 })

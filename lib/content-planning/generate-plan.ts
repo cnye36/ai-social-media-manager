@@ -1,15 +1,17 @@
 import OpenAI from 'openai'
 import { z } from 'zod'
 import { zodResponseFormat } from 'openai/helpers/zod'
-import { addDays, eachDayOfInterval, format, parseISO } from 'date-fns'
+import { format } from 'date-fns'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { retrieve } from '@/lib/rag/retrieve'
+import { getChannelSchedules, listScheduleSlotsInRange } from '@/lib/scheduling/next-slot'
 import { buildBrandContext, summarizePastPosts } from './brand-context'
 import {
-  assignSlotTimes,
   buildPlaybookPromptSection,
-  calculateChannelSlotTargets,
   getPlaybook,
+  selectCalendarSlots,
+  slotIsInRange,
+  type CalendarSlot,
 } from './channel-playbook'
 import { analyzePostingInsights } from './posting-insights'
 import type { Channel, Company, Post } from '@/types/database'
@@ -19,8 +21,7 @@ import type { ContentGoal, PostLength } from '@/types/agents'
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
 const PlanSlotSchema = z.object({
-  channel: z.enum(['linkedin', 'x', 'reddit', 'facebook']),
-  scheduled_date: z.string().describe('ISO date YYYY-MM-DD within the plan range'),
+  slot_index: z.number().int().describe('Index of the predetermined calendar slot to fill'),
   post_type: z.string().describe(
     'Channel-specific format: X must use "single" or "thread". LinkedIn: thought_leadership, carousel, poll, story. Facebook: community, story, update. Reddit: discussion, story.',
   ),
@@ -48,21 +49,31 @@ export async function generateContentPlan(
 ): Promise<{ planId: string }> {
   const { companyId, name, startDate, endDate, channels, additionalContext } = request
 
-  const start = parseISO(startDate)
-  const end = parseISO(endDate)
-  const dayCount = eachDayOfInterval({ start, end }).length
+  if (endDate < startDate) {
+    throw new Error('End date must be on or after the start date')
+  }
 
-  const [{ data: company }, { data: brand }, { data: pastPosts }] = await Promise.all([
-    supabase.from('companies').select('*').eq('id', companyId).single(),
-    supabase.from('brand_profiles').select('*').eq('company_id', companyId).single(),
-    supabase
-      .from('posts')
-      .select('*')
-      .eq('company_id', companyId)
-      .in('status', ['scheduled', 'published'])
-      .order('scheduled_for', { ascending: false, nullsFirst: false })
-      .limit(60),
-  ])
+  const now = new Date()
+
+  const [{ data: company }, { data: brand }, { data: pastPosts }, { data: existingInRange }] =
+    await Promise.all([
+      supabase.from('companies').select('*').eq('id', companyId).single(),
+      supabase.from('brand_profiles').select('*').eq('company_id', companyId).single(),
+      supabase
+        .from('posts')
+        .select('*')
+        .eq('company_id', companyId)
+        .in('status', ['scheduled', 'published'])
+        .order('scheduled_for', { ascending: false, nullsFirst: false })
+        .limit(60),
+      supabase
+        .from('posts')
+        .select('channel, scheduled_for')
+        .eq('company_id', companyId)
+        .in('status', ['scheduled'])
+        .gte('scheduled_for', `${startDate}T00:00:00.000Z`)
+        .lte('scheduled_for', `${endDate}T23:59:59.999Z`),
+    ])
 
   if (!company) throw new Error('Company not found')
 
@@ -70,6 +81,39 @@ export async function generateContentPlan(
   const postingInsights = analyzePostingInsights(historicalPosts, channels)
   const brandContext = buildBrandContext(company as Company, brand)
   const pastSummary = summarizePastPosts(historicalPosts)
+
+  const existingScheduled: Partial<Record<string, Date[]>> = {}
+  for (const p of existingInRange ?? []) {
+    if (!p.scheduled_for) continue
+    const ch = p.channel as string
+    const list = existingScheduled[ch] ?? []
+    list.push(new Date(p.scheduled_for))
+    existingScheduled[ch] = list
+  }
+
+  const scheduleSlots: Partial<Record<Channel, CalendarSlot[]>> = {}
+  for (const ch of channels) {
+    const entries = await getChannelSchedules(supabase, companyId, ch).catch(() => [])
+    if (!entries.length) continue
+    scheduleSlots[ch] = listScheduleSlotsInRange(entries, startDate, endDate, now)
+      .map(s => ({ channel: ch, scheduledFor: s.utc, calendarDate: s.calendarDate }))
+  }
+
+  const calendarSlots = selectCalendarSlots({
+    channels,
+    startDate,
+    endDate,
+    scheduleSlots,
+    insights: postingInsights,
+    existingScheduled,
+    now,
+  }).filter(s => slotIsInRange(s, startDate, endDate) && s.scheduledFor > now)
+
+  if (calendarSlots.length === 0) {
+    throw new Error(
+      'No posting time slots fall within this date range for the selected channels. Widen the range or add posting times in Settings.',
+    )
+  }
 
   const knowledgeQuery = [
     additionalContext,
@@ -83,11 +127,15 @@ export async function generateContentPlan(
     ? knowledgeChunks.map(c => (c.title ? `[${c.title}]\n` : '') + c.content).join('\n\n---\n\n')
     : 'No knowledge base entries yet.'
 
-  const channelTargets = calculateChannelSlotTargets(channels, dayCount)
-  const totalTarget = Object.values(channelTargets).reduce((a, b) => a + b, 0)
   const targetBreakdown = channels
-    .map(ch => `${getPlaybook(ch).label}: ${channelTargets[ch]} slots`)
+    .map(ch => `${getPlaybook(ch).label}: ${calendarSlots.filter(s => s.channel === ch).length} slots`)
     .join(', ')
+
+  const slotList = calendarSlots
+    .map((s, i) =>
+      `${i}. ${getPlaybook(s.channel).label} · ${s.calendarDate} · ${format(s.scheduledFor, "HH:mm 'UTC'")}`,
+    )
+    .join('\n')
 
   const { data: planRow, error: planError } = await supabase
     .from('content_plans')
@@ -119,7 +167,7 @@ ${pastSummary}
 KNOWLEDGE BASE:
 ${knowledgeText}
 
-POSTING INSIGHTS (prefer these days/times when scheduling):
+POSTING INSIGHTS (already applied to the slot times — do not invent new times):
 ${JSON.stringify(postingInsights, null, 2)}
 
 USER CONTEXT (prioritize timely posts for this):
@@ -133,17 +181,15 @@ ${buildPlaybookPromptSection(channels)}
 ═══════════════════════════════════════
 PLAN QUOTAS
 ═══════════════════════════════════════
-- Date range: ${startDate} to ${endDate} (${dayCount} days)
+- Date range: ${startDate} to ${endDate}
 - Channels: ${channels.join(', ')}
-- Target slot counts: ${targetBreakdown} (≈${totalTarget} total)
-- Each channel MUST stay within its min/max weekly cadence from the playbooks above
+- Predetermined slots: ${targetBreakdown} (${calendarSlots.length} total)
+- Fill EVERY slot listed below. Use slot_index to match. Do NOT add extra slots, dates, or times.
 - Do NOT repeat the same topic within 5 days on the same channel
 - Topics are brief briefs for writers (under 120 chars), not finished copy
-- Use scheduled_date only (times are assigned automatically)
 - Assign post_type and pillar so the team can recycle this plan monthly
 
-X-SPECIFIC: You MUST include both "single" and "thread" post_types. Singles use post_length "short"; threads use post_length "long".
-LINKEDIN-SPECIFIC: Never exceed 3 slots in any 7-day window. Never 2 LinkedIn posts on the same day.`
+X-SPECIFIC: You MUST include both "single" and "thread" post_types. Singles use post_length "short"; threads use post_length "long".`
 
   const completion = await openai.chat.completions.parse({
     model: 'gpt-5.4',
@@ -151,7 +197,7 @@ LINKEDIN-SPECIFIC: Never exceed 3 slots in any 7-day window. Never 2 LinkedIn po
       { role: 'system', content: systemPrompt },
       {
         role: 'user',
-        content: `Create the content plan "${name}" from ${startDate} to ${endDate}. Return exactly the structured plan with ${totalTarget} slots distributed per platform quotas.`,
+        content: `Create the content plan "${name}" by filling these ${calendarSlots.length} slots from ${startDate} to ${endDate}. Return one object per slot_index (0–${calendarSlots.length - 1}).\n\n${slotList}`,
       },
     ],
     response_format: zodResponseFormat(PlanOutputSchema, 'content_plan'),
@@ -162,44 +208,20 @@ LINKEDIN-SPECIFIC: Never exceed 3 slots in any 7-day window. Never 2 LinkedIn po
   if (!parsed) throw new Error('Failed to parse content plan from AI')
 
   const pillars = parsed.content_pillars as ContentPillar[]
-  const normalizedSlots = normalizeSlotsForPlaybooks(
-    parsed.slots,
-    channels,
-    startDate,
-    endDate,
-  )
+  const filled = matchSlotsToCalendar(parsed.slots, calendarSlots, startDate, endDate, now)
+  const mixed = ensureXFormatMix(filled)
 
-  // Fetch already-scheduled posts in this date range so assignSlotTimes can avoid conflicts
-  const { data: existingInRange } = await supabase
-    .from('posts')
-    .select('channel, scheduled_for')
-    .eq('company_id', companyId)
-    .in('status', ['scheduled'])
-    .gte('scheduled_for', `${startDate}T00:00:00.000Z`)
-    .lte('scheduled_for', `${endDate}T23:59:59.999Z`)
-
-  const existingScheduled: Partial<Record<string, Date[]>> = {}
-  for (const p of existingInRange ?? []) {
-    if (!p.scheduled_for) continue
-    const ch = p.channel as string
-    const list = existingScheduled[ch] ?? []
-    list.push(new Date(p.scheduled_for))
-    existingScheduled[ch] = list
-  }
-
-  const timedSlots = assignSlotTimes(normalizedSlots, postingInsights, existingScheduled)
-
-  const slotsToInsert = timedSlots.map(({ slot, scheduledFor }, index) => ({
+  const slotsToInsert = mixed.map(({ calendar, content }, index) => ({
     plan_id: planRow.id,
     company_id: companyId,
-    scheduled_for: scheduledFor.toISOString(),
-    channel: slot.channel,
-    post_type: slot.post_type,
-    pillar: slot.pillar,
-    topic: slot.topic,
-    content_goal: slot.content_goal as ContentGoal,
-    post_length: slot.post_length as PostLength,
-    notes: slot.notes,
+    scheduled_for: calendar.scheduledFor.toISOString(),
+    channel: calendar.channel,
+    post_type: content.post_type,
+    pillar: content.pillar,
+    topic: content.topic,
+    content_goal: content.content_goal as ContentGoal,
+    post_length: content.post_length as PostLength,
+    notes: content.notes,
     status: 'planned' as const,
     sort_order: index,
   }))
@@ -222,93 +244,69 @@ LINKEDIN-SPECIFIC: Never exceed 3 slots in any 7-day window. Never 2 LinkedIn po
   return { planId: planRow.id }
 }
 
-/** Trim or fix slots so hard platform limits are respected after AI generation */
-function normalizeSlotsForPlaybooks(
+interface FilledSlot {
+  calendar: CalendarSlot
+  content: z.infer<typeof PlanSlotSchema>
+}
+
+function matchSlotsToCalendar(
   slots: z.infer<typeof PlanSlotSchema>[],
-  channels: Channel[],
+  calendarSlots: CalendarSlot[],
   startDate: string,
   endDate: string,
-): z.infer<typeof PlanSlotSchema>[] {
-  const start = parseISO(startDate)
-  const end = parseISO(endDate)
-  const validDates = new Set(
-    eachDayOfInterval({ start, end }).map(d => format(d, 'yyyy-MM-dd')),
-  )
+  now: Date,
+): FilledSlot[] {
+  const used = new Set<number>()
+  const filled: FilledSlot[] = []
 
-  let filtered = slots
-    .filter(s => channels.includes(s.channel as Channel))
-    .map(s => ({
-      ...s,
-      scheduled_date: validDates.has(s.scheduled_date)
-        ? s.scheduled_date
-        : startDate,
-      // Enforce X format ↔ length pairing
-      ...(s.channel === 'x' && s.post_type.toLowerCase() === 'thread'
-        ? { post_length: 'long' as const }
-        : {}),
-      ...(s.channel === 'x' && s.post_type.toLowerCase() === 'single'
-        ? { post_length: 'short' as const }
-        : {}),
-    }))
-
-  // LinkedIn: max 3 per rolling 7 days, max 1 per day
-  filtered = capLinkedInSlots(filtered, start, end)
-
-  // X: ensure at least some threads if we have enough X slots
-  filtered = ensureXFormatMix(filtered)
-
-  return filtered
-}
-
-function capLinkedInSlots(
-  slots: z.infer<typeof PlanSlotSchema>[],
-  start: Date,
-  end: Date,
-): z.infer<typeof PlanSlotSchema>[] {
-  const linkedin = slots.filter(s => s.channel === 'linkedin')
-  const other = slots.filter(s => s.channel !== 'linkedin')
-
-  const byDate = new Map<string, z.infer<typeof PlanSlotSchema>>()
-  for (const s of linkedin.sort((a, b) => a.scheduled_date.localeCompare(b.scheduled_date))) {
-    if (!byDate.has(s.scheduled_date)) byDate.set(s.scheduled_date, s)
-  }
-
-  const onePerDay = [...byDate.values()]
-  const capped: z.infer<typeof PlanSlotSchema>[] = []
-  const days = eachDayOfInterval({ start, end })
-
-  for (let i = 0; i < days.length; i += 7) {
-    const weekStart = days[i]
-    const weekEnd = addDays(weekStart, 6)
-    const weekSlots = onePerDay.filter(s => {
-      const d = parseISO(s.scheduled_date)
-      return d >= weekStart && d <= weekEnd
+  for (const content of slots) {
+    if (content.slot_index < 0 || content.slot_index >= calendarSlots.length) continue
+    if (used.has(content.slot_index)) continue
+    const calendar = calendarSlots[content.slot_index]
+    if (!slotIsInRange(calendar, startDate, endDate)) continue
+    if (calendar.scheduledFor <= now) continue
+    used.add(content.slot_index)
+    filled.push({
+      calendar,
+      content: {
+        ...content,
+        ...(calendar.channel === 'x' && content.post_type.toLowerCase() === 'thread'
+          ? { post_length: 'long' as const }
+          : {}),
+        ...(calendar.channel === 'x' && content.post_type.toLowerCase() === 'single'
+          ? { post_length: 'short' as const }
+          : {}),
+      },
     })
-    capped.push(...weekSlots.slice(0, 3))
   }
 
-  return [...other, ...capped]
+  return filled.sort(
+    (a, b) => a.calendar.scheduledFor.getTime() - b.calendar.scheduledFor.getTime(),
+  )
 }
 
-function ensureXFormatMix(slots: z.infer<typeof PlanSlotSchema>[]): z.infer<typeof PlanSlotSchema>[] {
-  const xSlots = slots.filter(s => s.channel === 'x')
+function ensureXFormatMix(slots: FilledSlot[]): FilledSlot[] {
+  const xSlots = slots.filter(s => s.calendar.channel === 'x')
   if (xSlots.length < 4) return slots
 
-  const threadCount = xSlots.filter(s => isXThreadType(s.post_type)).length
+  const threadCount = xSlots.filter(s => isXThreadType(s.content.post_type)).length
   const targetThreads = Math.max(1, Math.round(xSlots.length * 0.35))
 
   if (threadCount >= targetThreads) return slots
 
-  const nonThreads = xSlots.filter(s => !isXThreadType(s.post_type))
-  const toConvert = nonThreads.slice(0, targetThreads - threadCount)
+  const nonThreads = xSlots.filter(s => !isXThreadType(s.content.post_type))
+  const toConvert = new Set(nonThreads.slice(0, targetThreads - threadCount))
 
   return slots.map(s => {
-    if (!toConvert.includes(s)) return s
+    if (!toConvert.has(s)) return s
     return {
-      ...s,
-      post_type: 'thread',
-      post_length: 'long' as const,
-      notes: [s.notes, 'Format: thread (3–7 tweets)'].filter(Boolean).join(' · '),
+      calendar: s.calendar,
+      content: {
+        ...s.content,
+        post_type: 'thread',
+        post_length: 'long' as const,
+        notes: [s.content.notes, 'Format: thread (3–7 tweets)'].filter(Boolean).join(' · '),
+      },
     }
   })
 }
@@ -318,12 +316,8 @@ function isXThreadType(postType: string): boolean {
   return t === 'thread' || t.includes('thread')
 }
 
-/** Normalize AI dates that fall outside range */
+/** Normalize inverted ranges without inventing a week/month preset. */
 export function clampPlanDates(startDate: string, endDate: string): { start: string; end: string } {
-  const start = parseISO(startDate)
-  const end = parseISO(endDate)
-  if (end < start) {
-    return { start: startDate, end: format(addDays(start, 6), 'yyyy-MM-dd') }
-  }
+  if (endDate < startDate) return { start: startDate, end: startDate }
   return { start: startDate, end: endDate }
 }

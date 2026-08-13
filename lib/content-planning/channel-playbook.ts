@@ -100,23 +100,6 @@ export function getPlaybook(channel: Channel): ChannelPlaybook {
   return CHANNEL_PLAYBOOKS[channel]
 }
 
-/** Per-channel slot targets for a date range */
-export function calculateChannelSlotTargets(
-  channels: Channel[],
-  dayCount: number,
-): Record<Channel, number> {
-  const weeks = Math.max(dayCount / 7, 1)
-  const targets: Partial<Record<Channel, number>> = {}
-
-  for (const channel of channels) {
-    const pb = getPlaybook(channel)
-    const mid = (pb.postsPerWeek.min + pb.postsPerWeek.max) / 2
-    targets[channel] = Math.round(mid * weeks)
-  }
-
-  return targets as Record<Channel, number>
-}
-
 export function buildPlaybookPromptSection(channels: Channel[]): string {
   return channels
     .map(ch => {
@@ -141,89 +124,177 @@ export function isThreadSlot(channel: Channel, postType: string, postLength: str
   return t === 'thread' || t.includes('thread') || postLength === 'long'
 }
 
-export interface PlannedSlotInput {
-  channel: Channel
-  scheduled_date: string
-  post_type: string
-  pillar: string | null
-  topic: string
-  content_goal: string
-  post_length: string
-  notes: string | null
-}
+const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
 /** Minimum gap in ms between posts on the same channel to prevent back-to-back publishing. */
 const MIN_CHANNEL_GAP_MS = 3 * 60 * 60 * 1000 // 3 hours
 
+export interface CalendarSlot {
+  channel: Channel
+  scheduledFor: Date
+  calendarDate: string
+}
+
+function eachISODate(startDate: string, endDate: string): string[] {
+  const dates: string[] = []
+  let cur = startDate
+  while (cur <= endDate) {
+    dates.push(cur)
+    const next = new Date(`${cur}T00:00:00.000Z`)
+    next.setUTCDate(next.getUTCDate() + 1)
+    cur = next.toISOString().slice(0, 10)
+  }
+  return dates
+}
+
+function conflicts(candidate: Date, existing: Date[]): boolean {
+  return existing.some(e => Math.abs(e.getTime() - candidate.getTime()) < MIN_CHANNEL_GAP_MS)
+}
+
+function playbookCandidates(
+  channel: Channel,
+  startDate: string,
+  endDate: string,
+  insights: { best_days?: string[]; best_hours_utc?: number[] } | undefined,
+  now: Date,
+): CalendarSlot[] {
+  const pb = getPlaybook(channel)
+  const dayNames = insights?.best_days?.length ? insights.best_days : pb.bestDays
+  const hours = insights?.best_hours_utc?.length ? insights.best_hours_utc : pb.bestHoursUtc
+  const maxPerDay = pb.postsPerDay?.max ?? 1
+  const hoursForDay = hours.slice(0, maxPerDay)
+
+  const slots: CalendarSlot[] = []
+  for (const calendarDate of eachISODate(startDate, endDate)) {
+    const name = DAY_NAMES[new Date(`${calendarDate}T00:00:00.000Z`).getUTCDay()]
+    if (!dayNames.includes(name)) continue
+    for (const hour of hoursForDay) {
+      const scheduledFor = new Date(`${calendarDate}T00:00:00.000Z`)
+      scheduledFor.setUTCHours(hour, 0, 0, 0)
+      if (scheduledFor > now) slots.push({ channel, scheduledFor, calendarDate })
+    }
+  }
+  return slots
+}
+
+function capByCadence(slots: CalendarSlot[], channel: Channel): CalendarSlot[] {
+  const pb = getPlaybook(channel)
+  const maxPerDay = pb.postsPerDay?.max ?? 1
+  const maxPerWeek = pb.postsPerWeek.max
+
+  const byDay = new Map<string, CalendarSlot[]>()
+  for (const slot of slots) {
+    const list = byDay.get(slot.calendarDate) ?? []
+    list.push(slot)
+    byDay.set(slot.calendarDate, list)
+  }
+
+  const perDayCapped: CalendarSlot[] = []
+  for (const day of [...byDay.keys()].sort()) {
+    perDayCapped.push(...(byDay.get(day) ?? []).slice(0, maxPerDay))
+  }
+
+  const result: CalendarSlot[] = []
+  for (const slot of perDayCapped) {
+    const weekAgo = slot.scheduledFor.getTime() - 7 * 24 * 60 * 60 * 1000
+    const inWindow = result.filter(
+      r => r.scheduledFor.getTime() > weekAgo && r.scheduledFor.getTime() <= slot.scheduledFor.getTime(),
+    )
+    if (inWindow.length < maxPerWeek) result.push(slot)
+  }
+  return result
+}
+
+function pickEvenly<T>(items: T[], count: number): T[] {
+  if (count >= items.length) return items
+  if (count <= 0) return []
+  const picked: T[] = []
+  const used = new Set<number>()
+  for (let i = 0; i < count; i++) {
+    const idx = Math.min(Math.floor((i + 0.5) * (items.length / count)), items.length - 1)
+    let chosen = idx
+    while (used.has(chosen) && chosen < items.length - 1) chosen++
+    if (used.has(chosen)) {
+      chosen = idx
+      while (used.has(chosen) && chosen > 0) chosen--
+    }
+    if (used.has(chosen)) continue
+    used.add(chosen)
+    picked.push(items[chosen])
+  }
+  return picked
+}
+
+function targetCount(channel: Channel, dayCount: number, available: number): number {
+  const pb = getPlaybook(channel)
+  const weeks = dayCount / 7
+  const mid = Math.round(((pb.postsPerWeek.min + pb.postsPerWeek.max) / 2) * weeks)
+  return Math.min(Math.max(mid, available > 0 && mid === 0 ? 1 : mid), available)
+}
+
 /**
- * Stagger times when multiple slots share a channel + day (especially X).
- * Pass existingScheduled (UTC Dates keyed by channel) to avoid conflicts with
- * posts that are already in the database.
+ * Build the exact posting times that fit inside [startDate, endDate].
+ * Prefers the company's configured schedule slots; falls back to playbook
+ * best days/hours. Drops anything in the past, already booked, or over cadence.
  */
-export function assignSlotTimes(
-  slots: PlannedSlotInput[],
-  insights: Record<string, { best_hours_utc: number[] }>,
-  existingScheduled: Partial<Record<string, Date[]>> = {},
-): { slot: PlannedSlotInput; scheduledFor: Date }[] {
-  const byChannelDay = new Map<string, number>()
-  // Track times we've just assigned in this batch to detect within-batch conflicts
-  const assignedByChannel = new Map<string, Date[]>()
+export function selectCalendarSlots(params: {
+  channels: Channel[]
+  startDate: string
+  endDate: string
+  /** Pre-expanded company schedule times keyed by channel. Empty/missing → playbook times. */
+  scheduleSlots: Partial<Record<Channel, CalendarSlot[]>>
+  insights: Record<string, { best_days: string[]; best_hours_utc: number[] }>
+  existingScheduled: Partial<Record<string, Date[]>>
+  now?: Date
+}): CalendarSlot[] {
+  const {
+    channels, startDate, endDate, scheduleSlots, insights, existingScheduled,
+  } = params
+  const now = params.now ?? new Date()
+  if (endDate < startDate) return []
 
-  return slots.map(slot => {
-    const date = slot.scheduled_date
-    const key = `${slot.channel}:${date}`
-    const dayIndex = byChannelDay.get(key) ?? 0
-    byChannelDay.set(key, dayIndex + 1)
+  const dayCount = eachISODate(startDate, endDate).length
+  const selected: CalendarSlot[] = []
 
-    const pb = getPlaybook(slot.channel)
-    const hours =
-      insights[slot.channel]?.best_hours_utc?.length
-        ? insights[slot.channel].best_hours_utc
-        : pb.bestHoursUtc
+  for (const channel of channels) {
+    const booked = existingScheduled[channel] ?? []
+    const fromSchedule = scheduleSlots[channel] ?? []
+    const available = (fromSchedule.length > 0
+      ? fromSchedule
+      : playbookCandidates(channel, startDate, endDate, insights[channel], now)
+    ).filter(s =>
+      s.calendarDate >= startDate &&
+      s.calendarDate <= endDate &&
+      s.scheduledFor > now &&
+      !conflicts(s.scheduledFor, booked),
+    )
 
-    const existingForChannel = [
-      ...(existingScheduled[slot.channel] ?? []),
-      ...(assignedByChannel.get(slot.channel) ?? []),
-    ]
+    const preferredDays = new Set(
+      (insights[channel]?.best_days?.length
+        ? insights[channel].best_days
+        : getPlaybook(channel).bestDays),
+    )
+    const preferredHours = new Set(
+      insights[channel]?.best_hours_utc?.length
+        ? insights[channel].best_hours_utc
+        : getPlaybook(channel).bestHoursUtc,
+    )
+    const preferred = available.filter(s => {
+      const dayName = DAY_NAMES[new Date(`${s.calendarDate}T00:00:00.000Z`).getUTCDay()]
+      const hour = s.scheduledFor.getUTCHours()
+      return preferredDays.has(dayName) || preferredHours.has(hour)
+    })
 
-    // Try each candidate hour until we find one that doesn't conflict
-    const jitterMinutes = Math.floor(Math.random() * 56)
-    let scheduledFor: Date | null = null
+    const target = targetCount(channel, dayCount, available.length)
+    const pool = preferred.length >= target ? preferred : available
+    const capped = capByCadence(pool, channel)
+    selected.push(...pickEvenly(capped, Math.min(target, capped.length)))
+  }
 
-    for (let attempt = 0; attempt < hours.length; attempt++) {
-      const hour = hours[(dayIndex + attempt) % hours.length]
-      const candidate = new Date(`${date}T00:00:00.000Z`)
-      candidate.setUTCHours(hour, jitterMinutes, 0, 0)
+  return selected.sort((a, b) => a.scheduledFor.getTime() - b.scheduledFor.getTime())
+}
 
-      const conflicts = existingForChannel.some(
-        existing => Math.abs(existing.getTime() - candidate.getTime()) < MIN_CHANNEL_GAP_MS,
-      )
-
-      if (!conflicts) {
-        scheduledFor = candidate
-        break
-      }
-    }
-
-    // Fall back: pick the hour furthest from any existing assignment to avoid visual clustering
-    if (!scheduledFor) {
-      const allAssigned = existingForChannel
-      const bestHour = hours.reduce((best, h) => {
-        const minDist = allAssigned.length
-          ? Math.min(...allAssigned.map(d => Math.abs(d.getUTCHours() - h)))
-          : Infinity
-        const bestDist = allAssigned.length
-          ? Math.min(...allAssigned.map(d => Math.abs(d.getUTCHours() - best)))
-          : Infinity
-        return minDist > bestDist ? h : best
-      }, hours[dayIndex % hours.length] ?? pb.bestHoursUtc[0])
-      scheduledFor = new Date(`${date}T00:00:00.000Z`)
-      scheduledFor.setUTCHours(bestHour, jitterMinutes, 0, 0)
-    }
-
-    const prev = assignedByChannel.get(slot.channel) ?? []
-    assignedByChannel.set(slot.channel, [...prev, scheduledFor])
-
-    return { slot, scheduledFor }
-  })
+/** True if a UTC instant's calendar date (YYYY-MM-DD of the slot) is in range. */
+export function slotIsInRange(slot: CalendarSlot, startDate: string, endDate: string): boolean {
+  return slot.calendarDate >= startDate && slot.calendarDate <= endDate
 }
