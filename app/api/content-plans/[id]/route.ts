@@ -60,6 +60,22 @@ export async function DELETE(_request: Request, context: RouteContext) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  const { data: plan } = await supabase
+    .from('content_plans')
+    .select('id, content_plan_slots(post_id)')
+    .eq('id', id)
+    .single()
+
+  if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 })
+
+  const postIds = (plan.content_plan_slots ?? [])
+    .map((s: { post_id: string | null }) => s.post_id)
+    .filter((pid): pid is string => Boolean(pid))
+
+  if (postIds.length > 0) {
+    await supabase.from('posts').delete().in('id', postIds).eq('status', 'draft')
+  }
+
   const { error } = await supabase.from('content_plans').delete().eq('id', id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ ok: true })

@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { format, parseISO } from 'date-fns'
-import { CalendarRange, ChevronRight, Loader2, Plus } from 'lucide-react'
+import { CalendarRange, ChevronRight, Loader2, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { CreatePlanForm } from './CreatePlanForm'
@@ -25,10 +25,23 @@ interface PlannerListClientProps {
 export function PlannerListClient({ companyId, initialPlans }: PlannerListClientProps) {
   const [plans, setPlans] = useState(initialPlans)
   const [showCreate, setShowCreate] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
 
   function handleCreated(plan: ContentPlan) {
     setPlans(prev => [plan, ...prev])
     setShowCreate(false)
+  }
+
+  async function handleDelete(plan: ContentPlan) {
+    if (!confirm('Delete this plan and its unpublished drafts? Scheduled posts stay. This cannot be undone.')) {
+      return
+    }
+    setDeletingId(plan.id)
+    const res = await fetch(`/api/content-plans/${plan.id}`, { method: 'DELETE' })
+    if (res.ok) {
+      setPlans(prev => prev.filter(p => p.id !== plan.id))
+    }
+    setDeletingId(null)
   }
 
   return (
@@ -72,12 +85,14 @@ export function PlannerListClient({ companyId, initialPlans }: PlannerListClient
       ) : (
         <div className="space-y-3">
           {plans.map(plan => (
-            <Link
+            <div
               key={plan.id}
-              href={`/${companyId}/planner/${plan.id}`}
               className="flex items-center justify-between gap-4 p-4 rounded-xl border border-zinc-800 bg-zinc-900/30 hover:bg-zinc-900/60 transition-colors group"
             >
-              <div className="min-w-0">
+              <Link
+                href={`/${companyId}/planner/${plan.id}`}
+                className="min-w-0 flex-1"
+              >
                 <p className="font-medium text-white truncate">{plan.name}</p>
                 <p className="text-xs text-zinc-500 mt-0.5">
                   {format(parseISO(plan.start_date), 'MMM d')} –{' '}
@@ -88,16 +103,29 @@ export function PlannerListClient({ companyId, initialPlans }: PlannerListClient
                 {plan.strategy_summary && (
                   <p className="text-xs text-zinc-600 mt-1 line-clamp-1">{plan.strategy_summary}</p>
                 )}
-              </div>
-              <div className="flex items-center gap-3 shrink-0">
+              </Link>
+              <div className="flex items-center gap-2 shrink-0">
                 {plan.status === 'planning' ? (
                   <Loader2 className="w-4 h-4 text-violet-400 animate-spin" />
                 ) : (
                   <Badge variant="default">{STATUS_LABELS[plan.status] ?? plan.status}</Badge>
                 )}
-                <ChevronRight className="w-4 h-4 text-zinc-600 group-hover:text-zinc-400" />
+                <button
+                  type="button"
+                  onClick={() => handleDelete(plan)}
+                  disabled={deletingId === plan.id}
+                  title="Delete plan"
+                  className="p-1.5 rounded-lg text-zinc-600 hover:text-red-400 hover:bg-red-900/20 transition-colors disabled:opacity-40"
+                >
+                  {deletingId === plan.id
+                    ? <Loader2 className="w-4 h-4 animate-spin" />
+                    : <Trash2 className="w-4 h-4" />}
+                </button>
+                <Link href={`/${companyId}/planner/${plan.id}`} aria-hidden>
+                  <ChevronRight className="w-4 h-4 text-zinc-600 group-hover:text-zinc-400" />
+                </Link>
               </div>
-            </Link>
+            </div>
           ))}
         </div>
       )}

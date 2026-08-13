@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { format, parseISO } from 'date-fns'
 import {
   ArrowLeft, CalendarClock, CalendarDays, List, Loader2, PenLine, Sparkles, CheckCircle2,
@@ -39,11 +40,13 @@ interface PlanDetailClientProps {
 }
 
 export function PlanDetailClient({ companyId, initialPlan }: PlanDetailClientProps) {
+  const router = useRouter()
   const [plan, setPlan] = useState(initialPlan)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [writing, setWriting] = useState(false)
   const [writeProgress, setWriteProgress] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   // Posts keyed by post_id for inline review
   const [posts, setPosts] = useState<Record<string, Post>>({})
@@ -233,6 +236,26 @@ export function PlanDetailClient({ companyId, initialPlan }: PlanDetailClientPro
     }
   }
 
+  async function deletePlan() {
+    if (!confirm('Delete this plan and its unpublished drafts? Scheduled posts stay. This cannot be undone.')) {
+      return
+    }
+    setDeleting(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/content-plans/${plan.id}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error ?? 'Failed to delete plan')
+      }
+      router.push(`/${companyId}/planner`)
+      router.refresh()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete plan')
+      setDeleting(false)
+    }
+  }
+
   const pillars = plan.content_pillars ?? []
   const insights = Object.values(plan.posting_insights ?? {})
 
@@ -280,6 +303,17 @@ export function PlanDetailClient({ companyId, initialPlan }: PlanDetailClientPro
             >
               <Sparkles className="w-4 h-4" />
               Write all ({plannedSlots.length})
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={deletePlan}
+              disabled={deleting || writing}
+              title="Delete plan"
+              className="text-zinc-500 hover:text-red-400 hover:bg-red-900/20"
+            >
+              {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+              Delete plan
             </Button>
           </div>
         </div>
