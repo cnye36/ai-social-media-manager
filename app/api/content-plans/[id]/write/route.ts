@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { writePlanSlots } from '@/lib/content-planning/write-batch'
+import { parsePlanVoice, stripVoicePrefix } from '@/lib/content/post-voice'
 
 export const maxDuration = 300
 
@@ -27,7 +28,7 @@ export async function POST(request: Request, context: RouteContext) {
 
   const { data: plan } = await supabase
     .from('content_plans')
-    .select('id, company_id, additional_context')
+    .select('*')
     .eq('id', planId)
     .eq('company_id', companyId)
     .single()
@@ -40,7 +41,8 @@ export async function POST(request: Request, context: RouteContext) {
       planId,
       companyId,
       slotIds,
-      additionalContext ?? plan.additional_context ?? undefined,
+      additionalContext ?? stripVoicePrefix(plan.additional_context) ?? undefined,
+      parsePlanVoice(plan.voice, plan.additional_context),
     )
     return NextResponse.json(result)
   } catch (err) {

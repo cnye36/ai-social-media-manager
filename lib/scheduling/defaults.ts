@@ -31,7 +31,7 @@ export const DEFAULT_SCHEDULES: Partial<Record<Channel, SlotDef[]>> = {
   // X: high-frequency, four posts per day every day of the week
   x: expand(
     [0, 1, 2, 3, 4, 5, 6], // every day
-    [[9, 0], [13, 0], [17, 0], [20, 0]] // 9 AM, 1 PM, 5 PM, 8 PM
+    [[9, 0], [13, 0], [17, 0], [20, 0]] // 9 AM, 1 PM, 5 PM, 8 PM ET ≈ 6 AM, 10 AM, 2 PM, 5 PM PT
   ),
 
   // Facebook: two posts per day Mon–Sat

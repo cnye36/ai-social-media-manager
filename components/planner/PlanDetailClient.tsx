@@ -17,6 +17,7 @@ import { LinkedInIcon, XIcon, RedditIcon, FacebookIcon } from '@/components/ui/c
 import { cn } from '@/lib/utils'
 import { CHANNEL_PLAYBOOKS, isThreadSlot } from '@/lib/content-planning/channel-playbook'
 import { postBodyForPublish } from '@/lib/generate/image-prompt'
+import { parsePlanVoice, postVoiceLabel, stripVoicePrefix } from '@/lib/content/post-voice'
 import type { Channel, Post } from '@/types/database'
 import type { ContentPlanWithSlots, ContentPlanSlot } from '@/types/content-planning'
 
@@ -130,7 +131,7 @@ export function PlanDetailClient({ companyId, initialPlan }: PlanDetailClientPro
         body: JSON.stringify({
           companyId,
           slotIds,
-          additionalContext: plan.additional_context,
+          additionalContext: stripVoicePrefix(plan.additional_context) ?? undefined,
         }),
       })
 
@@ -276,6 +277,8 @@ export function PlanDetailClient({ companyId, initialPlan }: PlanDetailClientPro
               {format(parseISO(plan.start_date), 'MMM d')} –{' '}
               {format(parseISO(plan.end_date), 'MMM d, yyyy')}
               {' · '}
+              {postVoiceLabel(parsePlanVoice(plan.voice, plan.additional_context))}
+              {' · '}
               {writtenCount}/{plan.slots.length} written
             </p>
           </div>
@@ -384,10 +387,10 @@ export function PlanDetailClient({ companyId, initialPlan }: PlanDetailClientPro
         </div>
       )}
 
-      {plan.additional_context && (
+      {stripVoicePrefix(plan.additional_context) && (
         <div className="text-sm text-zinc-500 border-l-2 border-violet-600 pl-3">
           <span className="text-zinc-400">Your context: </span>
-          {plan.additional_context}
+          {stripVoicePrefix(plan.additional_context)}
         </div>
       )}
 

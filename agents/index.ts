@@ -47,7 +47,11 @@ async function prepareAgent(request: GenerateRequest) {
   const agentParams = {
     companyId,
     companyName: companyResult.data?.name ?? 'the company',
-    accountType: companyResult.data?.account_type ?? 'company',
+    accountType: request.voice === 'personal'
+      ? 'founder'
+      : request.voice === 'company'
+        ? 'company'
+        : (companyResult.data?.account_type ?? 'company'),
     brand: brandResult.data ?? null,
     retrievedKnowledge: knowledgeChunks,
     topic,

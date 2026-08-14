@@ -41,6 +41,7 @@ export async function POST(request: Request) {
     endDate,
     channels,
     additionalContext,
+    voice,
   } = body as {
     companyId: string
     name: string
@@ -48,6 +49,7 @@ export async function POST(request: Request) {
     endDate: string
     channels: Channel[]
     additionalContext?: string
+    voice?: 'personal' | 'company'
   }
 
   if (!companyId || !name?.trim() || !startDate || !endDate) {
@@ -82,6 +84,7 @@ export async function POST(request: Request) {
       endDate: dates.end,
       channels: validChannels,
       additionalContext: additionalContext?.trim(),
+      voice: voice === 'personal' ? 'personal' : 'company',
     })
 
     const { data: plan } = await supabase

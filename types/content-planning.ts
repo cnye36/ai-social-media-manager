@@ -28,6 +28,7 @@ export interface ContentPlan {
   status: ContentPlanStatus
   channels: Channel[]
   additional_context: string | null
+  voice?: 'personal' | 'company'
   strategy_summary: string | null
   content_pillars: ContentPillar[]
   posting_insights: Record<string, ChannelPostingInsight>
@@ -64,4 +65,5 @@ export interface CreateContentPlanRequest {
   endDate: string
   channels: Channel[]
   additionalContext?: string
+  voice?: 'personal' | 'company'
 }

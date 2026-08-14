@@ -48,6 +48,7 @@ export async function generateContentPlan(
   request: CreateContentPlanRequest,
 ): Promise<{ planId: string }> {
   const { companyId, name, startDate, endDate, channels, additionalContext } = request
+  const voice = request.voice === 'personal' ? 'personal' : 'company'
 
   if (endDate < startDate) {
     throw new Error('End date must be on or after the start date')
@@ -137,20 +138,35 @@ export async function generateContentPlan(
     )
     .join('\n')
 
-  const { data: planRow, error: planError } = await supabase
+  const planInsert = {
+    company_id: companyId,
+    name,
+    start_date: startDate,
+    end_date: endDate,
+    status: 'planning' as const,
+    channels,
+    additional_context: additionalContext ?? null,
+    posting_insights: postingInsights,
+  }
+
+  let { data: planRow, error: planError } = await supabase
     .from('content_plans')
-    .insert({
-      company_id: companyId,
-      name,
-      start_date: startDate,
-      end_date: endDate,
-      status: 'planning',
-      channels,
-      additional_context: additionalContext ?? null,
-      posting_insights: postingInsights,
-    })
+    .insert({ ...planInsert, voice })
     .select('id')
     .single()
+
+  if (planError && /voice/i.test(planError.message)) {
+    const retry = await supabase
+      .from('content_plans')
+      .insert({
+        ...planInsert,
+        additional_context: [`[[voice:${voice}]]`, additionalContext].filter(Boolean).join('\n'),
+      })
+      .select('id')
+      .single()
+    planRow = retry.data
+    planError = retry.error
+  }
 
   if (planError || !planRow) throw new Error(planError?.message ?? 'Failed to create plan')
 
@@ -172,6 +188,13 @@ ${JSON.stringify(postingInsights, null, 2)}
 
 USER CONTEXT (prioritize timely posts for this):
 ${additionalContext?.trim() || 'None — focus on evergreen pillars and brand consistency.'}
+
+═══════════════════════════════════════
+VOICE
+═══════════════════════════════════════
+${voice === 'personal'
+    ? `Personal / first-person. Plan topics as individual founder posts ("I learned", personal stories, opinion takes). These will be published on a personal profile.`
+    : `Company / "we" voice. Plan topics as company-page posts — product, customers, team, expertise as the business. Do NOT plan personal-brand diary posts, "I learned" founder stories, or first-person personal takes. Use "we/our" framing in every topic brief.`}
 
 ═══════════════════════════════════════
 PLATFORM PLAYBOOKS (follow exactly — these override generic social media advice)

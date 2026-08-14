@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { generatePost } from '@/agents/index'
 import { isThreadSlot } from '@/lib/content-planning/channel-playbook'
+import { CHANNEL_VOICE_KEYS, voiceInstruction, type PostVoice } from '@/lib/content/post-voice'
 import type { ContentPlanSlot } from '@/types/content-planning'
 import type { Channel } from '@/types/database'
 
@@ -15,6 +16,7 @@ export async function writePlanSlots(
   companyId: string,
   slotIds?: string[],
   additionalContext?: string,
+  voice: PostVoice = 'company',
 ): Promise<WriteBatchResult> {
   let query = supabase
     .from('content_plan_slots')
@@ -55,14 +57,19 @@ export async function writePlanSlots(
         slot.post_length,
       )
 
+      const channel = slot.channel as Channel
+      const voiceCtx = voiceInstruction(channel, voice)
+      const mergedContext = [voiceCtx, additionalContext].filter(Boolean).join('\n\n')
+
       const generated = await generatePost({
         companyId,
-        channel: slot.channel as Channel,
+        channel,
         topic: useThread ? `${topic}\n\nWrite as a thread (3–7 tweets).` : topic,
         contentGoal: slot.content_goal,
         postLength: useThread ? 'long' : slot.post_length,
-        additionalContext: additionalContext,
+        additionalContext: mergedContext,
         threadMode: useThread,
+        voice,
       })
 
       const generationParams = {
@@ -73,6 +80,7 @@ export async function writePlanSlots(
         pillar: slot.pillar,
         planned_for: slot.scheduled_for,
         image_prompt: generated.imagePrompt,
+        [CHANNEL_VOICE_KEYS[channel]]: voice,
       }
 
       const { data: post, error: insertError } = await supabase

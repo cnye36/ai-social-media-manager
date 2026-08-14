@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { addDays, format } from 'date-fns'
-import { Loader2 } from 'lucide-react'
+import { Loader2, User, Building2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
@@ -32,6 +32,7 @@ export function CreatePlanForm({ companyId, onCreated, onCancel }: CreatePlanFor
   const [startDate, setStartDate] = useState(today)
   const [endDate, setEndDate] = useState(format(addDays(new Date(), 13), 'yyyy-MM-dd'))
   const [channels, setChannels] = useState<Channel[]>(['linkedin', 'x'])
+  const [voice, setVoice] = useState<'personal' | 'company'>('company')
   const [additionalContext, setAdditionalContext] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -70,6 +71,7 @@ export function CreatePlanForm({ companyId, onCreated, onCancel }: CreatePlanFor
           startDate,
           endDate,
           channels,
+          voice,
           additionalContext: additionalContext.trim() || undefined,
         }),
       })
@@ -156,6 +158,43 @@ export function CreatePlanForm({ companyId, onCreated, onCancel }: CreatePlanFor
             </button>
           ))}
         </div>
+      </div>
+
+      <div>
+        <Label>Posting as</Label>
+        <div className="flex items-center gap-1 mt-2 p-1 rounded-xl border border-zinc-700 bg-zinc-900 w-fit">
+          <button
+            type="button"
+            onClick={() => setVoice('company')}
+            className={cn(
+              'flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium transition-colors',
+              voice === 'company'
+                ? 'bg-violet-600 text-white'
+                : 'text-zinc-400 hover:text-white hover:bg-zinc-800',
+            )}
+          >
+            <Building2 className="w-3.5 h-3.5" />
+            Company
+          </button>
+          <button
+            type="button"
+            onClick={() => setVoice('personal')}
+            className={cn(
+              'flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium transition-colors',
+              voice === 'personal'
+                ? 'bg-zinc-600 text-white'
+                : 'text-zinc-400 hover:text-white hover:bg-zinc-800',
+            )}
+          >
+            <User className="w-3.5 h-3.5" />
+            Personal
+          </button>
+        </div>
+        <p className="text-xs text-zinc-600 mt-1.5">
+          {voice === 'company'
+            ? 'Posts use "we/our" company voice — brand, product, and customer stories.'
+            : 'Posts use first-person "I" voice — founder stories and personal takes.'}
+        </p>
       </div>
 
       <div>

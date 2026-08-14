@@ -23,6 +23,8 @@ export interface GenerateRequest {
   includeDisclosure?: boolean
   /** Reddit only: target subreddit (loads rules + posting guidance from config) */
   subreddit?: string
+  /** When set, overrides company account_type for this generation */
+  voice?: 'personal' | 'company'
 }
 
 export interface GeneratedPost {

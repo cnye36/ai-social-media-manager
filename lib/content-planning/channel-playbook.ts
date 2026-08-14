@@ -46,15 +46,15 @@ export const CHANNEL_PLAYBOOKS: Record<Channel, ChannelPlaybook> = {
     postsPerDay: { min: 2, max: 3 },
     formatMix: { single: 0.65, thread: 0.35 },
     bestDays: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
-    bestHoursUtc: [9, 12, 15, 18, 21],
+    bestHoursUtc: [9, 12, 15, 18, 21, 0],
     schedulingNotes:
-      '2–3 posts per day, 7 days/week. Stagger same-day posts by 4+ hours. ~35% threads, ~65% single tweets.',
+      '2–3 posts per day, 7 days/week. Spread across morning, afternoon, and evening (include ~5–7pm Pacific). Stagger same-day posts by 4+ hours. ~35% threads, ~65% single tweets.',
     plannerRules: [
       'FREQUENCY: 2–3 posts PER DAY, every day of the plan — this is the highest-volume channel.',
       'FORMAT MIX: ~65% post_type "single" (one punchy tweet, post_length "short"). ~35% post_type "thread" (post_length "long", 3–7 tweets).',
       'THREADS: Use for tutorials, breakdowns, stories, or listicles. Singles for hot takes, questions, and quick tips.',
       'LENGTH: "short" for singles, "long" for threads — always match format.',
-      'TIMING: Spread 2–3 slots across different parts of the day (morning, afternoon, evening UTC). Never stack at the same hour.',
+      'TIMING: Spread 2–3 slots across morning, afternoon, AND evening. Evening is required — roughly 5–7pm Pacific (00:00–02:00 UTC). Never stack at the same hour.',
       'GOALS: Heavy engagement + awareness. Avoid hard promotion more than 1–2× per week.',
       'Do NOT plan LinkedIn-style essays — X rewards brevity and personality.',
     ],
@@ -151,6 +151,39 @@ function conflicts(candidate: Date, existing: Date[]): boolean {
   return existing.some(e => Math.abs(e.getTime() - candidate.getTime()) < MIN_CHANNEL_GAP_MS)
 }
 
+/** US-centric dayparts in UTC. Evening covers ~5–7pm Pacific (00:00–02:00 UTC). */
+function daypart(utcHour: number): 'morning' | 'afternoon' | 'evening' {
+  if (utcHour >= 23 || utcHour <= 4) return 'evening'
+  if (utcHour >= 17) return 'afternoon'
+  return 'morning'
+}
+
+function spreadAcrossDay(slots: CalendarSlot[], maxPerDay: number): CalendarSlot[] {
+  if (slots.length <= maxPerDay) return slots
+  const sorted = [...slots].sort((a, b) => a.scheduledFor.getTime() - b.scheduledFor.getTime())
+  const buckets: Record<'morning' | 'afternoon' | 'evening', CalendarSlot[]> = {
+    morning: [],
+    afternoon: [],
+    evening: [],
+  }
+  for (const s of sorted) buckets[daypart(s.scheduledFor.getUTCHours())].push(s)
+
+  const picked: CalendarSlot[] = []
+  const take = (part: 'morning' | 'afternoon' | 'evening') => {
+    const next = buckets[part].shift()
+    if (next) picked.push(next)
+  }
+  if (maxPerDay >= 2) take('evening')
+  take('morning')
+  take('afternoon')
+  const leftover = [...buckets.morning, ...buckets.afternoon, ...buckets.evening]
+  for (const s of leftover) {
+    if (picked.length >= maxPerDay) break
+    picked.push(s)
+  }
+  return picked.sort((a, b) => a.scheduledFor.getTime() - b.scheduledFor.getTime())
+}
+
 /** Merge consecutive hours into windows. Isolated hours become a 2-hour frame (e.g. 8 → 8:00–10:00). */
 function windowsFromHours(hours: number[]): { start: number; end: number }[] {
   const sorted = [...new Set(hours)].sort((a, b) => a - b)
@@ -230,20 +263,34 @@ function playbookCandidates(
   const pb = getPlaybook(channel)
   const dayNames = insights?.best_days?.length ? insights.best_days : pb.bestDays
   const hours = insights?.best_hours_utc?.length ? insights.best_hours_utc : pb.bestHoursUtc
-  const maxPerDay = pb.postsPerDay?.max ?? 1
-  const hoursForDay = hours.slice(0, maxPerDay)
 
   const slots: CalendarSlot[] = []
   for (const calendarDate of eachISODate(startDate, endDate)) {
     const name = DAY_NAMES[new Date(`${calendarDate}T00:00:00.000Z`).getUTCDay()]
     if (!dayNames.includes(name)) continue
-    for (const hour of hoursForDay) {
+    for (const hour of hours) {
       const scheduledFor = new Date(`${calendarDate}T00:00:00.000Z`)
+      // Hours 0–4 UTC are US evening of this calendar date (next UTC morning)
+      if (hour <= 4) scheduledFor.setUTCDate(scheduledFor.getUTCDate() + 1)
       scheduledFor.setUTCHours(hour, 0, 0, 0)
       if (scheduledFor > now) slots.push({ channel, scheduledFor, calendarDate })
     }
   }
   return slots
+}
+
+function mergeScheduleWithEvening(
+  schedule: CalendarSlot[],
+  playbook: CalendarSlot[],
+  channel: Channel,
+): CalendarSlot[] {
+  if (channel !== 'x') return schedule
+  const hasEvening = schedule.some(s => daypart(s.scheduledFor.getUTCHours()) === 'evening')
+  if (hasEvening) return schedule
+  const evening = playbook.filter(s => daypart(s.scheduledFor.getUTCHours()) === 'evening')
+  return [...schedule, ...evening].sort(
+    (a, b) => a.scheduledFor.getTime() - b.scheduledFor.getTime(),
+  )
 }
 
 function capByCadence(slots: CalendarSlot[], channel: Channel): CalendarSlot[] {
@@ -260,7 +307,7 @@ function capByCadence(slots: CalendarSlot[], channel: Channel): CalendarSlot[] {
 
   const perDayCapped: CalendarSlot[] = []
   for (const day of [...byDay.keys()].sort()) {
-    perDayCapped.push(...(byDay.get(day) ?? []).slice(0, maxPerDay))
+    perDayCapped.push(...spreadAcrossDay(byDay.get(day) ?? [], maxPerDay))
   }
 
   const result: CalendarSlot[] = []
@@ -329,10 +376,11 @@ export function selectCalendarSlots(params: {
   for (const channel of channels) {
     const booked = existingScheduled[channel] ?? []
     const fromSchedule = scheduleSlots[channel] ?? []
-    const available = (fromSchedule.length > 0
-      ? fromSchedule
-      : playbookCandidates(channel, startDate, endDate, insights[channel], now)
-    ).filter(s =>
+    const playbook = playbookCandidates(channel, startDate, endDate, insights[channel], now)
+    const merged = fromSchedule.length > 0
+      ? mergeScheduleWithEvening(fromSchedule, playbook, channel)
+      : playbook
+    const available = merged.filter(s =>
       s.calendarDate >= startDate &&
       s.calendarDate <= endDate &&
       s.scheduledFor > now &&
@@ -366,7 +414,8 @@ export function selectCalendarSlots(params: {
         : getPlaybook(channel).bestHoursUtc
     const assigned = [...booked]
     for (const slot of picked) {
-      const scheduledFor = randomizeWithinWindow(slot, hours, now, assigned)
+      const windowHours = [...hours, slot.scheduledFor.getUTCHours()]
+      const scheduledFor = randomizeWithinWindow(slot, windowHours, now, assigned)
       if (!scheduledFor) continue
       assigned.push(scheduledFor)
       selected.push({ ...slot, scheduledFor })
