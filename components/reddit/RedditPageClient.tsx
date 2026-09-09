@@ -1759,15 +1759,6 @@ function MonitorsTab({ companyId }: { companyId: string }) {
             {adding ? <><Loader2 className="w-4 h-4 animate-spin" /> Adding…</> : <><Plus className="w-4 h-4" /> Add monitor</>}
           </Button>
         </form>
-
-        {/* Cron setup hint */}
-        <div className="mt-5 pt-4 border-t border-zinc-800">
-          <p className="text-[11px] text-zinc-600 font-medium mb-1.5 uppercase tracking-widest">Cron setup (GCP VM)</p>
-          <code className="block bg-zinc-800 rounded-lg p-3 text-[11px] text-zinc-400 leading-relaxed break-all">
-            {'*/5 * * * * curl -s -H "Authorization: Bearer $CRON_SECRET" \\\n  https://your-app.vercel.app/api/reddit/monitor'}
-          </code>
-          <p className="text-[11px] text-zinc-600 mt-2">Runs every 5 minutes. Uses the same CRON_SECRET env var.</p>
-        </div>
       </div>
     </div>
   )
