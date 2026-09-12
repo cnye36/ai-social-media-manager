@@ -4,7 +4,7 @@ import { MAX_ALT_TEXT_LENGTH } from '@/lib/media/alt-text'
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
-const IMAGE_MODEL = process.env.OPENAI_IMAGE_MODEL ?? 'gpt-image-2'
+const IMAGE_MODEL = process.env.OPENAI_IMAGE_MODEL ?? 'gpt-image-2.5-flare-2026-09-08'
 
 const NO_FAKE_BRANDING_RULE =
   'Do not invent or render any logos, business names, brand marks, or storefront/signage text anywhere in the image — leave surfaces, signage, and packaging unbranded and generic.'
@@ -37,7 +37,7 @@ function parseWxH(size: string): { w: number; h: number } | null {
   return { w, h }
 }
 
-/** gpt-image-2 accepts any WxH that satisfies OpenAI size constraints. */
+/** gpt-image-2.5 accepts any WxH that satisfies OpenAI size constraints. */
 export function isValidGptImage2Size(w: number, h: number): boolean {
   const long = Math.max(w, h)
   const short = Math.min(w, h)
