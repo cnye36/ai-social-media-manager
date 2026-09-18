@@ -2,25 +2,11 @@ import { Agent, webSearchTool } from '@openai/agents'
 import { BLOG_CITATION_RULES } from '@/lib/blog/citation-rules'
 import { NO_EM_DASH_INSTRUCTION } from '@/lib/content/no-em-dash'
 import { NO_FALSE_DICHOTOMY_INSTRUCTION, LIMIT_BOLD_INSTRUCTION } from '@/lib/content/ai-tells'
+import { formatPromptDate, recentSourceCutoff } from '@/lib/content/current-date'
 import { buildRagSearchTool } from './tools/rag-search'
 import { buildBlogLoadSkillTool } from './tools/load-skill'
 import type { BrandProfile } from '@/types/database'
 import type { ArticleFormat } from '@/types/agents'
-
-function formatPromptDate(date: Date): string {
-  return date.toLocaleDateString('en-US', {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  })
-}
-
-function recentSourceCutoff(date: Date, monthsAgo = 18): string {
-  const cutoff = new Date(date)
-  cutoff.setMonth(cutoff.getMonth() - monthsAgo)
-  return formatPromptDate(cutoff)
-}
 
 const FORMAT_INSTRUCTIONS: Record<ArticleFormat, string> = {
   blog_post: `FORMAT: Standard Long-Form Blog Post (1,500–2,000 words)
@@ -99,7 +85,9 @@ export function buildBlogAgent(params: {
   const systemPrompt = `You are an expert blog writer and SEO specialist for ${companyName}. You write world-class, high-ranking blog content that educates, engages, and converts readers.
 
 CURRENT DATE: ${currentDate}
-Treat this as today when judging whether sources, stats, and trends are current. Prefer ${currentYear} data; use web search queries that include "${currentYear}" or "latest" when looking for statistics and market trends.
+Your training data has a knowledge cutoff that is almost certainly BEFORE this date — do not trust your internal sense of "what year it is" or "what's recent." Treat the date above as ground truth, even if ${currentYear} feels too far in the future to be real. Before your first search, note to yourself what the actual current year and month are so you don't default to stale query habits.
+- Every search query for a stat, trend, or news item MUST include "${currentYear}" explicitly (e.g. "${currentYear} adoption statistics", not just "adoption statistics") — never search a bare topic and assume the top results are current.
+- Before citing any source, check its actual publish or last-updated date. A source ranking high in search results is not proof it's current. If no date is visible, or the date is older than ${recentCutoff}, do not present it as current — find a newer source, or explicitly name the year in the prose (e.g. "a 2024 survey found...").
 
 ${brandSection}
 
@@ -114,8 +102,8 @@ ${existingArticlesContext ? `${existingArticlesContext}\n` : ''}
 ${similarArticlesBodiesContext ? `${similarArticlesBodiesContext}\n\nWhen similar articles exist above: do not reuse their opening hooks, section order, examples, stats, or conclusions. Take a meaningfully different angle.\n` : ''}
 
 RESEARCH REQUIREMENTS (do this before writing):
-1. Search for 2–3 RECENT sources (published on or after ${recentCutoff}) with specific data points —
-   percentages, dollar figures, time savings, adoption rates. Skip outdated roundups from ${currentYear - 2} or earlier unless no newer primary data exists — and if you must use older data, label the year explicitly
+1. Search for 2–3 RECENT sources (published on or after ${recentCutoff}, verified by checking the actual publish date) with specific data points —
+   percentages, dollar figures, time savings, adoption rates. Do not use outdated roundups from ${currentYear - 2} or earlier unless no newer primary data exists anywhere — and if you must use older data, label the year explicitly in the sentence itself, not just in the link
 2. Search for ONE contrarian or "what actually goes wrong" perspective on this topic
 3. Never cite the same source twice in one article
 4. If a stat doesn't have a specific number attached, don't use it

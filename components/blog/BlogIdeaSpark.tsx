@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Lightbulb, Loader2, ChevronDown, ChevronUp, ArrowRight, RotateCcw, LayoutList, BookOpen, Microscope } from 'lucide-react'
+import { Lightbulb, Loader2, ChevronDown, ChevronUp, ArrowRight, RotateCcw, LayoutList, BookOpen, Microscope, Search } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ContentGoal, ArticleFormat } from '@/types/agents'
 import type { BlogIdea } from '@/app/api/blog/ideas/route'
@@ -200,6 +200,12 @@ export function BlogIdeaSpark({ companyId, articleFormat, onFormatChange, onGene
                       </span>
                     </div>
                     <p className="text-xs text-zinc-500 leading-relaxed">{idea.outline}</p>
+                    {idea.keyword && (
+                      <div className="flex items-center gap-1 text-[10px] text-zinc-600">
+                        <Search className="w-3 h-3 shrink-0" />
+                        <span className="truncate">{idea.keyword}</span>
+                      </div>
+                    )}
                   </div>
                   <div className="shrink-0 mt-0.5">
                     {isGenerating

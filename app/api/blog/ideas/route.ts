@@ -1,17 +1,18 @@
 import { NextResponse } from 'next/server'
-import OpenAI from 'openai'
+import { Agent, run, webSearchTool } from '@openai/agents'
 import { createClient } from '@/lib/supabase/server'
 import { retrieve } from '@/lib/rag/retrieve'
 import { fetchBlogAgentContext } from '@/lib/blog/agent-context'
+import { formatPromptDate } from '@/lib/content/current-date'
 import type { ContentGoal } from '@/types/agents'
 import type { ArticleFormat } from '@/types/agents'
-
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
 export interface BlogIdea {
   title: string
   outline: string
   angle: ContentGoal
+  /** The specific long-tail search phrase this idea targets. */
+  keyword: string
 }
 
 const FORMAT_LABELS: Record<ArticleFormat, string> = {
@@ -83,7 +84,15 @@ export async function POST(request: Request) {
   const formatLabel = FORMAT_LABELS[articleFormat as ArticleFormat] ?? 'blog post'
   const titleGuidance = FORMAT_TITLE_GUIDANCE[articleFormat as ArticleFormat] ?? FORMAT_TITLE_GUIDANCE.blog_post
 
-  const prompt = `You are a content strategist for ${company.name}.
+  const now = new Date()
+  const currentDate = formatPromptDate(now)
+  const currentYear = now.getFullYear()
+  const seedTopic = brand?.keywords?.[0] || brand?.products_services || company.name
+
+  const instructions = `You are a content strategist and SEO researcher for ${company.name}.
+
+CURRENT DATE: ${currentDate}
+Your training data has a knowledge cutoff before this date — don't rely on your internal sense of what's trending. Before proposing any ideas, use the web search tool (2–4 searches) to find what people are actually searching and asking about this company's topics right now. Include "${currentYear}" in at least one query so results skew current (e.g. "${seedTopic} trends ${currentYear}", "${seedTopic} questions ${currentYear}").
 
 Brand context:
 ${brandContext}
@@ -91,37 +100,47 @@ ${brandContext}
 Knowledge base:
 ${knowledgeContext}
 
-${existingArticlesContext ? `${existingArticlesContext}\n\n` : ''}Generate exactly ${count} fresh, specific ${formatLabel} ideas grounded in the company's actual expertise.
+${existingArticlesContext ? `${existingArticlesContext}\n\n` : ''}RESEARCH FIRST, THEN IDEATE:
+1. Search for current discussions, questions, and trends related to this company's topics.
+2. From what you find, identify specific LONG-TAIL keyword phrases — 4+ words, a specific question or intent, not a generic head term (e.g. "how to automate follow-ups for a small sales team" beats "sales automation") — that real people are currently searching for.
+3. Build each idea around ONE such phrase. The title should read like a human headline satisfying that search intent, not a keyword-stuffed string.
+
+Generate exactly ${count} fresh, specific ${formatLabel} ideas grounded in the company's actual expertise AND in what you found people are currently searching for.
 
 TITLE FORMAT: ${titleGuidance}
 
 Requirements:
 - Each idea must be distinctly different from existing articles above
 - Titles must be specific and immediately communicate the value to the reader
+- "keyword" must be the actual long-tail phrase the idea targets, lowercase, as someone would type it into a search box
 - Outlines are 1–2 sentences describing the unique angle, key sections, and what makes it valuable
 - Vary the content goals across: education, engagement, promotion, awareness
 - Ground ideas in the company's real expertise from the knowledge base
 
-Return a JSON object:
+Return ONLY a JSON object in this exact shape, no markdown code fences, no commentary before or after it:
 {
   "ideas": [
     {
       "title": "Specific, compelling title",
       "outline": "1–2 sentences describing angle, key sections, and unique value",
-      "angle": "education" | "engagement" | "promotion" | "awareness"
+      "angle": "education" | "engagement" | "promotion" | "awareness",
+      "keyword": "the long-tail search phrase this idea targets"
     }
   ]
 }`
 
   try {
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-5.4-mini',
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.9,
-      response_format: { type: 'json_object' },
+    const agent = new Agent({
+      name: 'Blog Idea Strategist',
+      model: 'gpt-5.6-terra',
+      instructions,
+      tools: [webSearchTool()],
     })
 
-    const raw = completion.choices[0]?.message?.content ?? '{}'
+    const result = await run(agent, 'Research current trends now, then generate the ideas.')
+    const raw = (result.finalOutput ?? '{}').trim()
+      .replace(/```json\s*/gi, '')
+      .replace(/```\s*$/g, '')
     const parsed = JSON.parse(raw) as { ideas?: BlogIdea[] }
     return NextResponse.json({ ideas: parsed.ideas ?? [] })
   } catch (err) {
